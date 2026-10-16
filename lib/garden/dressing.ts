@@ -1275,9 +1275,11 @@ export function makeFloretGeometry(): THREE.BufferGeometry {
 /** The open bloom form of a petal from makePetalGeometry, as a plain static mesh. */
 export function makeOpenPetalGeometry(shape: PetalShape, seed: number, nu: number, nv: number): THREE.BufferGeometry {
   const bud = makePetalGeometry(shape, seed, nu, nv);
+  const { position, normal } = bud.morphAttributes;
+  if (!position || !normal) throw new Error("makePetalGeometry returned no open morph target");
   const open = new THREE.BufferGeometry();
-  open.setAttribute("position", bud.morphAttributes.position[0]);
-  open.setAttribute("normal", bud.morphAttributes.normal[0]);
+  open.setAttribute("position", position[0]);
+  open.setAttribute("normal", normal[0]);
   open.setAttribute("uv", bud.getAttribute("uv"));
   const index = bud.getIndex();
   if (index) open.setIndex(index);
