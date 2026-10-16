@@ -1,7 +1,9 @@
 "use client";
 // Shared, cached materials. Keyed by species, colour variant and the quantised
 // health band, so forty petals share three materials and a plant that yellows
-// swaps to a new one only when it crosses a band. Never dispose these.
+// swaps to a new one only when it crosses a band. Never dispose these. The
+// leaves, stems and sepals take the garden's lite-tier lamp patch, so the
+// hero's foliage by the lantern is lit with the bed round it on a phone.
 import * as THREE from "three";
 import type { Species } from "@/lib/plant/species";
 import {
@@ -14,6 +16,7 @@ import {
   stemTexture,
 } from "@/lib/plant/textures";
 import type { Quality } from "@/lib/garden/store";
+import { withGardenLight } from "@/lib/garden/dressing";
 import { lerp } from "@/lib/plant/prng";
 
 const cache = new Map<string, THREE.Material>();
@@ -84,7 +87,7 @@ export function leafMaterial(sp: Species, fade: number, burn: number, quality: Q
   return get(`leaf|${sp.id}|${fade}|${burn}|${quality}`, () => {
     const l = sp.leaves;
     const map = leafTexture({ base: l.color, tip: l.tipColor, vein: l.veinColor, seed: 1, fade, burn });
-    return new THREE.MeshPhysicalMaterial({
+    const m = new THREE.MeshPhysicalMaterial({
       map,
       normalMap: quality === "lite" ? null : leafNormalTexture(1),
       normalScale: new THREE.Vector2(0.5, 0.5),
@@ -105,6 +108,7 @@ export function leafMaterial(sp: Species, fade: number, burn: number, quality: Q
       envMapIntensity: 0.45,
       shadowSide: THREE.DoubleSide,
     });
+    return withGardenLight(m, "plant-leaf", false);
   });
 }
 
@@ -112,7 +116,7 @@ export function stemMaterial(sp: Species, i: number, n: number): THREE.MeshPhysi
   const t = n <= 1 ? 1 : i / (n - 1);
   return get(`stem|${sp.id}|${t.toFixed(2)}`, () => {
     const color = new THREE.Color(sp.stem.color).lerp(new THREE.Color(sp.stem.tipColor), t * 0.8);
-    return new THREE.MeshPhysicalMaterial({
+    const m = new THREE.MeshPhysicalMaterial({
       map: stemTexture("#" + color.getHexString(), i + 1),
       roughness: 0.6,
       metalness: 0,
@@ -123,6 +127,7 @@ export function stemMaterial(sp: Species, i: number, n: number): THREE.MeshPhysi
       clearcoatRoughness: 0.6,
       envMapIntensity: 0.5,
     });
+    return withGardenLight(m, "plant-stem", false);
   });
 }
 

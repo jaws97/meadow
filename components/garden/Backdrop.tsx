@@ -1,6 +1,7 @@
 "use client";
 // The mid and far garden: hedges and shrubs, the vine-covered bentwood arch,
-// the weathered fence, the trees and the bokeh glints behind them. Everything
+// the weathered fence, the trees (each crown an opaque dark core under its
+// leaf cards) and the warm night glints low in the undergrowth. Everything
 // is placed once per owner by lib/garden/backdropGeometry from LAYOUT and the
 // owner's seed; this file turns those assets into meshes, drives the foliage
 // shader and the glints from the shared env each frame, and disposes it all.
@@ -15,17 +16,20 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
+import { lightState, withGardenLight } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { useGarden, type Quality } from "@/lib/garden/store";
 import { SPECIES } from "@/lib/plant/species";
-import { clamp01, smoothstep } from "@/lib/plant/prng";
+import { smoothstep } from "@/lib/plant/prng";
 import { leafTexture, petalTexture } from "@/lib/plant/textures";
 import {
   applyInstances,
   barkBumpTexture,
   barkTexture,
   buildBackdrop,
+  CANOPY_VARIANTS,
   foliageFillTexture,
+  HEDGE_VARIANTS,
   leafClusterTexture,
   woodTexture,
   type BloomPalette,
@@ -37,6 +41,12 @@ import {
 
 /** Shared by every foliage program; written once per frame from env. */
 const wind = { uTime: { value: 0 }, uWind: { value: 0.5 } };
+/**
+ * Scales every foliage material's own backlight: the leaves glow far more
+ * with the low golden sun straight behind them than at noon.
+ */
+const backGain = { value: 1 };
+const BACKLIGHT_GOLDEN_GAIN = 1.8;
 
 const VERT_COMMON =
   "#include <common>\nuniform float uTime; uniform float uWind; uniform float uSway; uniform float uMass;\nattribute vec3 aMassNormal;";
@@ -71,7 +81,7 @@ const SWAY_PROJECT = THREE.ShaderChunk.project_vertex.replace(
     "  mvPosition.xyz += vec3(sx * 0.85, sy, sz) * gust * uWind * uSway; }",
 );
 
-const FRAG_COMMON = "#include <common>\nuniform float uBacklight;";
+const FRAG_COMMON = "#include <common>\nuniform float uBacklight; uniform float uBackGain;";
 const NORMAL_NO_FLIP = THREE.ShaderChunk.normal_fragment_begin.replace("normal *= faceDirection;", "");
 // The sun stands at directionalLights[0] (first in the scene): light shining
 // through thin foliage toward the camera lifts the diffuse by a view-dependent
@@ -80,7 +90,7 @@ const BACKLIGHT =
   "#include <lights_fragment_end>\n#if NUM_DIR_LIGHTS > 0\n" +
   "{ vec3 bV = normalize(vViewPosition); vec3 bL = directionalLights[0].direction;\n" +
   "  float back = pow(max(0.0, dot(-bV, bL)), 5.0);\n" +
-  "  reflectedLight.indirectDiffuse += diffuseColor.rgb * directionalLights[0].color * back * uBacklight; }\n#endif";
+  "  reflectedLight.indirectDiffuse += diffuseColor.rgb * directionalLights[0].color * back * uBacklight * uBackGain; }\n#endif";
 
 interface FoliageOpts {
   map: THREE.Texture;
@@ -118,6 +128,7 @@ function makeFoliageMaterial(o: FoliageOpts): THREE.MeshStandardMaterial {
   m.onBeforeCompile = (shader) => {
     patchVertex(shader, o.sway, o.mass);
     shader.uniforms.uBacklight = { value: o.backlight };
+    shader.uniforms.uBackGain = backGain;
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", FRAG_COMMON)
       .replace("#include <normal_fragment_begin>", NORMAL_NO_FLIP)
@@ -243,6 +254,16 @@ const CORE_TINT: Record<Quality, THREE.Color> = {
   balanced: new THREE.Color(1.15, 1.15, 1.05),
   lite: new THREE.Color(1.7, 1.75, 1.3),
 };
+/**
+ * The canopy cores are the crown's shaded inside: dark, but lifted toward the
+ * card greens where the cards are fewer and larger (lite), so a gap between
+ * cards reads as leaves in shadow rather than a black hole.
+ */
+const CANOPY_CORE_TINT: Record<Quality, THREE.Color> = {
+  cinematic: new THREE.Color(1.55, 1.6, 1.25),
+  balanced: new THREE.Color(1.75, 1.8, 1.35),
+  lite: new THREE.Color(2.3, 2.38, 1.7),
+};
 
 export function Backdrop() {
   const seed = useGarden((s) => s.seed);
@@ -256,20 +277,19 @@ export function Backdrop() {
 
   const mats = useMemo(() => {
     const sway = SWAY[quality];
-    const tree0 = leafClusterTexture("tree", 1);
-    const tree1 = leafClusterTexture("tree", 2);
-    const hedge = leafClusterTexture("hedge", 1);
+    const trees = Array.from({ length: CANOPY_VARIANTS }, (_, k) => leafClusterTexture("tree", k + 1));
+    const hedges = Array.from({ length: HEDGE_VARIANTS }, (_, k) => leafClusterTexture("hedge", k + 1));
     const leaf = leafTexture({ base: "#2d6a2a", tip: "#7cc050", vein: "#a8d884", seed: 2, fade: 0, burn: 0 });
-    const canopyOpts = { mass: 0.85, sway: 0.05 * sway, backlight: 0.4, roughness: 0.78, alphaTest: 0.45 };
-    const hedgeOpts = { mass: 0.72, sway: 0.012 * sway, backlight: 0.3, roughness: 0.72, alphaTest: 0.45 };
+    // (A hashed, dithered alpha was tried for softer leaf edges: the depth of
+    // field turns every dithered gap against the sky into a bokeh disc, so the
+    // crowns read as soap lace. The small, many-leaved prints do the softening.)
+    const canopyOpts = { mass: 0.85, sway: 0.05 * sway, backlight: 0.4, roughness: 0.78, alphaTest: 0.42 };
+    const hedgeOpts = { mass: 0.72, sway: 0.012 * sway, backlight: 0.3, roughness: 0.72, alphaTest: 0.42 };
     return {
-      canopy: [makeFoliageMaterial({ map: tree0, ...canopyOpts }), makeFoliageMaterial({ map: tree1, ...canopyOpts })],
-      canopyDepth: [
-        makeFoliageDepthMaterial(tree0, 0.45, canopyOpts.sway),
-        makeFoliageDepthMaterial(tree1, 0.45, canopyOpts.sway),
-      ],
-      hedgeCard: makeFoliageMaterial({ map: hedge, ...hedgeOpts }),
-      hedgeCardDepth: makeFoliageDepthMaterial(hedge, 0.45, hedgeOpts.sway),
+      canopy: trees.map((map) => makeFoliageMaterial({ map, ...canopyOpts })),
+      canopyDepth: trees.map((map) => makeFoliageDepthMaterial(map, 0.45, canopyOpts.sway)),
+      hedgeCard: hedges.map((map) => makeFoliageMaterial({ map, ...hedgeOpts })),
+      hedgeCardDepth: hedges.map((map) => makeFoliageDepthMaterial(map, 0.45, hedgeOpts.sway)),
       hedgeLeaf: makeFoliageMaterial({ map: leaf, mass: 0.6, sway: 0.014 * sway, backlight: 0.35, roughness: 0.6, alphaTest: 0 }),
       vineLeaf: makeFoliageMaterial({ map: leaf, mass: 0.35, sway: 0.02 * sway, backlight: 0.45, roughness: 0.55, alphaTest: 0 }),
       core: new THREE.MeshStandardMaterial({
@@ -278,14 +298,29 @@ export function Backdrop() {
         metalness: 0,
         color: CORE_TINT[quality],
       }),
-      bark: new THREE.MeshStandardMaterial({
-        map: barkTexture(1),
-        bumpMap: barkBumpTexture(1),
-        bumpScale: 0.6,
-        roughness: 0.92,
+      canopyCore: new THREE.MeshStandardMaterial({
+        map: foliageFillTexture(2),
+        roughness: 0.95,
         metalness: 0,
+        color: CANOPY_CORE_TINT[quality],
       }),
-      wood: new THREE.MeshStandardMaterial({ map: woodTexture(1), roughness: 0.88, metalness: 0, color: 0xffffff }),
+      // the trunks and the arch's bentwood catch the golden-hour rim (lib/garden/dressing)
+      bark: withGardenLight(
+        new THREE.MeshStandardMaterial({
+          map: barkTexture(1),
+          bumpMap: barkBumpTexture(1),
+          bumpScale: 0.6,
+          roughness: 0.92,
+          metalness: 0,
+        }),
+        "backdrop-bark",
+        true,
+      ),
+      wood: withGardenLight(
+        new THREE.MeshStandardMaterial({ map: woodTexture(1), roughness: 0.88, metalness: 0, color: 0xffffff }),
+        "backdrop-wood",
+        true,
+      ),
       vine: new THREE.MeshStandardMaterial({ color: "#4a5a2a", roughness: 0.75, metalness: 0 }),
       shrubFloret: bloomMaterial(assets.shrubFloretPalette, "#fff3d0"),
       archBloom: bloomMaterial(assets.arch.bloomPalette, assets.arch.bloomPalette.mid),
@@ -296,11 +331,12 @@ export function Backdrop() {
     () => () => {
       for (const m of mats.canopy) m.dispose();
       for (const m of mats.canopyDepth) m.dispose();
-      mats.hedgeCard.dispose();
-      mats.hedgeCardDepth.dispose();
+      for (const m of mats.hedgeCard) m.dispose();
+      for (const m of mats.hedgeCardDepth) m.dispose();
       mats.hedgeLeaf.dispose();
       mats.vineLeaf.dispose();
       mats.core.dispose();
+      mats.canopyCore.dispose();
       mats.bark.dispose();
       mats.wood.dispose();
       mats.vine.dispose();
@@ -317,8 +353,8 @@ export function Backdrop() {
       uFocus: { value: 3 },
       uDay: { value: 0 },
       uNight: { value: 0 },
-      uSize: { value: 26 },
-      uMaxSize: { value: 120 },
+      uSize: { value: 12 },
+      uMaxSize: { value: 18 },
       uDayColor: { value: new THREE.Color("#fff1c8") },
       uNightColor: { value: GLINT_NIGHT.clone() },
     };
@@ -340,10 +376,13 @@ export function Backdrop() {
   useFrame((state) => {
     wind.uTime.value = env.time;
     wind.uWind.value = env.wind;
+    backGain.value = 1 + BACKLIGHT_GOLDEN_GAIN * lightState.golden;
 
     const u = bokeh.uniforms;
-    const day = (1 - env.nightness) * clamp01(env.sky.sunIntensity / 2.4) * (1 - 0.85 * env.cloud) * (1 - 0.7 * env.rain);
-    const night = smoothstep(0.45, 0.9, env.nightness) * (1 - 0.5 * env.rain);
+    // Glints only after dark, as warm points in the undergrowth: by day the
+    // discs read as smudges on the lens against the pale sky, not as sun on leaves.
+    const day = 0;
+    const night = smoothstep(0.55, 0.92, env.nightness) * (1 - 0.5 * env.rain);
     const points = pointsRef.current;
     const visible = day + night > 0.01;
     if (points) points.visible = visible;
@@ -370,13 +409,17 @@ export function Backdrop() {
     <group name="backdrop">
       {/* trees: every trunk and branch in one mesh, the canopies in one InstancedMesh per cluster texture */}
       <mesh geometry={assets.wood} material={mats.bark} castShadow={shadows} receiveShadow />
+      {/* The cores cast no shadow: the cards alone dapple the lawn, so the low sun still reaches the bed. */}
+      <mesh geometry={assets.canopyCores} material={mats.canopyCore} receiveShadow />
       {assets.canopies.map((c, k) => (
         <Instances key={k} of={c} material={mats.canopy[k]} depth={mats.canopyDepth[k]} castShadow={shadows} />
       ))}
 
       {/* hedges and shrubs */}
       <mesh geometry={assets.hedgeCores} material={mats.core} castShadow={shadows} receiveShadow />
-      <Instances of={assets.hedgeCards} material={mats.hedgeCard} depth={mats.hedgeCardDepth} castShadow={shadows} />
+      {assets.hedgeCards.map((c, k) => (
+        <Instances key={k} of={c} material={mats.hedgeCard[k]} depth={mats.hedgeCardDepth[k]} castShadow={shadows} />
+      ))}
       {/* The cards and cores already cast the hedges' shadows; the single leaves only fuzz the silhouette. */}
       <Instances of={assets.hedgeLeaves} material={mats.hedgeLeaf} castShadow={false} />
       <Instances of={assets.shrubFlorets} material={mats.shrubFloret} castShadow={false} />

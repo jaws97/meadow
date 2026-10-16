@@ -7,7 +7,10 @@
    intentional and the per-frame path depends on it. */
 // One procedurally grown flower. The blueprint (what never changes) comes from
 // the seed and species; the per-frame pass reads the mutable store and env and
-// bends, grows, opens and glows the scene graph without allocating.
+// bends, grows, opens and glows the scene graph without allocating. In the
+// personal garden the hero runs on its own schedule (garden/heroGrowth): the
+// cane lengthens across the whole fortnight, leaves run up it as it reaches
+// them, and a growing tip, then a swelling bud, crowns it from the first day.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
@@ -30,18 +33,7 @@ import {
   stemEndTransform,
   stemPointAt,
 } from "@/lib/plant/geometry";
-import {
-  budGrowth,
-  droopOf,
-  fadeOf,
-  leafDropped,
-  leafHealth,
-  leafUnfurl,
-  petalOpen,
-  quantize,
-  segmentGrowth,
-  type PlantVisual,
-} from "@/lib/plant/growth";
+import { droopOf, fadeOf, leafDropped, leafHealth, petalOpen, quantize, type PlantVisual } from "@/lib/plant/growth";
 import { lerp, Rng, smoothstep } from "@/lib/plant/prng";
 import { garden, useGarden, type Quality } from "@/lib/garden/store";
 import { env } from "@/lib/garden/env";
@@ -57,6 +49,16 @@ import {
   stemMaterial,
   thornMaterial,
 } from "@/components/garden/materials";
+import { BASE_EXPOSURE } from "@/components/garden/Effects";
+import {
+  heroBudGrowth,
+  heroLeafUnfurl,
+  heroLeaves,
+  heroSegmentGrowth,
+  heroSepalPart,
+  heroStemFraction,
+  heroStemGirth,
+} from "@/components/garden/garden/heroGrowth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -155,6 +157,8 @@ const PETAL_TESS: Record<Quality, [number, number]> = {
 
 /** The hero stands a little larger than life so it owns the frame from the default camera. */
 const HERO_SCALE = 1.12;
+/** Radians a sideways leaf turns about its rachis toward the camera. */
+const LEAF_FACING = 0.5;
 
 function emptyRefs(): PlantRefs {
   return {
@@ -530,7 +534,13 @@ export function Plant() {
   const seed = useGarden((s) => s.seed);
   const quality = useGarden((s) => s.quality);
   const sp = SPECIES[speciesId];
-  const bp = useMemo(() => buildBlueprint(seed, sp), [seed, sp]);
+  // The species blueprint, re-dressed for the hero: a fuller run of leaves up
+  // the cane (see heroGrowth) and a cane a touch sturdier under its bloom.
+  const bp = useMemo<Blueprint>(() => {
+    const base = buildBlueprint(seed, sp);
+    const stem = base.stem.map((s) => ({ ...s, r0: s.r0 * 1.08, r1: s.r1 * 1.16 }));
+    return { ...base, stem, leaves: heroLeaves(seed, sp, stem.length) };
+  }, [seed, sp]);
   const key = sp.id + "|" + seed;
 
   const geo = useMemo<PlantGeometry>(() => {
@@ -590,7 +600,7 @@ export function Plant() {
   const budMat = budMaterial(sp);
   const vis = useRef<PlantVisual | null>(null);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
     const k = 1 - Math.exp(-dt * 2.5);
     const s = garden.get();
@@ -616,10 +626,10 @@ export function Plant() {
     const n = bp.stem.length;
     for (let i = 0; i < n; i++) {
       const seg = bp.stem[i];
-      const gi = segmentGrowth(v.growth, i, n);
-      // The tube thickens as it lengthens, so its end lands at (dx*sx, length*gi, dz*sx):
+      const gi = heroSegmentGrowth(v.growth, i, n);
+      // The tube thickens as the plant matures, so its end lands at (dx*sx, length*gi, dz*sx):
       // anything attached to the segment has to follow that same non-uniform scale.
-      const sx = 0.3 + 0.7 * gi;
+      const sx = heroStemGirth(v.growth, gi);
       const tube = R.tubes[i];
       if (tube) {
         tube.scale.set(sx, Math.max(gi, 0.001), sx);
@@ -627,8 +637,12 @@ export function Plant() {
       }
       const mount = R.mounts[i];
       if (mount) {
+        // A segment that has not started yet must not shift what rides above
+        // it sideways by its lean, or the young cane's tip floats off its top;
+        // the lean comes in over the first few centimetres of its growth.
         const ep = geo.ends[i].position;
-        mount.position.set(ep.x * sx, ep.y * gi, ep.z * sx);
+        const lean = sx * smoothstep(0, 0.15, gi);
+        mount.position.set(ep.x * lean, ep.y * gi, ep.z * lean);
       }
       const sway =
         windAmp *
@@ -651,13 +665,13 @@ export function Plant() {
       if (!e) continue;
       const leaf = e.node;
       const lh = leafHealth(v, leaf.order);
-      const unf = leafDropped(leaf.order, lh) ? 0 : leafUnfurl(leaf.order, v.growth);
+      const unf = leafDropped(leaf.order, lh) ? 0 : heroLeafUnfurl(leaf, n, v.growth);
       if (e.outer) {
         // Ride the stretching segment exactly like the tube does, so a leaf that
         // unfurls while its segment is still short never floats above the stem tip.
         if (e.base) {
-          const gi = segmentGrowth(v.growth, leaf.seg, n);
-          const sx = 0.3 + 0.7 * gi;
+          const gi = heroSegmentGrowth(v.growth, leaf.seg, n);
+          const sx = heroStemGirth(v.growth, gi);
           e.outer.position.set(e.base.x * sx, e.base.y * gi, e.base.z * sx);
         }
         e.outer.scale.setScalar(Math.max(0.0001, unf * leaf.size));
@@ -665,6 +679,9 @@ export function Plant() {
       }
       if (e.pitch) {
         e.pitch.rotation.x = leaf.pitch + droop * 0.85 + windAmp * 0.05 * Math.sin(t * 2.6 + leaf.phase);
+        // turned about its own rachis toward the camera (on +z), so a leaf held
+        // out sideways shows the faces of its leaflets instead of their edges
+        e.pitch.rotation.y = LEAF_FACING * Math.sin(leaf.yaw);
         e.pitch.rotation.z = leaf.roll + windAmp * 0.03 * Math.sin(t * 1.9 + leaf.phase);
       }
     }
@@ -674,8 +691,8 @@ export function Plant() {
     for (let j = 0; j < thorns.length; j++) {
       const e = thorns[j];
       if (!e || !e.group) continue;
-      const gi = segmentGrowth(v.growth, e.node.seg, n);
-      const sx = 0.3 + 0.7 * gi;
+      const gi = heroSegmentGrowth(v.growth, e.node.seg, n);
+      const sx = heroStemGirth(v.growth, gi);
       if (e.base) e.group.position.set(e.base.x * sx, e.base.y * gi, e.base.z * sx);
       e.group.scale.setScalar(Math.max(0.0001, gi * sx));
       e.group.visible = gi > 0.05;
@@ -684,12 +701,16 @@ export function Plant() {
     // flower head
     const f = sp.flower;
     const L = f.layers.length;
-    const bud = budGrowth(v.growth);
+    // Before the bud forms, the head is the cane's growing tip: the closed
+    // sepals alone, a small pointed green shoot, so the stem never ends in a
+    // cut-off tube. The petals and bud core show once the bud starts to swell.
+    const bud = heroBudGrowth(v.growth);
     const eb = v.bloom * smoothstep(0.8, 0.92, v.growth);
     const head = R.head;
+    const petalsShown = bud > 0.04;
     if (head) {
-      head.visible = bud > 0.001;
-      head.scale.setScalar(0.15 + 0.85 * bud);
+      head.visible = heroStemFraction(v.growth) > 0.005;
+      head.scale.setScalar(0.3 + 0.7 * bud);
       head.rotation.x = bp.headTilt + droop * 0.9 + windAmp * 0.03 * Math.sin(t * 1.7);
     }
 
@@ -698,6 +719,7 @@ export function Plant() {
     for (let j = 0; j < petals.length; j++) {
       const e = petals[j];
       if (!e || !e.group) continue;
+      e.group.visible = petalsShown;
       const p = e.node;
       const o = petalOpen(eb, p.stagger);
       // Closed petals lean a little inward so the bud closes to a teardrop.
@@ -714,12 +736,13 @@ export function Plant() {
     const budMesh = R.bud;
     if (budMesh) {
       budMesh.scale.setScalar(Math.max(0.0001, f.budRadius * (1 - eb) * (0.6 + 0.4 * bud)));
-      budMesh.visible = eb < 0.9;
+      budMesh.visible = petalsShown && eb < 0.9;
     }
 
     const sepals = R.sepals;
-    const sepalRot = 0.12 + 1.45 * smoothstep(0, 0.6, eb) + droop * 0.2;
-    const sepalScale = 0.3 + 0.7 * bud;
+    // Closed round the young bud, parting a little as it swells to show its colour, then folding back as it opens.
+    const sepalRot = 0.06 + 0.32 * heroSepalPart(bud) + 1.4 * smoothstep(0, 0.6, eb) + droop * 0.2;
+    const sepalScale = 0.75 + 0.25 * bud;
     for (let j = 0; j < sepals.length; j++) {
       const sg = sepals[j];
       if (!sg) continue;
@@ -733,15 +756,23 @@ export function Plant() {
       stamens.scale.setScalar(Math.max(0.001, eb));
     }
 
-    // emissive and glow
+    // emissive and glow, held against the tone-mapping exposure: the lite tier
+    // opens its exposure as night falls to keep the bed readable, and the
+    // petals' own light must not ride that lift up through the bloom threshold
     const night = env.nightness;
     const pulse = sp.fx.pulse ? 0.75 + 0.25 * Math.sin(t * 1.4) : 1;
-    const ei = lerp(f.emissiveDay, f.emissiveNight, night) * (0.3 + 0.7 * v.health) * (0.2 + 0.8 * eb) * pulse;
+    const lift = Math.max(1, state.gl.toneMappingExposure / BASE_EXPOSURE);
+    // lite's petals have no transmission to spread their light, so it reads stronger there
+    const tierGlow = quality === "lite" ? 0.75 : 1;
+    const ei =
+      (lerp(f.emissiveDay, f.emissiveNight, night) * (0.3 + 0.7 * v.health) * (0.2 + 0.8 * eb) * pulse * tierGlow) / lift;
     const mats = R.petalMats;
     for (let j = 0; j < mats.length; j++) mats[j].emissiveIntensity = ei;
     budMat.emissiveIntensity = ei * 0.3;
     const glow = R.glow;
-    if (glow) glow.intensity = ei * 3 * night * (sp.fx.glowNight ? 1 : 0.2);
+    // The glow sits in the heart of the bloom, centimetres from the inner petals; on lite,
+    // with nothing to soften it, it burns a white spot there, so it is kept low.
+    if (glow) glow.intensity = ei * (quality === "lite" ? 1.1 : 3) * night * (sp.fx.glowNight ? 1 : 0.2);
 
     if (head) head.getWorldPosition(env.headPos);
   });

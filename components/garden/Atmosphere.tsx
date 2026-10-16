@@ -575,23 +575,27 @@ const dayAir = (e: Env) => (1 - e.nightness) * (1 - e.rain);
 const dawnMist = (hour: number) => smooth(5.6, 6.4, hour) * (1 - smooth(7.4, 8.8, hour));
 
 // Module-level so every prop keeps the same reference between renders.
+// The box stops a metre short of the default camera and the sprites are held
+// small and faint: at noon a mote drifting past the lens became a large white
+// blob, noise against the calm rather than light in the air.
 const POLLEN: FieldSpec = {
   mode: MODE.pollen,
   spawn: "box",
   count: 56,
-  bounds: [5, 1.4, 6.4],
-  center: [0, 0.65, 0.1],
+  bounds: [5, 1.4, 4.6],
+  center: [0, 0.65, -0.4],
   color: "#fff0c8",
-  size: 9,
-  sizeRange: [0.5, 1.7],
-  maxSize: 110,
+  size: 6,
+  sizeRange: [0.5, 1.3],
+  maxSize: 14,
   fall: 0,
   coc: 1.2,
-  bokeh: 4,
+  bokeh: 2.2,
   halo: false,
   additive: true,
   seed: "pollen",
-  opacity: (e) => dayAir(e) * (1 - e.cloud * 0.55) * 0.55,
+  // fainter still with a high sun, when the sky behind them is brightest
+  opacity: (e) => dayAir(e) * (1 - e.cloud * 0.55) * (0.42 - 0.3 * smooth(0.5, 0.95, e.sun.altitude)),
   // Lit by the sun: white-gold at noon, amber at golden hour.
   tint: (e, _s, out) => out.copy(e.sky.sun).lerp(POLLEN_WARM, 0.6),
 };

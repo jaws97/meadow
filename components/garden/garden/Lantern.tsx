@@ -8,22 +8,31 @@
 // The point light is always in the scene, at intensity 0 by day. Adding or
 // removing a light changes the light count every lit program is compiled
 // for, so toggling it at dusk would recompile every material in the garden.
-// It casts no shadow: a point-light shadow is six extra depth passes.
+// It casts no shadow: a point-light shadow is six extra depth passes. On the
+// lite tier there is no point light at all (every lit pixel in the scene pays
+// for one, all day, and phones are short of fill rate). Instead the garden's
+// own materials near the lamp (lawn, mulch, stones, path, grass, companions,
+// the hero's leaves) evaluate the same falloff in their shaders through
+// lampUniforms, so the leaves round the lamp are lit with the ground rather
+// than standing black against a painted pool of light.
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { makeLantern } from "@/lib/garden/dressing";
+import { lampUniforms, makeLantern } from "@/lib/garden/dressing";
 import { LAYOUT } from "@/lib/garden/layout";
+import type { Quality } from "@/lib/garden/store";
 import { makeCanvas } from "@/lib/plant/textures";
 import { gardenMaterials } from "@/components/garden/garden/materials";
 import { weather } from "@/components/garden/garden/weather";
 
 /** Candela at full flame; with decay 2 this lifts the bed a metre away to a warm glow at night. */
-const LIGHT_INTENSITY = 2.4;
+const LIGHT_INTENSITY = 1.7;
 const LIGHT_DISTANCE = 6;
 /** Halo sprite width in metres, and its HDR tint so the bloom pass softens it further. */
 const HALO_SIZE = 0.5;
 const HALO_TINT = new THREE.Color(1.6, 1.15, 0.7);
+/** The lamp's colour for the lite tier's shader light; the real light takes the layout's colour directly. */
+const LAMP_COLOR = new THREE.Color(LAYOUT.lantern.color);
 
 let haloTexture: THREE.CanvasTexture | null = null;
 
@@ -45,9 +54,10 @@ function getHaloTexture(): THREE.CanvasTexture {
   return haloTexture;
 }
 
-export function Lantern() {
+export function Lantern({ quality }: { quality: Quality }) {
+  const realLight = quality !== "lite";
   const mats = gardenMaterials();
-  const geo = useMemo(makeLantern, []);
+  const geo = useMemo(() => makeLantern(), []);
   useEffect(
     () => () => {
       geo.wood.dispose();
@@ -73,13 +83,21 @@ export function Lantern() {
     [],
   );
   useEffect(() => () => halo.dispose(), [halo]);
+  // The shader light sits where the real one would, and is switched off when this lantern unmounts.
+  useEffect(() => {
+    lampUniforms.uLampPos.value.set(geo.lamp.x, geo.lamp.y - 0.01, geo.lamp.z);
+    lampUniforms.uLampColor.value.copy(LAMP_COLOR);
+    return () => {
+      lampUniforms.uLampIntensity.value = 0;
+    };
+  }, [geo]);
 
   const light = useRef<THREE.PointLight>(null);
   const flame = useRef<THREE.Group>(null);
   const sprite = useRef<THREE.Sprite>(null);
 
-  /* eslint-disable react-hooks/immutability -- the memoised halo material is a
-     three.js object the frame loop drives imperatively; React never re-renders on it. */
+  /* eslint-disable react-hooks/immutability -- the memoised halo material and the shared lamp uniforms are
+     three.js objects the frame loop drives imperatively; React never re-renders on them. */
   useFrame(() => {
     const lit = weather.lit;
     const glow = lit * weather.flicker;
@@ -92,7 +110,8 @@ export function Lantern() {
     }
     const s = sprite.current;
     if (s) s.visible = lit > 0.02;
-    halo.opacity = 0.6 * glow;
+    halo.opacity = 0.45 * glow;
+    lampUniforms.uLampIntensity.value = realLight ? 0 : LIGHT_INTENSITY * glow;
   });
   /* eslint-enable react-hooks/immutability */
 
@@ -109,14 +128,16 @@ export function Lantern() {
         <mesh geometry={geo.flame} material={mats.flame} position={[-wick.x, -wick.y, -wick.z]} renderOrder={1} />
       </group>
       <sprite ref={sprite} material={halo} position={lamp} scale={HALO_SIZE} renderOrder={3} visible={false} />
-      <pointLight
-        ref={light}
-        position={[lamp.x, lamp.y - 0.01, lamp.z]}
-        color={LAYOUT.lantern.color}
-        intensity={0}
-        distance={LIGHT_DISTANCE}
-        decay={2}
-      />
+      {realLight ? (
+        <pointLight
+          ref={light}
+          position={[lamp.x, lamp.y - 0.01, lamp.z]}
+          color={LAYOUT.lantern.color}
+          intensity={0}
+          distance={LIGHT_DISTANCE}
+          decay={2}
+        />
+      ) : null}
     </group>
   );
 }

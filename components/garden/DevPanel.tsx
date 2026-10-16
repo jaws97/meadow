@@ -335,6 +335,8 @@ export function DevPanel() {
   // ?nopanel hides the panel entirely, for clean screenshots and the big screen.
   const [hidden, setHidden] = useState(false);
   useEffect(() => {
+    // Read after hydration on purpose: the server cannot see the query, so state starts visible on both sides.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (new URLSearchParams(window.location.search).has("nopanel")) setHidden(true);
   }, []);
 

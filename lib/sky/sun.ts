@@ -126,18 +126,19 @@ interface Key {
 
 /**
  * Colour and intensity keys by sun altitude in degrees. The low keys carry
- * golden hour (warm, dim sky light so the long shadows read), the high keys a
- * slightly warm, restrained noon.
+ * golden hour: a saturated amber key (about #ffb060 a few degrees up) under a
+ * dim sky so the long shadows read; the high keys a slightly warm, restrained
+ * noon under a clear blue sky.
  */
 const KEYS: Key[] = [
   { alt: -18, zenith: "#0a1038", horizon: "#272a4a", glow: "#5c4432", sun: "#000000", sunI: 0, night: 1, hemiI: 0.36 },
   { alt: -10, zenith: "#0d1646", horizon: "#353256", glow: "#7a5038", sun: "#ff7040", sunI: 0, night: 0.95, hemiI: 0.36 },
   { alt: -5, zenith: "#1a2a66", horizon: "#9a5a5c", glow: "#e8704a", sun: "#ff6a3a", sunI: 0.25, night: 0.7, hemiI: 0.33 },
-  { alt: 0, zenith: "#30508f", horizon: "#f09a62", glow: "#ff8a46", sun: "#ff8a48", sunI: 1.4, night: 0.4, hemiI: 0.3 },
-  { alt: 5, zenith: "#4a78b8", horizon: "#ffc28c", glow: "#ffb070", sun: "#ffb36b", sunI: 2.3, night: 0.14, hemiI: 0.32 },
-  { alt: 12, zenith: "#4886cc", horizon: "#e6d0b4", glow: "#ffd2a0", sun: "#ffd2a0", sunI: 2.7, night: 0.03, hemiI: 0.42 },
-  { alt: 25, zenith: "#3f86d6", horizon: "#cfe1f4", glow: "#e8e2d8", sun: "#ffeacf", sunI: 3.0, night: 0, hemiI: 0.55 },
-  { alt: 60, zenith: "#2f7bd6", horizon: "#c6dcf2", glow: "#dde6ee", sun: "#fff1e0", sunI: 3.0, night: 0, hemiI: 0.6 },
+  { alt: 0, zenith: "#30508f", horizon: "#f09a62", glow: "#ff8a46", sun: "#ff8640", sunI: 1.5, night: 0.4, hemiI: 0.3 },
+  { alt: 5, zenith: "#4672b8", horizon: "#ffbd84", glow: "#ffa860", sun: "#ffa854", sunI: 2.5, night: 0.14, hemiI: 0.3 },
+  { alt: 12, zenith: "#4483cc", horizon: "#f0cfa8", glow: "#ffc88c", sun: "#ffc27c", sunI: 2.9, night: 0.03, hemiI: 0.38 },
+  { alt: 25, zenith: "#3c84d6", horizon: "#c4dbf2", glow: "#e8e2d8", sun: "#ffe6c4", sunI: 3.0, night: 0, hemiI: 0.55 },
+  { alt: 60, zenith: "#2c78d6", horizon: "#b8d4f0", glow: "#dde6ee", sun: "#fff1e0", sunI: 3.0, night: 0, hemiI: 0.6 },
 ];
 
 const CLOUD_ZENITH = new THREE.Color("#7d8794");
@@ -227,10 +228,14 @@ export function skyState(altitudeRad: number, cloud: number, hour = 12, rain = 0
     .lerp(NIGHT_HEMI_GROUND, nightness * 0.8);
   r.fog.copy(horizon).lerp(zenith, 0.3 + 0.2 * nightness);
 
-  // Haze: soft morning, clear noon, blue dusk, a close dark night; weather thickens it.
+  // Haze: soft morning, clear noon, a clear golden evening, blue dusk, a close
+  // dark night; weather thickens it. The evening stays clear on purpose: a
+  // thick veil under a low sun washes the garden pink-grey and kills the
+  // backlight, and golden hour is the scene's money shot. With the default
+  // light cloud it holds at about 0.25 through golden hour.
   const lowSun = 1 - smooth(0, 22, alt);
   const morning = hour < 12 ? 1 : 0;
-  let haze = 0.12 + lowSun * (0.45 + 0.3 * morning) * day;
+  let haze = 0.1 + lowSun * (morning ? 0.72 : 0.07) * day;
   haze += nightness * 0.32;
   haze += c * 0.25 + clamp01(rain) * 0.3;
 

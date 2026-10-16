@@ -5,18 +5,29 @@
 // (bowed, upright, twisted) scattered in clumps with a dark-to-light gradient
 // up every blade, densest at the foot of the stone ring and along the path's
 // edges, kept off the flagstones and out of the bed, plus a low layer of
-// clover and broadleaf weeds and a few fallen leaves. Rain wets the turf and
-// the blades. The bed, its mulch and the puddle live in Garden.tsx.
+// clover and broadleaf weeds and a few fallen leaves. A band about a quarter
+// of a metre wide round the bed's spade-cut edge is mown to two or three
+// centimetres, so the stones stand clear of the turf; it is planted densest
+// on lite, where a phone looks straight down on it. The greens are held a
+// little below full saturation and wander from yellow-green to blue-green by
+// clump, as a real lawn does, and the open lawn carries soft mowing stripes.
+// The blades stay in scale with the hero: none taller than a hand, shortest
+// in the camera's foreground. Rain wets the turf and the blades. The bed,
+// its mulch and the puddle live in Garden.tsx.
 import * as THREE from "three";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { grassTexture } from "@/lib/garden/groundTextures";
 import {
   bedRho,
+  lightState,
   makeSwayDepthMaterial,
   makeSwayMaterial,
   pathPlan,
+  SPADE_EDGE,
   swayUniforms,
+  WATERING_CAN,
+  withGardenLight,
   type PathPlan,
 } from "@/lib/garden/dressing";
 import { LAYOUT } from "@/lib/garden/layout";
@@ -29,11 +40,13 @@ interface Budget {
   blades: number;
   clover: number;
   weeds: number;
+  /** share of the blades planted in the close-mown band round the kerb */
+  mown: number;
 }
 const BUDGET: Record<Quality, Budget> = {
-  cinematic: { blades: 6400, clover: 520, weeds: 220 },
-  balanced: { blades: 3200, clover: 260, weeds: 110 },
-  lite: { blades: 1100, clover: 90, weeds: 40 },
+  cinematic: { blades: 6400, clover: 520, weeds: 200, mown: 0.2 },
+  balanced: { blades: 3200, clover: 260, weeds: 100, mown: 0.24 },
+  lite: { blades: 1600, clover: 90, weeds: 36, mown: 0.42 },
 };
 const BLADE_SPLIT = [0.45, 0.35, 0.2] as const;
 
@@ -42,8 +55,12 @@ const LOW_HEIGHT = 0.03;
 const LAWN_R = 14;
 const CLUMP_COUNT = 340;
 const FALLEN_LEAVES = 14;
-/** Grass keeps outside this many oval units: just past the stone ring. */
-const BED_CLEAR = 1.02;
+/** Grass keeps outside this many oval units: past the stones and their spade-cut edge. */
+const BED_CLEAR = SPADE_EDGE[1] + 0.004;
+/** The mown band round the kerb: its width in metres, the height it is cut to, and the fade back to full lawn. */
+const MOWN_BAND = 0.25;
+const MOWN_FADE = 0.15;
+const MOWN_HEIGHT: readonly [number, number] = [0.02, 0.03];
 const LANTERN_XZ = [LAYOUT.lantern.position[0], LAYOUT.lantern.position[2]] as const;
 
 /* ---------- geometry builders (all deterministic, built once) ---------- */
@@ -122,8 +139,9 @@ function addLeafFan(
   }
 }
 
-const BLADE_ROOT = new THREE.Color("#1f4a1a");
-const BLADE_TIP = new THREE.Color("#9ad15a");
+const BLADE_ROOT = new THREE.Color("#22461e");
+/** Tips held well short of lime: up close they are the largest green in the frame. */
+const BLADE_TIP = new THREE.Color("#7fa953");
 
 type BladeKind = "bowed" | "upright" | "twisted";
 const BLADE_KINDS: readonly BladeKind[] = ["bowed", "upright", "twisted"];
@@ -161,7 +179,7 @@ function makeBladeGeometry(kind: BladeKind): THREE.BufferGeometry {
   return finishBuilder(b);
 }
 
-const CLOVER_BASE = new THREE.Color("#5f9a46");
+const CLOVER_BASE = new THREE.Color("#4f8240");
 const CLOVER_EDGE = new THREE.Color("#2a5a22");
 const CLOVER_TIP = new THREE.Color("#3f7a30");
 const STALK = new THREE.Color("#2f5a26");
@@ -190,7 +208,7 @@ function makeCloverGeometry(): THREE.BufferGeometry {
   return finishBuilder(b);
 }
 
-const WEED_BASE = new THREE.Color("#6aa44a");
+const WEED_BASE = new THREE.Color("#55833f");
 const WEED_EDGE = new THREE.Color("#24521c");
 const WEED_TIP = new THREE.Color("#3b7a2c");
 
@@ -238,8 +256,11 @@ function makeLawnGeometry(plan: PathPlan): THREE.BufferGeometry {
   const uv: number[] = [];
   const up = new THREE.Vector3(0, 1, 0);
   const id = new THREE.Matrix4();
-  const warm = new THREE.Color(1.08, 1.03, 0.78);
-  const cool = new THREE.Color(0.62, 0.74, 0.6);
+  const warm = new THREE.Color(1.06, 1.02, 0.74);
+  const cool = new THREE.Color(0.6, 0.74, 0.66);
+  // mowing stripes run away from the camera at a slight angle, a lighter and darker pass in turn
+  const stripeCos = Math.cos(0.32);
+  const stripeSin = Math.sin(0.32);
   for (let i = 0; i <= rings; i++) {
     const r = i === 0 ? 0.01 : LAWN_R * Math.pow(i / rings, 2.1);
     for (let j = 0; j <= segs; j++) {
@@ -250,10 +271,14 @@ function makeLawnGeometry(plan: PathPlan): THREE.BufferGeometry {
       const n2 = vnoise2(x * 1.35 - 5.2, z * 1.35 + 2.4);
       const patch = clamp01(0.5 + 0.38 * n1 + 0.18 * n2);
       tc.copy(cool).lerp(warm, patch);
-      const atBed = lerp(0.42, 1, smoothstep(0.98, 1.5, bedRho(x, z)));
+      // a shade at the kerb's foot, kept light: the contact shadows under the stones do the darkening
+      const atBed = lerp(0.68, 1, smoothstep(0.98, 1.4, bedRho(x, z)));
       const atPath = r < 4 ? lerp(0.6, 1, smoothstep(0.22, 0.6, plan.distance(x, z))) : 1;
       const far = lerp(1, 0.55, smoothstep(4.5, LAWN_R, r));
-      tc.multiplyScalar(atBed * atPath * far);
+      const sw = (x * stripeCos - z * stripeSin) / 0.8;
+      const pass = smoothstep(-0.18, 0.18, Math.sin(sw * Math.PI)) * 2 - 1;
+      const stripes = 1 + 0.075 * pass * smoothstep(1.6, 2.6, r) * (1 - smoothstep(7, 10, r));
+      tc.multiplyScalar(atBed * atPath * far * stripes);
       pushVertex(b, id, x, 0, z, up, tc);
       uv.push((x / LAWN_R + 1) * 0.5, (z / LAWN_R + 1) * 0.5);
     }
@@ -280,13 +305,14 @@ interface Clump {
   tint: THREE.Color;
 }
 
-const CLUMP_WARM = new THREE.Color(1.12, 1.05, 0.72);
-const CLUMP_COOL = new THREE.Color(0.78, 0.98, 0.9);
+const CLUMP_WARM = new THREE.Color(1.1, 1.04, 0.68);
+const CLUMP_COOL = new THREE.Color(0.72, 0.95, 0.96);
 
-/** Where grass may not stand: in the bed, on a flagstone, at the post's foot. */
+/** Where grass may not stand: in the bed, on a flagstone, at the post's foot, under the watering can. */
 function blocked(x: number, z: number, plan: PathPlan): boolean {
   if (bedRho(x, z) < BED_CLEAR) return true;
   if (Math.hypot(x - LANTERN_XZ[0], z - LANTERN_XZ[1]) < 0.12) return true;
+  if (Math.hypot(x - WATERING_CAN.x, z - WATERING_CAN.z) < 0.09) return true;
   return plan.onStone(x, z);
 }
 
@@ -320,6 +346,12 @@ const tmpAxis = new THREE.Vector3();
 const DRY = new THREE.Color(1.1, 0.95, 0.6);
 const [bcx, , bcz] = LAYOUT.bed.center;
 
+/** Metres from the bed's oval outward to (x, z), along the ray from its centre; negative inside. */
+function outsideBed(x: number, z: number): number {
+  const rho = bedRho(x, z);
+  return Math.hypot(x - bcx, z - bcz) * (1 - 1 / Math.max(rho, 1e-3));
+}
+
 /** Lean the dummy over by `lean` radians, tipping away from (dx, dz). */
 function tip(dx: number, dz: number, lean: number) {
   const l = Math.hypot(dx, dz) || 1;
@@ -346,7 +378,19 @@ function alongPath(plan: PathPlan, t: number, out: { x: number; z: number; nx: n
 
 const pathPt = { x: 0, z: 0, nx: 0, nz: 0 };
 
-function scatterBlades(mesh: THREE.InstancedMesh, kind: BladeKind, count: number, clumps: Clump[], plan: PathPlan) {
+/** Blades in the camera's foreground (the lawn between the bed and the default camera) stand shorter. */
+function foreground(x: number, z: number): number {
+  return smoothstep(0.9, 1.8, z) * (1 - smoothstep(1.6, 3, Math.abs(x)));
+}
+
+function scatterBlades(
+  mesh: THREE.InstancedMesh,
+  kind: BladeKind,
+  count: number,
+  clumps: Clump[],
+  plan: PathPlan,
+  mownShare: number,
+) {
   const rng = new Rng("grass:" + kind);
   const leanBias = kind === "bowed" ? 0.1 : 0;
   for (let i = 0; i < count; i++) {
@@ -360,34 +404,35 @@ function scatterBlades(mesh: THREE.InstancedMesh, kind: BladeKind, count: number
     let placed = false;
     for (let attempt = 0; attempt < 12 && !placed; attempt++) {
       const pick = rng.next();
-      if (pick < 0.12) {
-        // The crowd of short, dark grass at the foot of the stone ring.
+      const rest = (1 - mownShare) / 0.84;
+      if (pick < mownShare) {
+        // The close-mown band round the kerb: dense, fine and short.
         const a = rng.range(0, Math.PI * 2);
-        const rr = BED_CLEAR + Math.abs(rng.gauss()) * 0.06;
+        const rr = BED_CLEAR + 0.06 + Math.abs(rng.gauss()) * 0.22;
         x = bcx + Math.cos(a) * LAYOUT.bed.rx * rr;
         z = bcz + Math.sin(a) * LAYOUT.bed.rz * rr;
-        h = rng.range(0.05, 0.11);
-        shade = 0.62;
+        h = rng.range(MOWN_HEIGHT[0], MOWN_HEIGHT[1]);
+        shade = 0.82;
         dx = x - bcx;
         dz = z - bcz;
-      } else if (pick < 0.3) {
+      } else if (pick < mownShare + 0.16 * rest) {
         // Along the path's edges, leaning over the stones.
         alongPath(plan, rng.next(), pathPt);
         const side = rng.sign();
         const off = LAYOUT.pathWidth * 0.5 + Math.abs(rng.gauss()) * 0.1 - 0.04;
         x = pathPt.x + pathPt.nx * side * off;
         z = pathPt.z + pathPt.nz * side * off;
-        h = rng.range(0.06, 0.15);
+        h = rng.range(0.05, 0.12);
         shade = 0.8;
         dx = pathPt.nx * side * -1;
         dz = pathPt.nz * side * -1;
-      } else if (pick < 0.84) {
+      } else if (pick < mownShare + 0.68 * rest) {
         const c = clumps[rng.int(0, clumps.length - 1)];
         dx = rng.gauss() * c.r;
         dz = rng.gauss() * c.r;
         x = c.x + dx;
         z = c.z + dz;
-        h = lerp(0.06, 0.22, Math.pow(rng.next(), 1.4)) * c.h;
+        h = lerp(0.05, 0.16, Math.pow(rng.next(), 1.4)) * c.h;
         clumpTint = c.tint;
         shade = 1;
       } else {
@@ -395,7 +440,7 @@ function scatterBlades(mesh: THREE.InstancedMesh, kind: BladeKind, count: number
         const a = rng.range(0, Math.PI * 2);
         x = Math.cos(a) * r;
         z = Math.sin(a) * r;
-        h = lerp(0.06, 0.2, Math.pow(rng.next(), 1.3));
+        h = lerp(0.05, 0.15, Math.pow(rng.next(), 1.3));
         dx = rng.gauss();
         dz = rng.gauss();
         shade = 1;
@@ -410,6 +455,11 @@ function scatterBlades(mesh: THREE.InstancedMesh, kind: BladeKind, count: number
       } else if (d < 0.4) {
         h *= lerp(0.6, 1, (d - 0.22) / 0.18);
       }
+      // Mown short where the lawn meets the bed, so the stone kerb reads clean.
+      const out = outsideBed(x, z);
+      if (out < MOWN_BAND) h = Math.min(h, rng.range(MOWN_HEIGHT[0], MOWN_HEIGHT[1]));
+      else if (out < MOWN_BAND + MOWN_FADE) h = Math.min(h, lerp(MOWN_HEIGHT[1], 0.18, (out - MOWN_BAND) / MOWN_FADE));
+      h *= 1 - 0.3 * foreground(x, z);
       placed = true;
     }
     if (!placed) {
@@ -422,8 +472,9 @@ function scatterBlades(mesh: THREE.InstancedMesh, kind: BladeKind, count: number
       mesh.setColorAt(i, tmpColor.setScalar(1));
       continue;
     }
-    h = Math.min(0.24, Math.max(0.03, h));
-    const w = rng.range(0.75, 1.3) * (0.85 + 0.3 * (h / 0.22));
+    h = Math.min(0.18, Math.max(MOWN_HEIGHT[0], h));
+    // mown blades are finer as well as shorter, so the band reads as a close sward, not stubble
+    const w = rng.range(0.7, 1.15) * (0.8 + 0.3 * (h / 0.18)) * lerp(0.55, 1, smoothstep(0.02, 0.09, h));
     dummy.position.set(x, 0, z);
     dummy.scale.set(w, h / BLADE_HEIGHT, w);
     dummy.rotation.set(0, rng.range(0, Math.PI * 2), 0);
@@ -484,7 +535,7 @@ function scatterFallen(mesh: THREE.InstancedMesh, plan: PathPlan) {
       const off = rng.range(-0.18, 0.18);
       x = pathPt.x + pathPt.nx * off;
       z = pathPt.z + pathPt.nz * off;
-      y = plan.onStone(x, z) ? 0.024 : 0.006;
+      y = plan.onStone(x, z) ? 0.02 : 0.006;
     }
     dummy.position.set(x, y, z);
     dummy.scale.setScalar(rng.range(0.8, 1.4));
@@ -535,13 +586,18 @@ export function Ground() {
 
   const lawnGeo = useMemo(() => makeLawnGeometry(plan), [plan]);
   const lawnMat = useMemo(
-    () => new THREE.MeshStandardMaterial({ map: grassTexture(), roughness: 1, color: 0xffffff, vertexColors: true }),
+    () =>
+      withGardenLight(
+        new THREE.MeshStandardMaterial({ map: grassTexture(), roughness: 1, color: 0xffffff, vertexColors: true }),
+        "garden-lawn",
+        false,
+      ),
     [],
   );
   const bladeGeos = useMemo(() => BLADE_KINDS.map(makeBladeGeometry), []);
-  const cloverGeo = useMemo(makeCloverGeometry, []);
+  const cloverGeo = useMemo(() => makeCloverGeometry(), []);
   const weedGeo = useMemo(() => makeWeedGeometry(7), []);
-  const fallenGeo = useMemo(makeFallenLeafGeometry, []);
+  const fallenGeo = useMemo(() => makeFallenLeafGeometry(), []);
 
   const grassMat = useMemo(
     () => makeSwayMaterial("garden-grass-sway", GRASS_SWAY, { color: 0xffffff, roughness: 0.8, vertexColors: true }),
@@ -582,7 +638,7 @@ export function Ground() {
   useLayoutEffect(() => {
     const meshes = [bowedRef.current, uprightRef.current, twistedRef.current];
     meshes.forEach((mesh, k) => {
-      if (mesh) scatterBlades(mesh, BLADE_KINDS[k], bladeCounts[k], clumps, plan);
+      if (mesh) scatterBlades(mesh, BLADE_KINDS[k], bladeCounts[k], clumps, plan, budget.mown);
     });
     if (cloverRef.current) scatterLow(cloverRef.current, "clover", budget.clover, 1.3, plan);
     if (weedRef.current) scatterLow(weedRef.current, "weeds", budget.weeds, 1.6, plan);
@@ -614,7 +670,8 @@ export function Ground() {
 
     swayUniforms.uTime.value = env.time;
     swayUniforms.uWind.value = env.wind;
-    swayUniforms.uBacklight.value = 0.3 * (1 - 0.4 * s.wetness);
+    // the low sun behind the lawn lights every blade tip from within at golden hour
+    swayUniforms.uBacklight.value = (0.3 + 0.9 * lightState.golden) * (1 - 0.4 * s.wetness);
   });
   /* eslint-enable react-hooks/immutability */
 

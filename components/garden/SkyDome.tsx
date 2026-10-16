@@ -112,15 +112,16 @@ void main() {
     vec2 f = fract(p) - 0.5;
     float r = hash21(c);
     vec2 off = vec2(hash21(c + 1.3), hash21(c + 7.1)) - 0.5;
-    // Three in ten cells hold a star; a few are bright enough for the bloom.
-    // The depth of field spreads each one into a small disc, so they are kept
-    // small and modest here and read as points of light rather than bubbles.
+    // One cell in ten holds a star, and only a few are bright. The depth of
+    // field spreads every bright pixel of the dome into a disc, so the stars
+    // are pinpoints a fraction of a cell across: spread, they fade to a faint
+    // glimmer instead of the soft white blobs that read as falling snow.
     float mag = hash21(c + 3.3);
-    float bright = 0.3 + 1.9 * mag * mag * mag;
-    float radius = 0.045 + 0.06 * mag;
+    float bright = 0.35 + 1.6 * mag * mag * mag;
+    float radius = 0.022 + 0.026 * mag;
     float dist = length(f + off * 0.6);
     // Edges in ascending order: smoothstep with edge0 > edge1 is undefined by the GLSL spec.
-    float star = (1.0 - smoothstep(0.0, radius, dist)) * step(0.7, r);
+    float star = (1.0 - smoothstep(0.0, radius, dist)) * step(0.9, r);
     float tw = 0.7 + 0.3 * sin(uTime * 3.0 + r * 60.0);
     // Faint colour spread, from cool white to a warm tint, and no stars down in the glow band.
     vec3 tint = mix(vec3(0.75, 0.85, 1.0), vec3(1.0, 0.93, 0.8), step(0.8, hash21(c + 9.7)));
@@ -190,6 +191,13 @@ const HALO_SCALE = 7;
 
 /** The twinkle is sin(3t + phase), so wrapping at 1000 periods keeps it continuous while the float stays precise. */
 const TWINKLE_WRAP = ((2 * Math.PI) / 3) * 1000;
+
+/**
+ * Stars come out late: none through the blue hour while the lantern and the
+ * fireflies carry the scene, then easing in as the night deepens.
+ */
+const STARS_FROM = 0.62;
+const STARS_FULL = 0.95;
 
 /** How fast the cloud deck crosses the sky, in layer units per second at wind 1. */
 const CLOUD_DRIFT_RATE = 0.012;
@@ -370,7 +378,7 @@ export function SkyDome() {
     uniforms.uSunColor.value.copy(env.sky.sun);
     uniforms.uSunDir.value.copy(env.sun.dir);
     uniforms.uSunDisc.value = env.sky.sunDisc;
-    uniforms.uStars.value = env.sky.stars;
+    uniforms.uStars.value = env.sky.stars * THREE.MathUtils.smoothstep(env.nightness, STARS_FROM, STARS_FULL);
     uniforms.uNight.value = env.nightness;
     uniforms.uTime.value = env.time % TWINKLE_WRAP;
     uniforms.uCloud.value = env.cloud;

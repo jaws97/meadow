@@ -31,11 +31,27 @@ function toDataTexture(c: HTMLCanvasElement, repeat?: number): THREE.CanvasTextu
 }
 
 /**
- * Turf: a dark, dense mat of short strokes, each darker at its root and lighter
- * at its tip, with soft mottling and shadow pockets. It is the ground the
- * blades stand on, so it stays dark: the blades carry the light. It tiles 14
- * times over the lawn, so every tile is about two metres and the blades above
- * it hide the seam.
+ * Draws `paint` at (x, y) and again at each whole-tile offset where a mark of
+ * reach `r` would cross the tile's edge, so the texture tiles without a seam.
+ */
+function wrapped(W: number, x: number, y: number, r: number, paint: (x: number, y: number) => void) {
+  for (const ox of [-W, 0, W]) {
+    if (x + ox + r < 0 || x + ox - r > W) continue;
+    for (const oy of [-W, 0, W]) {
+      if (y + oy + r < 0 || y + oy - r > W) continue;
+      paint(x + ox, y + oy);
+    }
+  }
+}
+
+/**
+ * Turf: a dark, dense mat of fine, short strokes, each darker at its root and
+ * lighter at its tip, with soft mottling and shadow pockets. It is the ground
+ * the blades stand on, so it stays dark: the blades carry the light. Every
+ * mark is painted wrapped round the tile's edges, so the tile repeats with no
+ * seam; it tiles 20 times over the lawn, about 1.4 m a tile, fine enough that
+ * where the lawn is close-mown (round the kerb, where a phone looks down on
+ * it) it reads as short sward rather than painted sticks.
  */
 export function grassTexture(seed = 1): THREE.CanvasTexture {
   const key = "grass:" + seed;
@@ -45,58 +61,56 @@ export function grassTexture(seed = 1): THREE.CanvasTexture {
   const c = makeCanvas(W, W);
   const ctx = c.getContext("2d")!;
   const rng = new Rng(seed * 31 + 5);
-  ctx.fillStyle = "#17300f";
+  ctx.fillStyle = "#18310f";
   ctx.fillRect(0, 0, W, W);
 
   // Large soft mottling: yellower and bluer greens drifting across the tile.
-  for (let i = 0; i < 70; i++) {
+  for (let i = 0; i < 60; i++) {
     const warm = rng.next() < 0.5;
-    smudge(
-      ctx,
-      rng.next() * W,
-      rng.next() * W,
-      40 + rng.next() * 110,
-      rgba(warm ? "#44702a" : "#1a4226", 0.22),
-      rgba(warm ? "#44702a" : "#1a4226", 0),
-    );
+    const r = 40 + rng.next() * 100;
+    const col = warm ? "#41692a" : "#1b4127";
+    wrapped(W, rng.next() * W, rng.next() * W, r, (x, y) => smudge(ctx, x, y, r, rgba(col, 0.2), rgba(col, 0)));
   }
 
-  const roots = ["#15300f", "#1c3e15", "#163719", "#214618"];
-  const tips = ["#376c26", "#45852f", "#539338", "#62a042", "#356a2a", "#78b04e", "#427e2d"];
+  const roots = ["#15300f", "#1b3b15", "#173619", "#1f4318"];
+  const tips = ["#36692a", "#3f7a2d", "#4b8834", "#55923b", "#356a2a", "#629a44", "#3f7a2e"];
   ctx.lineCap = "round";
-  for (let i = 0; i < 9000; i++) {
-    const x = rng.next() * W;
-    const y = rng.next() * W;
-    const len = 5 + rng.next() * 13;
-    const ang = -Math.PI / 2 + (rng.next() - 0.5) * 1.5;
+  for (let i = 0; i < 16000; i++) {
+    const len = 3 + rng.next() * 6;
+    const ang = -Math.PI / 2 + (rng.next() - 0.5) * 1.6;
     const dx = Math.cos(ang) * len;
     const dy = Math.sin(ang) * len;
-    const w = 0.9 + rng.next() * 1.4;
-    // root half, dark
-    ctx.strokeStyle = rgba(rng.pick(roots), 0.5 + rng.next() * 0.3);
-    ctx.lineWidth = w;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + dx * 0.55, y + dy * 0.55);
-    ctx.stroke();
-    // tip half, lighter and thinner
-    ctx.strokeStyle = rgba(rng.pick(tips), 0.3 + rng.next() * 0.3);
-    ctx.lineWidth = w * 0.7;
-    ctx.beginPath();
-    ctx.moveTo(x + dx * 0.45, y + dy * 0.45);
-    ctx.lineTo(x + dx, y + dy);
-    ctx.stroke();
+    const w = 0.7 + rng.next() * 0.9;
+    const root = rgba(rng.pick(roots), 0.45 + rng.next() * 0.3);
+    const tip = rgba(rng.pick(tips), 0.22 + rng.next() * 0.25);
+    wrapped(W, rng.next() * W, rng.next() * W, len + 2, (x, y) => {
+      // root half, dark
+      ctx.strokeStyle = root;
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + dx * 0.55, y + dy * 0.55);
+      ctx.stroke();
+      // tip half, lighter and thinner
+      ctx.strokeStyle = tip;
+      ctx.lineWidth = w * 0.7;
+      ctx.beginPath();
+      ctx.moveTo(x + dx * 0.45, y + dy * 0.45);
+      ctx.lineTo(x + dx, y + dy);
+      ctx.stroke();
+    });
   }
   // Shadow pockets between the tufts.
-  for (let i = 0; i < 80; i++) {
-    smudge(ctx, rng.next() * W, rng.next() * W, 14 + rng.next() * 50, "rgba(0,0,0,0.32)", "rgba(0,0,0,0)");
+  for (let i = 0; i < 90; i++) {
+    const r = 10 + rng.next() * 36;
+    wrapped(W, rng.next() * W, rng.next() * W, r, (x, y) => smudge(ctx, x, y, r, "rgba(0,0,0,0.26)", "rgba(0,0,0,0)"));
   }
   // Tiny bright flecks where a tip catches the light.
-  for (let i = 0; i < 500; i++) {
-    ctx.fillStyle = rgba(rng.next() < 0.7 ? "#86bf4e" : "#b5d47c", 0.14 + rng.next() * 0.18);
-    ctx.fillRect(rng.next() * W, rng.next() * W, 1.2, 1.2);
+  for (let i = 0; i < 700; i++) {
+    ctx.fillStyle = rgba(rng.next() < 0.7 ? "#7fb44c" : "#a7c873", 0.12 + rng.next() * 0.14);
+    ctx.fillRect(rng.next() * W, rng.next() * W, 1, 1);
   }
-  const tex = toTexture(c, 14);
+  const tex = toTexture(c, 20);
   cache.set(key, tex);
   return tex;
 }

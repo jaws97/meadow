@@ -10,7 +10,7 @@ import * as THREE from "three";
 import { LAYOUT, type Vec3 } from "@/lib/garden/layout";
 import type { Quality } from "@/lib/garden/store";
 import { makeLeafGeometry, makePetalGeometry, makeStemGeometry, stemCurve, type PetalShape } from "@/lib/plant/geometry";
-import { makeCanvas, rgba, toTexture } from "@/lib/plant/textures";
+import { makeCanvas, rgba, shiftHex, toTexture } from "@/lib/plant/textures";
 import { Rng, clamp01, lerp, smoothstep, vnoise2 } from "@/lib/plant/prng";
 
 // ---------------------------------------------------------------------------
@@ -19,6 +19,10 @@ import { Rng, clamp01, lerp, smoothstep, vnoise2 } from "@/lib/plant/prng";
 export interface BackdropBudget {
   /** leaf-cluster cards per tree canopy */
   canopyCards: number;
+  /** card size against the canopy radius: fewer, larger cards on lite still close the crown over its core */
+  canopyCardScale: number;
+  /** segments round each canopy core lobe */
+  coreSegments: number;
   /** cluster cards per square metre of hedge shell */
   hedgeCards: number;
   /** single leaves per square metre of hedge shell */
@@ -39,7 +43,9 @@ export interface BackdropBudget {
 
 export const BACKDROP_BUDGET: Record<Quality, BackdropBudget> = {
   cinematic: {
-    canopyCards: 170,
+    canopyCards: 320,
+    canopyCardScale: 1,
+    coreSegments: 18,
     hedgeCards: 44,
     hedgeLeaves: 64,
     florets: 56,
@@ -50,7 +56,9 @@ export const BACKDROP_BUDGET: Record<Quality, BackdropBudget> = {
     shadows: true,
   },
   balanced: {
-    canopyCards: 100,
+    canopyCards: 210,
+    canopyCardScale: 1.12,
+    coreSegments: 16,
     hedgeCards: 30,
     hedgeLeaves: 30,
     florets: 36,
@@ -61,7 +69,9 @@ export const BACKDROP_BUDGET: Record<Quality, BackdropBudget> = {
     shadows: true,
   },
   lite: {
-    canopyCards: 54,
+    canopyCards: 90,
+    canopyCardScale: 1.6,
+    coreSegments: 14,
     hedgeCards: 24,
     hedgeLeaves: 8,
     florets: 20,
@@ -96,8 +106,6 @@ const tmpC = new THREE.Color();
 const tmpC2 = new THREE.Color();
 const tmpN = new THREE.Vector3();
 const tmpX = new THREE.Vector3();
-const tmpY = new THREE.Vector3();
-const tmpZ = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const FORWARD = new THREE.Vector3(0, 0, 1);
 const WHITE = new THREE.Color(1, 1, 1);
@@ -207,8 +215,22 @@ interface LeafPalette {
   vein: string;
 }
 
-const TREE_LEAF: LeafPalette = { dark: "#12301a", base: "#275b2a", tip: "#4b8c34", lit: "#9ccc55", vein: "#79ad53" };
-const HEDGE_LEAF: LeafPalette = { dark: "#1c4a1a", base: "#327a2a", tip: "#67b244", lit: "#b4dc6a", vein: "#a6d66e" };
+// Held a little below full saturation: real foliage is greyer than a paint-box green.
+// Four tree palettes (a deep summer green, an olive, a cooler blue-green, a
+// fresher light green) so no two neighbouring clusters print the same.
+const TREE_LEAVES: readonly LeafPalette[] = [
+  { dark: "#12301a", base: "#2b572d", tip: "#4e853b", lit: "#9ac35e", vein: "#79a857" },
+  { dark: "#1a2f14", base: "#3a5626", tip: "#5f8238", lit: "#a8bf62", vein: "#8aa65a" },
+  { dark: "#102c20", base: "#264f36", tip: "#45784a", lit: "#8fb978", vein: "#73a36a" },
+  { dark: "#173514", base: "#336329", tip: "#5a9540", lit: "#a9cf6a", vein: "#88b85e" },
+];
+const HEDGE_LEAVES: readonly LeafPalette[] = [
+  { dark: "#1f461e", base: "#377430", tip: "#6aaa4c", lit: "#abd067", vein: "#a0cc72" },
+  { dark: "#1b3f1f", base: "#2f6a34", tip: "#5c9a4f", lit: "#9cc56c", vein: "#8fbf74" },
+];
+/** Canopy cards come in this many cluster prints, hedge cards in HEDGE_VARIANTS. */
+export const CANOPY_VARIANTS = 4;
+export const HEDGE_VARIANTS = 2;
 
 /**
  * One painted leaf: base at (x, y), growing along `angle`, `round` 0 a
@@ -285,7 +307,10 @@ export type ClusterKind = "tree" | "hedge";
 /**
  * A cluster of leaves on a transparent square, for the canopy and hedge
  * cards: a back layer of darker leaves, then lit ones over them, all growing
- * outward from the middle so the card has no hard edge.
+ * outward from the middle so the card has no hard edge. The leaves are small
+ * and many, each a slightly different value, so a crown made of these cards
+ * reads as foliage rather than as a print of a few large cut-out leaves.
+ * `seed` picks the palette as well as the layout.
  */
 export function leafClusterTexture(kind: ClusterKind, seed: number): THREE.CanvasTexture {
   return cached(`cluster:${kind}:${seed}`, () => {
@@ -293,14 +318,15 @@ export function leafClusterTexture(kind: ClusterKind, seed: number): THREE.Canva
     const c = makeCanvas(W, W);
     const ctx = c.getContext("2d")!;
     const rng = new Rng(seed * 7919 + (kind === "tree" ? 11 : 29));
-    const pal = kind === "tree" ? TREE_LEAF : HEDGE_LEAF;
-    // Trees: many smallish rounded leaves in a loose patch, the ones at the
-    // rim pointing outward; hedges: a tighter mat of small round leaves.
-    const n = kind === "tree" ? 54 : 40;
-    const lenR: [number, number] = kind === "tree" ? [0.1, 0.15] : [0.095, 0.14];
-    const baseR = kind === "tree" ? 0.3 : 0.33;
-    const widK = kind === "tree" ? 0.55 : 0.66;
-    const round = kind === "tree" ? 0.5 : 0.85;
+    const pals = kind === "tree" ? TREE_LEAVES : HEDGE_LEAVES;
+    const pal = pals[(seed - 1 + pals.length) % pals.length];
+    // Trees: many small leaves in a loose patch, the ones at the rim pointing
+    // outward; hedges: a tighter mat of small leaves, some rounded, some pointed.
+    const n = kind === "tree" ? 185 : 120;
+    const lenR: [number, number] = kind === "tree" ? [0.058, 0.092] : [0.06, 0.09];
+    const baseR = kind === "tree" ? 0.34 : 0.36;
+    const widK = kind === "tree" ? 0.55 : 0.62;
+    const round = kind === "tree" ? 0.45 + 0.1 * (seed % 2) : 0.55 + 0.25 * (seed % 2);
     const cx = W / 2;
     const cy = W / 2;
     for (let layer = 0; layer < 3; layer++) {
@@ -317,7 +343,9 @@ export function leafClusterTexture(kind: ClusterKind, seed: number): THREE.Canva
         const lit = layer === 2 && t < 0.5;
         const c0 = layer === 0 ? pal.dark : layer === 1 ? pal.base : pal.base;
         const c1 = layer === 0 ? pal.base : layer === 1 ? pal.tip : lit ? pal.lit : pal.tip;
-        paintLeaf(ctx, bx, by, ang, len, wid, round, c0, c1, pal.vein, layer === 0 ? 0.92 : 1);
+        // each leaf a touch lighter or darker than its neighbours
+        const v = rng.range(-0.14, 0.14);
+        paintLeaf(ctx, bx, by, ang, len, wid, round, shiftHex(c0, 0, v), shiftHex(c1, 0, v), pal.vein, layer === 0 ? 0.92 : 1);
       }
     }
     const tex = toTexture(c);
@@ -887,12 +915,15 @@ export interface FenceAssets {
 export interface BackdropAssets {
   /** every trunk and branch, world space */
   wood: THREE.BufferGeometry;
-  /** canopy cards, one set per cluster texture seed (1 and 2) */
-  canopies: [Instanced, Instanced];
+  /** the opaque inner volume of every canopy, world space */
+  canopyCores: THREE.BufferGeometry;
+  /** canopy cards, one set per cluster print (texture seeds 1..CANOPY_VARIANTS) */
+  canopies: Instanced[];
   canopyShapes: Canopy[];
   /** every hedge and shrub core, world space */
   hedgeCores: THREE.BufferGeometry;
-  hedgeCards: Instanced;
+  /** hedge cards, one set per cluster print (texture seeds 1..HEDGE_VARIANTS) */
+  hedgeCards: Instanced[];
   hedgeLeaves: Instanced;
   shrubFlorets: Instanced;
   shrubFloretPalette: BloomPalette;
@@ -915,22 +946,47 @@ interface Lobe {
   r: number;
 }
 
+/** A lumpy ball for a canopy core lobe, unit radius before scaling. */
+function makeCoreLobeGeometry(segments: number, seed: number): THREE.BufferGeometry {
+  const g = new THREE.SphereGeometry(1, segments, Math.max(6, Math.round(segments * 0.7)));
+  const p = g.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) {
+    tmpD.set(p.getX(i), p.getY(i), p.getZ(i)).normalize();
+    const l =
+      1 +
+      0.2 * vnoise2(tmpD.x * 2.1 + seed, tmpD.z * 2.1 + tmpD.y * 1.7) +
+      0.08 * vnoise2(tmpD.x * 5 + seed * 2, tmpD.y * 5 - tmpD.z * 3);
+    p.setXYZ(i, tmpD.x * l, tmpD.y * l, tmpD.z * l);
+  }
+  p.needsUpdate = true;
+  g.computeVertexNormals();
+  return g;
+}
+
 /**
- * One tree: a leaning, lumpy trunk with a few branches reaching into the
- * canopy, appended to `wood` in world space, and a cloud of leaf-cluster cards
- * appended to the canopy builder of its texture.
+ * One tree: a leaning, lumpy trunk with branches reaching out and up into the
+ * canopy, appended to `wood` in world space. The crown is built on those
+ * branches: a lobe of foliage at the tip of each, more at the crown's top and
+ * in its lower skirt, so the leaves are carried by the tree instead of
+ * floating round it. Each lobe has an opaque, dark core (appended to
+ * `cores`), the way a real crown is dense inside, and leaf-cluster cards on
+ * its shell (appended to the canopy builder of its texture), so the only
+ * places the sky shows through are the two deliberate holes. The upper crown
+ * is thinned a little so more cards dress the underside, which the camera
+ * looks up at.
  */
 function buildTree(
   spec: (typeof LAYOUT.trees)[number],
   rng: Rng,
   budget: BackdropBudget,
   wood: THREE.BufferGeometry[],
-  cards: InstanceBuilder,
+  cores: THREE.BufferGeometry[],
+  cards: InstanceBuilder[],
 ): Canopy {
   const position = new THREE.Vector3(...spec.position);
   const scale = spec.height / 5.2;
-  const r0 = rng.range(0.15, 0.21) * scale;
-  const r1 = rng.range(0.05, 0.07) * scale;
+  const r0 = rng.range(0.17, 0.23) * scale;
+  const r1 = rng.range(0.06, 0.08) * scale;
   const dx = rng.range(-0.3, 0.3) * scale;
   const dz = rng.range(-0.25, 0.25) * scale;
   const seed = rng.range(0, 100);
@@ -940,72 +996,104 @@ function buildTree(
   wood.push(trunk);
   const curve = stemCurve(trunkLength, dx, dz);
 
-  const nBranches = rng.int(4, 6);
+  const R = spec.canopyR;
+  const center = new THREE.Vector3(position.x + dx * 0.6, spec.canopyY, position.z + dz * 0.6);
+  const lobes: Lobe[] = [];
+  /** Adds a lobe round a world point, pulled inside the crown's sphere. */
+  const addLobe = (world: THREE.Vector3, r: number) => {
+    const c = world.clone().sub(center);
+    const reach = R * 1.05 - r;
+    if (c.length() > reach) c.setLength(Math.max(0, reach));
+    lobes.push({ c, r });
+  };
+
+  const nBranches = rng.int(5, 7);
+  const tip = new THREE.Vector3();
   for (let b = 0; b < nBranches; b++) {
-    const t = rng.range(0.45, 0.92);
+    const t = rng.range(0.38, 0.9);
     const at = curve.getPoint(t);
     const rAt = lerp(r0, r1, t);
     const yaw = (b / nBranches) * Math.PI * 2 + rng.range(-0.5, 0.5);
-    const pitch = rng.range(0.55, 1.05);
+    // the lower limbs reach out wider, the upper ones climb
+    const pitch = lerp(0.42, 1.0, (t - 0.38) / 0.52) + rng.range(-0.12, 0.12);
     const dir = tmpD.set(Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch), Math.sin(yaw) * Math.cos(pitch)).normalize();
-    const length = rng.range(0.9, 1.7) * scale;
-    const branch = makeBranchGeometry(length, rAt * 0.6, 0.02 * scale, rng.range(-0.15, 0.15), rng.range(-0.1, 0.25), seed + b);
+    const length = rng.range(1.0, 1.8) * scale;
+    const bdx = rng.range(-0.15, 0.15);
+    const bdz = rng.range(-0.1, 0.25);
+    const branch = makeBranchGeometry(length, rAt * 0.6, 0.02 * scale, bdx, bdz, seed + b);
     aimY(tmpQ, dir, rng.range(0, Math.PI * 2));
     tmpP.copy(position).add(at).addScaledVector(dir, rAt * 0.35);
     tmpM.compose(tmpP, tmpQ, tmpS.setScalar(1));
     branch.applyMatrix4(tmpM);
     wood.push(branch);
+    // a big lobe of foliage round the branch's tip; neighbouring lobes
+    // overlap, so the crown is one mass with a billowing outline
+    tip.set(bdx, length, bdz).applyQuaternion(tmpQ).add(tmpP);
+    addLobe(tip, rng.range(0.46, 0.6) * R);
+  }
+  // the crown's top over the trunk, and a low skirt that brings the leaves down round it
+  tip.copy(position).add(curve.getPoint(1));
+  addLobe(tip, rng.range(0.52, 0.64) * R);
+  const skirt = 2;
+  for (let l = 0; l < skirt; l++) {
+    const a = rng.range(0, Math.PI * 2) + l * Math.PI;
+    tip.set(Math.cos(a) * R * 0.45, -R * rng.range(0.3, 0.45), Math.sin(a) * R * 0.45).add(center);
+    addLobe(tip, rng.range(0.42, 0.52) * R);
   }
 
-  // The canopy: a cloud of lobes inside the layout's sphere, slightly following
-  // the trunk's lean. Lobes stay inside the sphere so the gaps between the
-  // trees the layout promises (and the golden-hour sun corridor onto the bed)
-  // are kept; the cards sit on the lobes' shells, so the mass is porous and
-  // the sun comes through in dapples.
-  const R = spec.canopyR;
-  const center = new THREE.Vector3(position.x + dx * 0.6, spec.canopyY, position.z + dz * 0.6);
-  const lobes: Lobe[] = [];
-  const nLobes = rng.int(7, 9);
-  for (let l = 0; l < nLobes; l++) {
-    randomDir(rng, tmpD);
-    tmpD.y = rng.range(-0.5, 0.7);
-    tmpD.normalize();
-    const r = rng.range(0.3, 0.62) * R;
-    const d = Math.min(rng.range(0.2, 0.7) * R, R - r);
-    lobes.push({ c: tmpD.clone().multiplyScalar(d), r });
-  }
-  // Two holes where the sky shows through and the sun gets to the lawn.
+  // Two thin places near the crown's rim, where the core gives way and the
+  // cards thin out, so the sky glints through and the sun gets to the lawn.
+  // The cards are thinned there rather than removed, so no core is ever bared.
   const holes: Lobe[] = [];
   for (let h = 0; h < 2; h++) {
     randomDir(rng, tmpD);
-    holes.push({ c: tmpD.clone().multiplyScalar(rng.range(0.35, 0.75) * R), r: rng.range(0.28, 0.4) * R });
+    tmpD.y = Math.abs(tmpD.y) * 0.6 + 0.1;
+    tmpD.normalize();
+    holes.push({ c: tmpD.clone().multiplyScalar(rng.range(0.6, 0.85) * R), r: rng.range(0.22, 0.3) * R });
   }
 
-  const tint = foliageTint(new THREE.Color(), rng.range(-0.28, 0.35));
-  const n = budget.canopyCards;
-  const minY = -0.95 * R;
+  // The cores: each lobe's dark heart, shrunk clear of the holes and well inside the cards.
+  // Cores fill most of each lobe, so the crown is dense inside and the sky
+  // shows only at its deliberate holes and its rim, not as lace all through it.
+  lobes.forEach((lobe, i) => {
+    let rc = lobe.r * 0.82;
+    for (const hole of holes) rc = Math.min(rc, lobe.c.distanceTo(hole.c) - hole.r);
+    if (rc < lobe.r * 0.3) return;
+    const g = makeCoreLobeGeometry(budget.coreSegments, seed + i * 3.1);
+    g.scale(rc, rc * 0.86, rc);
+    g.translate(center.x + lobe.c.x, center.y + lobe.c.y, center.z + lobe.c.z);
+    cores.push(g);
+  });
+
+  const tint = foliageTint(new THREE.Color(), rng.range(-0.32, 0.35));
+  const n = Math.round(budget.canopyCards * ("density" in spec ? spec.density : 1));
+  const cardScale = budget.canopyCardScale;
   let placed = 0;
-  for (let tries = 0; placed < n && tries < n * 3; tries++) {
+  for (let tries = 0; placed < n && tries < n * 4; tries++) {
     const lobe = lobes[rng.int(0, lobes.length - 1)];
     randomDir(rng, tmpD);
-    const rr = Math.pow(rng.next(), 0.22);
+    const rr = rng.range(0.8, 1.06);
     tmpP.copy(lobe.c).addScaledVector(tmpD, rr * lobe.r);
-    if (tmpP.y < minY) tmpP.y = minY + rng.range(0, 0.1) * R;
-    if (holes.some((hole) => tmpP.distanceTo(hole.c) < hole.r)) continue;
+    if (tmpP.y > R * 0.25 && rng.next() < 0.3) continue;
+    if (holes.some((hole) => tmpP.distanceTo(hole.c) < hole.r) && rng.next() < 0.65) continue;
+    // a card buried deep inside a neighbouring lobe is never seen: spend it on the surface
+    if (lobes.some((o) => o !== lobe && tmpP.distanceTo(o.c) < o.r * 0.7)) continue;
     placed++;
     // face outward from its lobe, leaning toward the canopy's own outward direction
     tmpN.copy(tmpP).normalize();
     const face = tmpD.multiplyScalar(0.65).addScaledVector(tmpN, 0.35).normalize();
     jitterDir(rng, face, 0.35);
     aimZ(tmpQ, face, rng.range(0, Math.PI * 2));
-    const s = R * rng.range(0.2, 0.32);
+    const s = R * rng.range(0.22, 0.34) * cardScale;
     tmpS.set(rng.next() < 0.5 ? -s : s, s, s);
-    const depthShade = lerp(0.55, 1.08, Math.pow(rr, 1.4));
-    const heightShade = lerp(0.82, 1.15, smoothstep(minY, R, tmpP.y));
-    tmpC.copy(tint).multiplyScalar(depthShade * heightShade * rng.range(0.9, 1.08));
+    const depthShade = lerp(0.62, 1.08, smoothstep(0.8, 1.06, rr));
+    const heightShade = lerp(0.78, 1.15, smoothstep(-R, R, tmpP.y));
+    // each cluster its own small shift of hue and value, as sun and age vary a real crown
+    tmpC.copy(tint).multiply(foliageTint(tmpC2, rng.range(-0.18, 0.18)));
+    tmpC.multiplyScalar(depthShade * heightShade * rng.range(0.86, 1.1));
     // the volume normal blends the lobe's and the whole canopy's outward directions
     tmpN.multiplyScalar(0.45).addScaledVector(tmpD, 0.55).normalize();
-    cards.push(tmpP.add(center), tmpQ, tmpS, tmpC, tmpN);
+    cards[rng.int(0, cards.length - 1)].push(tmpP.add(center), tmpQ, tmpS, tmpC, tmpN);
   }
   return { center, radius: R };
 }
@@ -1034,7 +1122,7 @@ function halfEllipsoidArea(a: number, b: number, c: number): number {
 
 interface MassBuilders {
   cores: THREE.BufferGeometry[];
-  cards: InstanceBuilder;
+  cards: InstanceBuilder[];
   leaves: InstanceBuilder;
   florets: InstanceBuilder;
 }
@@ -1052,7 +1140,8 @@ function buildMass(spec: MassSpec, rng: Rng, budget: BackdropBudget, out: MassBu
   core.translate(center.x, center.y, center.z);
   out.cores.push(core);
   const area = halfEllipsoidArea(rx, h, rz);
-  const tint = foliageTint(new THREE.Color(), rng.range(-0.2, 0.3));
+  // each hedge its own green, from a yellowish privet to a blue-green yew
+  const tint = foliageTint(new THREE.Color(), rng.range(-0.42, 0.34));
   const cardSize = clamp01(0.24 * Math.sqrt(h / 0.9)) + 0.02;
 
   const sample = (lift: number) => {
@@ -1075,7 +1164,7 @@ function buildMass(spec: MassSpec, rng: Rng, budget: BackdropBudget, out: MassBu
     tmpS.set(rng.next() < 0.5 ? -s : s, s, s);
     const shade = lerp(0.72, 1.12, smoothstep(0.05, 1, tmpP.y / h)) * rng.range(0.88, 1.08);
     tmpC.copy(tint).multiplyScalar(shade);
-    out.cards.push(tmpP.add(center), tmpQ, tmpS, tmpC, tmpN);
+    out.cards[rng.int(0, out.cards.length - 1)].push(tmpP.add(center), tmpQ, tmpS, tmpC, tmpN);
   }
 
   const nLeaves = Math.round(area * budget.hedgeLeaves * spec.density);
@@ -1399,8 +1488,9 @@ function buildBokeh(rng: Rng, canopies: Canopy[], budget: BackdropBudget): THREE
   for (let i = 0; i < n; i++) {
     const night = i < nightCount;
     if (night) {
-      // warm points low on the lantern's side, among the far shrubs and trees
-      tmpP.set(rng.range(-6, -1.4), rng.range(0.3, 1.5), rng.range(-9.5, -4.6));
+      // warm points low among the far shrubs on the lantern's side, kept under
+      // the hedge line so they glow in the undergrowth rather than hang in the sky
+      tmpP.set(rng.range(-6, -1.4), rng.range(0.22, 0.7), rng.range(-9.5, -4.6));
     } else {
       // sun catching leaves on the camera-facing shell of a canopy
       const canopy = canopies[rng.int(0, canopies.length - 1)];
@@ -1454,8 +1544,9 @@ export function buildBackdrop(seed: string, quality: Quality, heroHex: string): 
 
   const treeRng = rng.fork("trees");
   const wood: THREE.BufferGeometry[] = [];
-  const canopyBuilders = [new InstanceBuilder(), new InstanceBuilder()];
-  const canopyShapes = LAYOUT.trees.map((t, i) => buildTree(t, treeRng, budget, wood, canopyBuilders[i % 2]));
+  const cores: THREE.BufferGeometry[] = [];
+  const canopyBuilders = Array.from({ length: CANOPY_VARIANTS }, () => new InstanceBuilder());
+  const canopyShapes = LAYOUT.trees.map((t) => buildTree(t, treeRng, budget, wood, cores, canopyBuilders));
 
   // The layout's hedges, two of them (the owner's pick) in flower, plus a few
   // understory shrubs at the feet of the trees so the far garden is not bare lawn.
@@ -1468,7 +1559,7 @@ export function buildBackdrop(seed: string, quality: Quality, heroHex: string): 
     rz: h.rz,
     height: h.height,
     flowers: flowering.has(i),
-    density: 1,
+    density: "density" in h ? h.density : 1,
   }));
   for (const t of LAYOUT.trees) {
     const n = massRng.int(1, 2);
@@ -1485,22 +1576,29 @@ export function buildBackdrop(seed: string, quality: Quality, heroHex: string): 
       });
     }
   }
-  const masses: MassBuilders = { cores: [], cards: new InstanceBuilder(), leaves: new InstanceBuilder(), florets: new InstanceBuilder() };
+  const masses: MassBuilders = {
+    cores: [],
+    cards: Array.from({ length: HEDGE_VARIANTS }, () => new InstanceBuilder()),
+    leaves: new InstanceBuilder(),
+    florets: new InstanceBuilder(),
+  };
   for (const s of specs) buildMass(s, massRng, budget, masses);
 
   const arch = buildArch(rng.fork("arch"), budget, vineLeaf, archFloret, bloomPalette);
   const fence = buildFence(rng.fork("fence"));
   const bokeh = buildBokeh(rng.fork("bokeh"), canopyShapes, budget);
 
-  const canopies: [Instanced, Instanced] = [instanced(card, canopyBuilders[0].finish()), instanced(card, canopyBuilders[1].finish())];
-  const hedgeCards = instanced(card, masses.cards.finish());
+  const canopies = canopyBuilders.map((b) => instanced(card, b.finish()));
+  const hedgeCards = masses.cards.map((b) => instanced(card, b.finish()));
   const hedgeLeaves = instanced(hedgeLeaf, masses.leaves.finish());
   const shrubFlorets = instanced(shrubFloret, masses.florets.finish());
   const woodGeometry = mergeGeometries(wood);
+  const canopyCores = mergeGeometries(cores);
   const hedgeCores = mergeGeometries(masses.cores);
 
   return {
     wood: woodGeometry,
+    canopyCores,
     canopies,
     canopyShapes,
     hedgeCores,
@@ -1519,9 +1617,10 @@ export function buildBackdrop(seed: string, quality: Quality, heroHex: string): 
       shrubFloret.dispose();
       archFloret.dispose();
       woodGeometry.dispose();
+      canopyCores.dispose();
       for (const c of canopies) c.geometry.dispose();
       hedgeCores.dispose();
-      hedgeCards.geometry.dispose();
+      for (const c of hedgeCards) c.geometry.dispose();
       hedgeLeaves.geometry.dispose();
       shrubFlorets.geometry.dispose();
       arch.hoop.dispose();
