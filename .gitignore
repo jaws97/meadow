@@ -42,3 +42,6 @@ next-env.d.ts
 
 # local crash dumps
 *.stackdump
+
+# browser-automation logs
+.playwright-mcp/
