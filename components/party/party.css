@@ -1,0 +1,472 @@
+/*
+ * The party screen's look (PartyScreen, GiftPanel, SeedFeed). A plain
+ * stylesheet with prefixed class names, as LoadingVeil.css is: the project's
+ * Turbopack rule runs every .css file through Tailwind as global CSS.
+ *
+ * Everything is sized in "1080p pixels": --px is one CSS pixel on a 1920 x
+ * 1080 screen, two on 4K, two thirds on 1280 x 720, whichever of width and
+ * height runs out first. So the panel holds the same share of the screen and
+ * reads from the same distance on any venue display, and it stays inside the
+ * title-safe margins (5 % of each edge) a television may crop. Motion is
+ * transform and opacity only, slow, with nothing that flashes.
+ */
+
+.party-root {
+  --px: min(calc(100vw / 1920), calc(100vh / 1080));
+  --ivory: 246, 234, 214;
+  --cream: 255, 244, 226;
+  --gold: 232, 196, 128;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #06080f;
+  color: rgb(var(--ivory));
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+.party-root[data-resting] {
+  cursor: none;
+}
+
+/* The garden could not start: the veil's night sky, still and quiet, behind the panel. */
+.party-root-fallback {
+  background:
+    radial-gradient(120% 60% at 30% 112%, rgba(255, 168, 88, 0.2), rgba(255, 168, 88, 0) 62%),
+    radial-gradient(80% 55% at 30% 38%, rgba(64, 86, 150, 0.2), rgba(64, 86, 150, 0) 72%),
+    linear-gradient(180deg, #060912 0%, #0a0f1f 55%, #131a29 100%);
+}
+
+/* with no garden to stand beside, the panel takes the middle of the screen */
+.party-root-fallback .party-panel {
+  left: 0;
+  right: 0;
+  margin: auto;
+}
+
+/* ---- the veil, a little larger on a big screen ---- */
+
+.party-veil-zoom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+@media (min-width: 1800px) and (min-height: 1000px) {
+  .party-veil-zoom {
+    zoom: 1.4;
+  }
+}
+
+@media (min-width: 3000px) and (min-height: 1700px) {
+  .party-veil-zoom {
+    zoom: 2.4;
+  }
+}
+
+/* ---- the panel ---- */
+
+.party-panel {
+  position: absolute;
+  z-index: 30;
+  top: 0;
+  bottom: 0;
+  right: 5vw;
+  height: fit-content;
+  max-height: 90vh;
+  margin: auto 0;
+  width: calc(588 * var(--px));
+  box-sizing: border-box;
+  padding: calc(42 * var(--px)) calc(44 * var(--px)) calc(38 * var(--px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  border-radius: calc(30 * var(--px));
+  background: linear-gradient(180deg, rgba(24, 18, 12, 0.56) 0%, rgba(14, 11, 8, 0.66) 100%);
+  border: 1px solid rgba(var(--gold), 0.17);
+  box-shadow:
+    0 calc(30 * var(--px)) calc(90 * var(--px)) rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 rgba(255, 240, 210, 0.07);
+  -webkit-backdrop-filter: blur(calc(18 * var(--px))) saturate(1.08);
+  backdrop-filter: blur(calc(18 * var(--px))) saturate(1.08);
+  opacity: 0;
+  transform: translate3d(0, calc(16 * var(--px)), 0);
+  transition:
+    opacity 1.6s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 1.9s cubic-bezier(0.22, 0.61, 0.36, 1);
+  pointer-events: none;
+}
+
+.party-panel-on {
+  opacity: 1;
+  transform: none;
+}
+
+.party-crest {
+  display: block;
+  width: calc(200 * var(--px));
+  height: calc(24 * var(--px));
+}
+
+.party-title {
+  margin: calc(12 * var(--px)) 0 0;
+  font-family: var(--font-party-display), "Iowan Old Style", Georgia, serif;
+  font-weight: 500;
+  font-size: calc(68 * var(--px));
+  line-height: 1.02;
+  letter-spacing: 0.004em;
+  color: rgb(var(--cream));
+  text-wrap: balance;
+}
+
+.party-title-name {
+  font-style: italic;
+  font-weight: 600;
+  color: #f3d69c;
+  text-shadow: 0 0 calc(26 * var(--px)) rgba(255, 186, 104, 0.28);
+}
+
+.party-invite {
+  margin: calc(12 * var(--px)) 0 0;
+  max-width: 19em;
+  font-size: calc(28 * var(--px));
+  font-weight: 300;
+  line-height: 1.32;
+  color: rgba(var(--ivory), 0.84);
+  text-wrap: balance;
+}
+
+/* The code on warm paper, with a slow warm breath of light behind it to draw the eye (never a blink). */
+.party-qr {
+  position: relative;
+  margin-top: calc(28 * var(--px));
+  width: calc(340 * var(--px));
+  aspect-ratio: 1;
+  border-radius: calc(18 * var(--px));
+  background: #fbf6ea;
+  box-shadow:
+    0 calc(12 * var(--px)) calc(40 * var(--px)) rgba(0, 0, 0, 0.38),
+    0 0 0 1px rgba(255, 236, 200, 0.28);
+}
+
+.party-qr::before {
+  content: "";
+  position: absolute;
+  inset: calc(-34 * var(--px));
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 200, 120, 0.22), rgba(255, 200, 120, 0));
+  animation: party-breathe 7s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.party-qr-code {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+/* Before the address has been read (a moment after the first paint): the card's place, empty. */
+.party-qr-waiting {
+  background: rgba(251, 246, 234, 0.08);
+  box-shadow: 0 0 0 1px rgba(255, 236, 200, 0.14);
+}
+
+.party-qr-waiting::before {
+  display: none;
+}
+
+@keyframes party-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+.party-link {
+  margin: calc(14 * var(--px)) 0 0;
+  max-width: 100%;
+  font-size: calc(17 * var(--px));
+  letter-spacing: 0.02em;
+  color: rgba(var(--ivory), 0.56);
+  overflow-wrap: anywhere;
+}
+
+.party-setup {
+  margin-top: calc(28 * var(--px));
+  width: calc(340 * var(--px));
+  aspect-ratio: 1;
+  box-sizing: border-box;
+  padding: calc(34 * var(--px));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(14 * var(--px));
+  border-radius: calc(18 * var(--px));
+  border: 1px dashed rgba(var(--gold), 0.45);
+  background: rgba(251, 246, 234, 0.05);
+}
+
+.party-setup-title {
+  font-family: var(--font-party-display), Georgia, serif;
+  font-style: italic;
+  font-size: calc(34 * var(--px));
+  line-height: 1.1;
+  color: #f3d69c;
+}
+
+.party-setup-body {
+  font-size: calc(19 * var(--px));
+  line-height: 1.45;
+  color: rgba(var(--ivory), 0.8);
+}
+
+.party-setup-path {
+  white-space: nowrap;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  color: rgb(var(--cream));
+}
+
+.party-rule {
+  flex: none;
+  width: calc(130 * var(--px));
+  height: 1px;
+  margin: calc(28 * var(--px)) 0 calc(22 * var(--px));
+  background: linear-gradient(90deg, rgba(var(--gold), 0), rgba(var(--gold), 0.55), rgba(var(--gold), 0));
+}
+
+/* ---- the tally ---- */
+
+.party-tally {
+  --row: calc(38 * var(--px));
+  width: 100%;
+  min-height: calc(64 * var(--px) + 14 * var(--px) + 3 * var(--row));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.party-count {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: calc(14 * var(--px));
+  margin: 0;
+  min-height: calc(64 * var(--px));
+}
+
+.party-count-n {
+  font-family: var(--font-party-display), Georgia, serif;
+  font-weight: 600;
+  font-size: calc(66 * var(--px));
+  line-height: 1;
+  font-variant-numeric: lining-nums tabular-nums;
+  color: rgb(var(--cream));
+}
+
+.party-count-words {
+  font-size: calc(26 * var(--px));
+  color: rgba(var(--ivory), 0.82);
+}
+
+.party-count-first {
+  align-items: center;
+  font-family: var(--font-party-display), Georgia, serif;
+  font-style: italic;
+  font-weight: 500;
+  font-size: calc(40 * var(--px));
+  color: rgb(var(--cream));
+}
+
+.party-feed {
+  position: relative;
+  width: 100%;
+  height: calc(3 * var(--row));
+  margin: calc(14 * var(--px)) 0 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+}
+
+.party-feed-item {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--row);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(10 * var(--px));
+  font-size: calc(24 * var(--px));
+  white-space: nowrap;
+  transition:
+    transform 1.4s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 1.4s ease;
+}
+
+.party-feed-item[data-row="0"] {
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+}
+
+.party-feed-item[data-row="1"] {
+  transform: translate3d(0, var(--row), 0);
+  opacity: 0.6;
+}
+
+.party-feed-item[data-row="2"] {
+  transform: translate3d(0, calc(2 * var(--row)), 0);
+  opacity: 0.34;
+}
+
+.party-feed-item[data-row="3"] {
+  transform: translate3d(0, calc(3 * var(--row)), 0);
+  opacity: 0;
+}
+
+/* A new name drifts down into the top row; afterwards the rows' own transitions move it on. */
+.party-feed-in {
+  animation: party-feed-in 1.5s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+@keyframes party-feed-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, calc(-0.6 * var(--row)), 0);
+  }
+}
+
+.party-feed-dot {
+  flex: none;
+  width: calc(9 * var(--px));
+  height: calc(9 * var(--px));
+  border-radius: 50%;
+  background: var(--seed, #f3d69c);
+  box-shadow: 0 0 calc(10 * var(--px)) var(--seed, #f3d69c);
+}
+
+.party-feed-name {
+  min-width: 0;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  color: rgb(var(--cream));
+}
+
+.party-feed-rest {
+  flex: none;
+  color: rgba(var(--ivory), 0.76);
+}
+
+/* ---- the caption and the operator's notes ---- */
+
+.party-caption {
+  position: absolute;
+  z-index: 25;
+  left: 5vw;
+  bottom: 5vh;
+  opacity: 0;
+  transform: translate3d(0, calc(10 * var(--px)), 0);
+  transition:
+    opacity 1.6s cubic-bezier(0.4, 0, 0.2, 1) 0.4s,
+    transform 1.9s cubic-bezier(0.22, 0.61, 0.36, 1) 0.4s;
+  text-shadow: 0 1px calc(14 * var(--px)) rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.party-caption-on {
+  opacity: 1;
+  transform: none;
+}
+
+.party-caption-title {
+  font-family: var(--font-party-display), Georgia, serif;
+  font-weight: 500;
+  font-size: calc(34 * var(--px));
+  line-height: 1.1;
+  color: rgba(var(--cream), 0.94);
+}
+
+.party-caption-sub {
+  margin-top: calc(4 * var(--px));
+  font-size: calc(19 * var(--px));
+  letter-spacing: 0.02em;
+  color: rgba(var(--ivory), 0.7);
+}
+
+.party-note {
+  position: absolute;
+  z-index: 40;
+  left: 5vw;
+  top: 5vh;
+  padding: calc(8 * var(--px)) calc(16 * var(--px));
+  border-radius: 999px;
+  background: rgba(14, 11, 8, 0.55);
+  font-size: calc(17 * var(--px));
+  color: rgba(var(--ivory), 0.75);
+  animation: party-note 2.4s ease both;
+  pointer-events: none;
+}
+
+@keyframes party-note {
+  0% {
+    opacity: 0;
+  }
+  15%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ---- portrait: the panel along the bottom, the bloom above it ---- */
+
+@media (max-aspect-ratio: 1/1) {
+  .party-root {
+    --px: min(calc(100vw / 720), calc(100vh / 1400));
+  }
+
+  .party-panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: max(3vh, env(safe-area-inset-bottom));
+    margin: 0 auto;
+    width: min(calc(100vw - 32px), calc(600 * var(--px)));
+    padding: calc(34 * var(--px)) calc(36 * var(--px)) calc(30 * var(--px));
+  }
+
+  .party-qr,
+  .party-setup {
+    width: calc(300 * var(--px));
+    margin-top: calc(22 * var(--px));
+  }
+
+  .party-rule {
+    margin: calc(20 * var(--px)) 0 calc(16 * var(--px));
+  }
+
+  .party-caption {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .party-qr::before,
+  .party-feed-in {
+    animation: none;
+  }
+  .party-feed-item {
+    transition-duration: 0.01s;
+  }
+}
