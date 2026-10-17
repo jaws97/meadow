@@ -1,7 +1,7 @@
 // What the Meadow says about a plant, in kind words: never a score, never a scolding, never a guess at anyone's
 // pronouns (a person is their name, or "A friend"). Plain, warm, short, sentence case, no exclamation marks. The
 // card reads the plant's stage and mood from GET /api/garden/[plot] (lib/sim's PlantMood) and its flower's hours
-// from the snapshot.
+// from the snapshot. Also the one notice the Meadow raises about itself.
 import type { FriendGarden, MeadowPlot } from "@/lib/server/meadow";
 import { SPECIES, type SpeciesId } from "@/lib/plant/species";
 
@@ -77,3 +77,9 @@ export function stageWord(p: Pick<MeadowPlot, "stage" | "bloom" | "species">): s
       return "resting";
   }
 }
+
+/**
+ * Shown once when the Meadow moves the cart onto its lighter glide under load, or because the physics stopped. The
+ * cart stays on screen and carries on, so this names only what the visitor may feel: a smoother, gentler ride.
+ */
+export const GLIDE_NOTICE = "Riding smooth today";

@@ -51,13 +51,14 @@ function PhysicsTimer() {
   return null;
 }
 
-export default function PhysicsWorld() {
+/** `lite`: the trolley draws the lite tier, as MeadowCanvas picks it for the whole scene. */
+export default function PhysicsWorld({ lite }: { lite: boolean }) {
   // the colliders follow the plan; a plan that grows (more rings) rebuilds them under a new key
   const layout = meadowLayout();
   return (
     <Physics timeStep={1 / 60} interpolate updatePriority={-5} gravity={GRAVITY} colliders={false}>
       <MeadowColliders key={layoutVersion()} layout={layout} />
-      <PhysicsCart />
+      <PhysicsCart lite={lite} />
       <PhysicsTimer />
     </Physics>
   );

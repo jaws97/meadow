@@ -18,6 +18,9 @@
   --m-glass-2: rgba(10, 13, 21, 0.94);
   --m-display: var(--font-display, "Iowan Old Style"), "Iowan Old Style", "Palatino Linotype", Georgia, serif;
   --m-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* the words laid straight on the canvas: their pools of dusk, and their letters' shadow (see the top bar) */
+  --m-dusk: 14, 17, 27;
+  --m-letter-shadow: 0 1px 2px rgba(var(--m-dusk), 0.72), 0 0 1px rgba(var(--m-dusk), 0.5), 0 0 16px rgba(var(--m-dusk), 0.55);
   color: var(--m-ink);
 }
 
@@ -61,9 +64,44 @@
   pointer-events: none;
 }
 
-.meadow-title {
+/*
+ * The title, the count line and the hint sit straight on the canvas, which at noon is pale paving. A faint dusk
+ * along the top edge of the screen, a pool of it behind each block of words (feathered to nothing, so no box and no
+ * line), and a shadow in two parts: a tight one that gives every letter an edge, and a soft halo. Night only deepens
+ * a touch round the words; noon stops washing them out.
+ */
+.meadow-top::before {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(env(safe-area-inset-top) + 124px);
+  background: linear-gradient(180deg, rgba(var(--m-dusk), 0.3), rgba(var(--m-dusk), 0.12) 55%, rgba(var(--m-dusk), 0));
   pointer-events: none;
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.45);
+}
+
+.meadow-title {
+  position: relative;
+  z-index: 0;
+  pointer-events: none;
+  text-shadow: var(--m-letter-shadow);
+}
+
+.meadow-title::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -46px -84px -42px -60px;
+  background: radial-gradient(
+    closest-side,
+    rgba(var(--m-dusk), 0.6),
+    rgba(var(--m-dusk), 0.5) 50%,
+    rgba(var(--m-dusk), 0.22) 80%,
+    rgba(var(--m-dusk), 0)
+  );
+  pointer-events: none;
 }
 
 .meadow-title h1 {
@@ -77,7 +115,7 @@
 .meadow-title p {
   margin-top: 2px;
   font-size: clamp(12px, 1vw, 15px);
-  color: var(--m-ink-2);
+  color: rgba(246, 234, 214, 0.92);
 }
 
 .meadow-actions {
@@ -421,19 +459,50 @@
 
 /* ---- the hint line --------------------------------------------------------------------------------------------- */
 
+/* sized to its words and centred (width with both sides pinned), so its pool of dusk sits just behind them */
 .meadow-hint {
   position: fixed;
   z-index: 10;
   left: 0;
   right: 0;
   bottom: max(14px, env(safe-area-inset-bottom));
-  padding: 0 16px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  margin: 0 auto;
   text-align: center;
-  font-size: clamp(12px, 0.85vw, 16px);
-  color: rgba(255, 255, 255, 0.78);
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+  font-size: clamp(13px, 0.9vw, 16px);
+  color: rgba(255, 248, 236, 0.92);
+  text-shadow: var(--m-letter-shadow);
   pointer-events: none;
   transition: opacity 1s ease;
+}
+
+.meadow-hint::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -24px -56px -20px;
+  background: radial-gradient(closest-side, rgba(var(--m-dusk), 0.56), rgba(var(--m-dusk), 0.42) 55%, rgba(var(--m-dusk), 0));
+}
+
+/* ---- the glide notice ------------------------------------------------------------------------------------------ */
+
+/*
+ * DevHud's MoverNotice ("Riding smooth today") is centred at the top. On a narrow screen that lands on the title and
+ * the buttons, so there it drops below the top bar, and below the journey's pill when one is showing.
+ */
+.meadow-notice {
+  top: max(16px, env(safe-area-inset-top));
+}
+
+@media (max-width: 767px) {
+  .meadow-notice {
+    top: calc(max(12px, env(safe-area-inset-top)) + 60px);
+  }
+
+  .meadow-root:has(.meadow-journey) .meadow-notice {
+    top: calc(max(12px, env(safe-area-inset-top)) + 118px);
+  }
 }
 
 /* ---- the opening veil ---------------------------------------------------------------------------------------- */

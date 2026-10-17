@@ -7,8 +7,13 @@
 // Meadow also falls back to gliding by itself, with a gentle notice and never an error: if Rapier fails to load or
 // start (an error boundary round the physics world, and a start-up timeout), if the physics chunk itself fails to
 // download (the lazy import catches it and stands in a component that reports the failure, so React never sees a
-// ChunkLoadError), or if the frame rate stays under 30 fps for a few seconds with the cart running. The glider takes
-// over where the cart stood, with the same controls, behind a short warm fade. `?mover=physics` pins the cart for
+// ChunkLoadError), or if the frame rate stays under 30 fps for a few seconds with the cart running. The glider draws
+// the same Firefly Trolley, so the swap is made in plain sight with nothing to hide: it takes over in the same commit
+// that hides the cart, where the cart stands, facing and rolling its way and easing out of its tilt, still on its
+// visit or journey if it was on one, and the camera, which only ever follows the live Mover, never jumps. The hidden
+// physics world is let go a few frames later, once the glider's trolley has drawn: its materials share the cart's
+// shader programs, which unmounting the cart first would have deleted and recompiled mid-ride. One gentle notice says
+// the ride is smoother now; a cart that failed before anyone saw it needs none. `?mover=physics` pins the cart for
 // testing: no frame-rate or start-up fallback, only a hard failure. The scene, plants, guides and camera are shared
 // and only ever talk to whichever Mover is live.
 //
@@ -17,6 +22,10 @@
 // (with the glider, or with the cart pinned) the ratio steps down calmly, never below the class's floor, at a still
 // moment and behind a held copy of the last frame, so the picture never blinks or turns soft in front of anyone.
 // The party screen (the "bigscreen" class) opens a little further back, so the room sees more of the Meadow.
+//
+// Quality. One tier per device class (QUALITY): a phone draws the rose, the visited plant and the trolley lite, every
+// other class balanced. The movers are handed it, so the cart, and the glider that may replace it, draw the same tier
+// as the rest of the scene instead of each guessing from the device.
 //
 // The plan. The ground plan follows the rings in use (layout.ts): six planned rings, and whole beds more only if
 // the Meadow outgrows them, rebuilt under a new key when that happens.
@@ -55,11 +64,14 @@ import { Plants } from "@/components/meadow/Plants";
 import { meadow, perf, resetMeadow, setStart, setZoom } from "@/components/meadow/runtime";
 import { ui } from "@/components/meadow/ui";
 import { VisitedPlant } from "@/components/meadow/VisitedPlant";
+import { GLIDE_NOTICE } from "@/components/meadow/words";
 import { dprForBudget, MIN_DPR, readDevice, type DeviceKind } from "@/lib/garden/device";
 import { ringsToDraw } from "@/lib/server/plots";
 
 interface PhysicsProps {
   onFail: () => void;
+  /** The trolley draws the lite tier (see QUALITY). */
+  lite: boolean;
 }
 
 /** Stands in for the physics world when its chunk could not be fetched: reports it, draws nothing. */
@@ -88,6 +100,9 @@ const PUBLISH_EVERY = 0.5;
  * per pixel; these hold 60 fps on an office laptop's integrated graphics and keep a phone cool.
  */
 const BUDGET: Record<DeviceKind, number> = { phone: 1.0, tablet: 1.5, laptop: 1.6, bigscreen: 2.0 };
+/** The drawing tier per device class, for the full plants and the trolley. */
+type MeadowQuality = "lite" | "balanced";
+const QUALITY: Record<DeviceKind, MeadowQuality> = { phone: "lite", tablet: "balanced", laptop: "balanced", bigscreen: "balanced" };
 /** Under this many frames per second the cart counts as struggling... */
 const SLOW_FPS = 30;
 /** ...and over this it has recovered (a gap, so a borderline device does not flip on noise). */
@@ -111,16 +126,8 @@ const STEP_WAIT_MAX_MS = 45000;
 const STEP_GAP_MS = 30000;
 /** A physics world that has not produced a cart in this long is treated as failed. */
 const START_TIMEOUT_MS = 12000;
-/** The warm fade round the cart-to-glider swap: out, then back in once the glider is live (ms). */
-const SWAP_FADE_OUT_MS = 160;
-const SWAP_FADE_IN_MS = 320;
-const SWAP_FADE_MAX_HOLD_MS = 1500;
-
-type FallbackReason = "failed" | "slow";
-const NOTICE: Record<FallbackReason, string> = {
-  failed: "Gliding today, the cart is resting",
-  slow: "Gliding for a smoother ride",
-};
+/** Frames the glider draws before the hidden physics world (and with it the cart's trolley) is unmounted. */
+const RETIRE_FRAMES = 3;
 
 function readMoverParam(): MoverKind | "pinned-physics" {
   const p = new URLSearchParams(window.location.search).get("mover");
@@ -165,18 +172,29 @@ class PhysicsBoundary extends Component<{ onFail: () => void; children: ReactNod
 }
 
 /** Wires the controller to the canvas and runs it before physics each frame. */
-function Controls({ controller }: { controller: MeadowController }) {
+function Controls({ controller, fallBack }: { controller: MeadowController; fallBack: () => void }) {
   const gl = useThree((s) => s.gl);
   const get = useThree((s) => s.get);
   useEffect(() => {
     controller.input.attach(gl.domElement);
-    // Dev-only handle for probing the live Meadow from the console.
+    // Dev-only handle for probing the live Meadow from the console; `__meadow.fallBack()` rehearses the glide swap.
     if (process.env.NODE_ENV !== "production") {
-      (window as unknown as { __meadow?: unknown }).__meadow = { state: get(), get, meadow, controller, data: meadowData, plotAt, ui };
+      (window as unknown as { __meadow?: unknown }).__meadow = { state: get(), get, meadow, controller, data: meadowData, plotAt, ui, fallBack };
     }
     return () => controller.input.detach();
-  }, [gl, get, controller]);
+  }, [gl, get, controller, fallBack]);
   useFrame((state, dt) => controller.frame(state.camera, state.size, dt), -6);
+  return null;
+}
+
+/** Calls `onDone` once, when `frames` frames have been drawn since it mounted. */
+function AfterFrames({ frames, onDone }: { frames: number; onDone: () => void }) {
+  const left = useRef(frames);
+  useFrame(() => {
+    if (left.current <= 0) return;
+    left.current--;
+    if (left.current === 0) onDone();
+  });
   return null;
 }
 
@@ -186,9 +204,16 @@ function Controls({ controller }: { controller: MeadowController }) {
  * step-down (PixelStep carries it out).
  */
 function PerfProbe({ watch, onSlow, onSag }: { watch: boolean; onSlow: () => void; onSag: () => void }) {
-  const accRef = useRef({ frames: 0, time: 0, max: 0, first: true, slow: 0, sag: 0, settle: SETTLE_WINDOWS });
+  const accRef = useRef({ frames: 0, time: 0, max: 0, first: true, slow: 0, sag: 0, settle: SETTLE_WINDOWS, watch });
   useFrame(({ gl }, dt) => {
     const acc = accRef.current;
+    // the glider taking over starts the readings afresh: its first seconds say little about how it will hold up
+    if (acc.watch !== watch) {
+      acc.watch = watch;
+      acc.slow = 0;
+      acc.sag = 0;
+      acc.settle = SETTLE_WINDOWS;
+    }
     if (acc.first) {
       acc.first = false;
       try {
@@ -306,34 +331,6 @@ function PixelStep({ askRef, dpr, next, onStep }: { askRef: RefObject<boolean>; 
 }
 
 /**
- * Runs the warm veil (meadow.fade, drawn by DevHud's FadeVeil) round a swap: a quick fade out, the swap, then a
- * fade back in once the new mover is live (or after a short wait, whatever happens).
- */
-function fadeAround(swap: () => void) {
-  const start = performance.now();
-  let swappedAt = -1;
-  let inFrom = -1;
-  const tick = () => {
-    const now = performance.now();
-    if (swappedAt < 0) {
-      meadow.fade = Math.min(1, (now - start) / SWAP_FADE_OUT_MS);
-      if (meadow.fade >= 1) {
-        swap();
-        swappedAt = now;
-      }
-    } else if (inFrom < 0) {
-      meadow.fade = 1;
-      if ((meadow.mover && !meadow.stats.loading) || now - swappedAt > SWAP_FADE_MAX_HOLD_MS) inFrom = now;
-    } else {
-      meadow.fade = Math.max(0, 1 - (now - inFrom) / SWAP_FADE_IN_MS);
-      if (meadow.fade <= 0) return;
-    }
-    requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
-}
-
-/**
  * The pixel ratio that spends this device's budget on the window at step `step`, and the one the next step down
  * would give, kept current through resizes and rotation.
  */
@@ -379,6 +376,9 @@ export default function MeadowCanvas() {
   const [param] = useState(readMoverParam);
   const [kind, setKind] = useState<MoverKind>(param === "glide" ? "glide" : "physics");
   const kindRef = useRef(kind);
+  /** The physics world is mounted: from the start unless gliding, and hidden for RETIRE_FRAMES after a swap. */
+  const [physics, setPhysics] = useState(param !== "glide");
+  const retire = useCallback(() => setPhysics(false), []);
   const [dprStep, setDprStep] = useState(0);
   const { dpr, next: nextDpr, kind: deviceKind } = useBudgetDpr(dprStep);
   const stepAsk = useRef(false);
@@ -391,30 +391,23 @@ export default function MeadowCanvas() {
     return new MeadowController();
   }, [param, deviceKind]);
 
-  const fallBack = useCallback(
-    (reason: FallbackReason) => {
-      if (kindRef.current === "glide") return;
-      kindRef.current = "glide";
-      const swap = () => {
-        const m = meadow.mover;
-        if (m) meadow.handoff = { x: m.state.position.x, z: m.state.position.z, yaw: m.state.yaw };
-        controller.autopilot.cancel();
-        meadow.mover = null;
-        meadow.moverKind = "glide";
-        meadow.mode = "idle";
-        meadow.journey = false;
-        meadow.stats.loading = true;
-        meadow.notice = { text: NOTICE[reason], at: performance.now() };
-        setKind("glide");
-      };
-      // A cart on screen fades out and the glider fades in where it stood; with no cart yet there is nothing to hide.
-      if (meadow.mover) fadeAround(swap);
-      else swap();
-    },
-    [controller],
-  );
-  const onFail = useCallback(() => fallBack("failed"), [fallBack]);
-  const onSlow = useCallback(() => fallBack("slow"), [fallBack]);
+  // The swap in plain sight. The cart stays the live Mover, still driven and still followed by the camera, until the
+  // glider replaces it in the commit that hides it (GlideMover picks up the cart's pose and speed then, so nothing
+  // goes stale while React renders). The autopilot and any journey carry on: a route is only points, and the
+  // autopilot drives whichever Mover it is handed. The handoff is for a cart already gone (an error unmounted it).
+  // A failure and a struggling frame rate end the same way: the visitor only feels a gentler ride.
+  const fallBack = useCallback(() => {
+    if (kindRef.current === "glide") return;
+    kindRef.current = "glide";
+    const m = meadow.mover;
+    if (m) meadow.handoff = { x: m.state.position.x, z: m.state.position.z, yaw: m.state.yaw };
+    meadow.moverKind = "glide";
+    // a cart that failed before it ever appeared changes nothing for the visitor, and says nothing
+    if (m) meadow.notice = { text: GLIDE_NOTICE, at: performance.now() };
+    setKind("glide");
+  }, []);
+  const onFail = fallBack;
+  const onSlow = fallBack;
   const onSag = useCallback(() => {
     stepAsk.current = true;
   }, []);
@@ -430,31 +423,34 @@ export default function MeadowCanvas() {
     return () => window.clearTimeout(id);
   }, [kind, auto, onFail]);
 
-  const plantQuality = phone ? "lite" : "balanced";
+  const quality = QUALITY[deviceKind];
+  const lite = quality === "lite";
   return (
     <Canvas shadows={SHADOWS} dpr={dpr} gl={GL} camera={CAMERA} style={STYLE}>
       <PerfProbe watch={kind === "physics" && auto} onSlow={onSlow} onSag={onSag} />
       <PixelStep askRef={stepAsk} dpr={dpr} next={nextDpr} onStep={onStep} />
-      <Controls controller={controller} />
+      <Controls controller={controller} fallBack={fallBack} />
       <MeadowEnvironment shadowSize={phone ? 1024 : 2048} />
       <group key={layoutKey}>
         <MeadowScene layout={layout} shadows={!phone} />
         <Plants layout={layout} shadows={!phone} />
       </group>
-      <DaisRose quality={plantQuality} />
-      <VisitedPlant quality={plantQuality} />
+      <DaisRose quality={quality} />
+      <VisitedPlant quality={quality} />
       <Bursts />
       <Fireflies />
       <GuideMarkers />
-      {kind === "glide" ? (
-        <GlideMover />
-      ) : (
-        <PhysicsBoundary onFail={onFail}>
-          <Suspense fallback={null}>
-            <PhysicsWorld onFail={onFail} />
-          </Suspense>
-        </PhysicsBoundary>
+      {kind === "glide" && <GlideMover lite={lite} />}
+      {physics && (
+        <group visible={kind === "physics"}>
+          <PhysicsBoundary onFail={onFail}>
+            <Suspense fallback={null}>
+              <PhysicsWorld onFail={onFail} lite={lite} />
+            </Suspense>
+          </PhysicsBoundary>
+        </group>
       )}
+      {physics && kind === "glide" && <AfterFrames frames={RETIRE_FRAMES} onDone={retire} />}
       <CameraRig />
     </Canvas>
   );

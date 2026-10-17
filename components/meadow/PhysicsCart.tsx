@@ -68,7 +68,7 @@ class PhysicsMover implements Mover {
   }
 }
 
-export function PhysicsCart() {
+export function PhysicsCart({ lite }: { lite: boolean }) {
   const { world, rapier } = useRapier();
   // where it starts: handed over by a glider, or the Meadow's start pose (meadow.start), read once
   const [spawn] = useState(() => {
@@ -130,7 +130,7 @@ export function PhysicsCart() {
     <RigidBody ref={bodyRef} colliders={false} canSleep={false} position={spawn.position} rotation={spawn.rotation}>
       <CuboidCollider args={CHASSIS.half} friction={CHASSIS.friction} massProperties={MASS_PROPS} collisionGroups={CART_GROUPS} />
       <group ref={anchorRef}>
-        <FireflyTrolley wheels={wheels} />
+        <FireflyTrolley wheels={wheels} lite={lite} />
       </group>
     </RigidBody>
   );

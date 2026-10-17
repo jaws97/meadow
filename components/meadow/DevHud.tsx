@@ -143,8 +143,9 @@ export function MoverNotice() {
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4 transition-opacity duration-700"
-      style={{ top: "max(16px, env(safe-area-inset-top))", opacity: shown ? 1 : 0 }}
+      // meadow-notice (meadow.css) sets its top, which drops below the top bar on a phone
+      className="meadow-notice pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4 transition-opacity duration-700"
+      style={{ opacity: shown ? 1 : 0 }}
     >
       <span className="rounded-full bg-[#fff1cf]/90 px-4 py-2 text-sm text-[#3b2f22] shadow-lg">{text}</span>
     </div>
