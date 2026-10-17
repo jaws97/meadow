@@ -1123,6 +1123,10 @@
     linear-gradient(180deg, rgba(6, 9, 18, 0.35) 0%, rgba(6, 9, 18, 0) 22%, rgba(6, 9, 18, 0) 50%, rgba(6, 9, 18, 0.45) 100%);
 }
 
+/*
+ * The status line comes in once the still has covered the loading veil (gift-veil-in, 0.5 s), so the garden's one
+ * loading line never shows twice while the two cross.
+ */
 .gift-veil-status {
   position: absolute;
   z-index: 1;
@@ -1137,6 +1141,7 @@
   letter-spacing: 0.04em;
   color: rgba(246, 234, 214, 0.62);
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  animation: gift-veil-in 0.4s ease 0.5s both;
 }
 
 .gift-veil-track {
@@ -1205,9 +1210,13 @@
 
 /* ---- the identity pill and its menu -------------------------------------------------- */
 
+/*
+ * In the garden page's own layers: over the care card (15) and a plant swap's soft night (12), under the loading veil
+ * (20), so it never shows over the loading screen.
+ */
 .gift-id {
   position: fixed;
-  z-index: 25;
+  z-index: 17;
   top: max(12px, env(safe-area-inset-top));
   left: max(12px, env(safe-area-inset-left));
 }
@@ -1278,6 +1287,15 @@
     opacity: 1;
     transform: none;
   }
+}
+
+/* the garden's flower and day, so two colleagues with one first name can tell their gardens apart */
+.gift-id-what {
+  margin: 0;
+  padding: 8px 12px 6px;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  color: var(--gift-gold);
 }
 
 .gift-id-item {

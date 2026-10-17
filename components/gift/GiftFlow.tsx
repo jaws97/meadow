@@ -68,8 +68,8 @@ const PREVIEW_SEASON: Season | null = (() => {
 
 const seasonNow = (): Season => PREVIEW_SEASON ?? (SEASON_GATED ? seasonAt() : "open");
 
-/** "Plant the Night Jasmine", "Plant Te Fiti's Bloom": a name that already says whose takes no "the". */
-const plantLabel = (name: string) => (/'s\b/.test(name) ? `Plant ${name}` : `Plant the ${name}`);
+/** "Plant the Night Jasmine", "Plant the Island Bloom". */
+const plantLabel = (name: string) => `Plant the ${name}`;
 
 /** The sign holds any name the server takes (24 characters): longer names get smaller lettering (gift.css). */
 function signLength(text: string): "mid" | "long" | undefined {

@@ -3,7 +3,7 @@
 // or three fit before the line has to be swiped: the soil in words, the plant's day with its bloom outlook in one chip
 // ("Day 4 · about 10 days to bloom", from the server's expectBloom forecast, which assumes the care stays good), friends
 // who sprinkled the plant today (thanked by name), and the weather at the Disney office right now. On a phone the
-// chips ride one swipeable line; in the side panels they wrap.
+// chips ride one swipeable line (not a tab stop: there is nothing in it to act on); in the side panels they wrap.
 import type { ReactNode } from "react";
 import { FlowerIcon, HeartIcon, MoonIcon, RainIcon, SoftSkyIcon, SoilIcon, SproutIcon, SunIcon } from "@/components/care/icons";
 import type { Sky } from "@/lib/client/plant";
@@ -36,7 +36,9 @@ function Chip({ icon, children, label, tone }: { icon: ReactNode; children: Reac
 export function StatusChips({ model }: { model: ChipsModel }) {
   const { soil, outlook, friends, weather } = model;
   return (
-    <ul className="care-chips" aria-label="How the plant is doing">
+    // tabIndex -1: on a phone the line scrolls sideways, and a browser would otherwise make it a tab stop of its own
+    // (its words reach screen readers as the list they are)
+    <ul className="care-chips" aria-label="How the plant is doing" tabIndex={-1}>
       <Chip icon={<SoilIcon level={soil.level} />} label={`Soil: ${soil.word}`} tone={soil.ask ? "ask" : "soil"}>
         Soil {soil.word}
       </Chip>

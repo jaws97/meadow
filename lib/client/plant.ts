@@ -23,12 +23,13 @@
 // and the tests; nothing here touches the DOM until startPlantSync runs, apart from reading that one cached look.
 import { useSyncExternalStore } from "react";
 import { getJson, newEventId, postJson, type ApiFail } from "@/lib/client/api";
+import { rememberGarden } from "@/lib/client/gardens";
 import { garden, type GardenState } from "@/lib/garden/store";
 import { quality } from "@/lib/garden/quality";
 import { SPECIES, type SpeciesId } from "@/lib/plant/species";
 import type { CareResult, MeView } from "@/lib/server/garden";
 import type { CareKind } from "@/lib/server/validate";
-import { IST_OFFSET_MIN, PLANT_OPEN_H, dateOfHour, hod, hourIndexOf, rainSoon, type Visual } from "@/lib/sim";
+import { BED, IST_OFFSET_MIN, PLANT_OPEN_H, dateOfHour, hod, hourIndexOf, rainSoon, type Visual } from "@/lib/sim";
 
 export type { CareKind, MeView };
 
@@ -51,11 +52,15 @@ export interface WeatherNow {
   credit: string;
   upToDate: boolean;
   lagHours: number;
+  /** the hour in progress when the route answered, where `forecast` and `rainSoon` count from (absent from older answers) */
+  nowH?: number;
   /**
-   * the hours ahead by game hour, when the route offers them (it does not yet): rain as rainMm, or as the model's
-   * weather row (wx.P), so rainSoon can read them
+   * the hours ahead by game hour (lib/server/forecast.ts; empty while the forecast is unavailable): rain as rainMm, or
+   * as the model's weather row (wx.P), so rainSoon can read them
    */
   forecast?: readonly { h: number; rainMm?: number | null; wx?: { P?: number | null } | null }[];
+  /** the model's heavy-rain hint over the next twelve hours from nowH, or null without a forecast */
+  rainSoon?: { heavy: boolean; mm: number; startsInH: number | null } | null;
 }
 
 /**
@@ -146,7 +151,7 @@ const NOUNS: Record<SpeciesId, string> = {
   sundrop: "sundrop",
   magnolia: "magnolia",
   marigold: "marigold",
-  tefiti: "flower",
+  island: "flower",
   jasmine: "jasmine",
 };
 
@@ -210,28 +215,51 @@ export interface RainHint {
   startsInH: number;
 }
 
+/** An hour this wet is the rain itself arriving; a drizzle ahead of it does not set when the hint says it comes. */
+const RAIN_ARRIVES_MM = 1;
+
 /**
  * Rain worth skipping the can for: rain falling at the office now (at least a millimetre this hour, heavy from 4 mm), or
- * heavy rain due soon by the model's rainSoon (enough to soak the bed by itself) when the weather carries forecast rows.
- * Weather more than two hours old advises nothing.
+ * heavy rain due soon by the model's rainSoon (enough to soak the bed by itself). The forecast rows are read against
+ * this page's own hour, so an answer the CDN kept from the hour before still counts from now; without rows, the route's
+ * own rainSoon is used, moved on by the hours since it was made. "Soon" counts to the first hour of real rain (a
+ * millimetre or more), not to a passing drizzle before it. Weather more than two hours old advises nothing.
  */
 export function rainHint(w: WeatherNow | null, nowH: number): RainHint | null {
   if (!w || w.lagHours > 2) return null;
   if (w.rainMm >= 1) return { when: "now", heavy: w.rainMm >= 4, startsInH: 0 };
-  if (w.forecast && w.forecast.length > 0) {
-    const soon = rainSoon(w.forecast.map((r) => ({ h: r.h, wx: { P: r.wx?.P ?? r.rainMm ?? 0 } })), nowH);
-    if (soon.heavy) return { when: "soon", heavy: true, startsInH: soon.startsInH ?? 0 };
+  const rows = (w.forecast ?? []).filter((r) => r && Number.isFinite(r.h));
+  if (rows.length > 0) {
+    const mm = (r: (typeof rows)[number]) => Math.max(0, r.wx?.P ?? r.rainMm ?? 0);
+    const soon = rainSoon(rows.map((r) => ({ h: r.h, wx: { P: mm(r) } })), nowH);
+    if (!soon.heavy) return null;
+    let arrives: number | null = null;
+    for (const r of rows) {
+      const k = r.h - nowH;
+      if (k >= 0 && k < BED.soonH && mm(r) >= RAIN_ARRIVES_MM && (arrives === null || k < arrives)) arrives = k;
+    }
+    return { when: "soon", heavy: true, startsInH: arrives ?? soon.startsInH ?? 0 };
+  }
+  const s = w.rainSoon;
+  if (s && s.heavy) {
+    const since = typeof w.nowH === "number" && Number.isFinite(w.nowH) ? Math.max(0, nowH - w.nowH) : 0;
+    return { when: "soon", heavy: true, startsInH: Math.max(0, (s.startsInH ?? 0) - since) };
   }
   return null;
 }
 
-/** The rain itself, in a few words: "Heavy rain tonight", "It is raining at the office". */
+/**
+ * The rain itself, in a few words: "Heavy rain tonight", "Heavy rain this afternoon", "Heavy rain tomorrow morning",
+ * "It is raining at the office". Game hour 0 is midnight IST, so whole days of game hours are IST calendar days.
+ */
 export function rainLead(r: RainHint, nowH: number): string {
   if (r.when === "now") return r.heavy ? "Heavy rain at the office now" : "It is raining at the office";
   if (r.startsInH <= 1) return "Heavy rain is on its way";
-  const at = hod(nowH + r.startsInH);
+  const h = nowH + r.startsInH;
+  const at = hod(h);
   if (at >= 17 || at < 5) return "Heavy rain tonight";
-  return at < 12 ? "Heavy rain in the morning" : "Heavy rain this afternoon";
+  const day = Math.floor(h / 24) === Math.floor(nowH / 24) ? "this" : "tomorrow";
+  return `Heavy rain ${day} ${at < 12 ? "morning" : "afternoon"}`;
 }
 
 /** The rain hint as the water prompt says it: "Heavy rain tonight; skip the can." */
@@ -757,7 +785,11 @@ function writeTarget(t: RenderTarget, identity?: { speciesId: SpeciesId; seed: s
 
 let dim: HTMLDivElement | null = null;
 
-/** The soft night that covers the garden during a swap (CareLayer.css .care-swap); plain DOM, so it works unmounted too. */
+/**
+ * The soft night that covers the garden during a swap (CareLayer.css .care-swap); plain DOM, so it works unmounted too.
+ * It goes into the page's layer of garden overlays (the garden page's [data-garden-layers]), under the care card, the
+ * name pill and the loading veil, so it dims the garden alone; a page without one gets it over everything, on the body.
+ */
 function setDim(state: "in" | "out" | "none") {
   if (state === "none") {
     dim?.remove();
@@ -768,7 +800,7 @@ function setDim(state: "in" | "out" | "none") {
     dim = document.createElement("div");
     dim.className = "care-swap";
     dim.setAttribute("aria-hidden", "true");
-    document.body.appendChild(dim);
+    (document.querySelector("[data-garden-layers]") ?? document.body).appendChild(dim);
   }
   dim.dataset.state = state;
 }
@@ -880,9 +912,10 @@ const timers: {
 // ---- how long the shade cloth has been up ---------------------------------------------------------------------------------
 //
 // The model leaves leaves that grew under the cloth for two days sun-naive for three more once it comes off (they scorch
-// more easily), so lifting a long shade gets a gentle word first. The view does not say when the cloth went up, so this
-// device remembers when it first saw it up (its own action, or a view): a lower bound, so the word comes late, never
-// wrongly early. A convenience in localStorage, like the remembered look.
+// more easily), so lifting a long shade gets a gentle word first. The view says when the cloth went up (care.shadeSinceH,
+// the game hour its change was filed in). A view from before the server said so, or a cloth this page has only just
+// put up, falls back to when this device first saw it up (its own action, or a view): a lower bound, so the word comes
+// late, never wrongly early. A convenience in localStorage, like the remembered look.
 
 const SHADE_KEY = "garden-shade-since:v1";
 
@@ -914,11 +947,17 @@ function noteShade(seed: string, up: boolean, at: number) {
   else if (!up && since !== null) writeShadeSince(seed, null);
 }
 
-/** When this device first saw the shade cloth up on the plant on screen (ms), or null when it is down or unknown. */
-export function shadeUpSince(): number | null {
+/**
+ * How long the shade cloth has been up on the plant on screen, in hours, or null when it is down or nobody knows: the
+ * server's hour when the view carries it (and agrees the cloth is up), else this device's own memory.
+ */
+export function shadeUpHours(nowMs: number): number | null {
   const me = snap.me;
-  if (!me || typeof window === "undefined" || !toggleShown(snap, "shade")) return null;
-  return readShadeSince(me.plant.seed);
+  if (!me || !toggleShown(snap, "shade")) return null;
+  const sinceH: unknown = me.care.shadeSinceH;
+  if (me.care.shade && typeof sinceH === "number" && Number.isFinite(sinceH)) return Math.max(0, hourIndexOf(new Date(nowMs)) - sinceH);
+  const since = typeof window === "undefined" ? null : readShadeSince(me.plant.seed);
+  return since === null ? null : Math.max(0, (nowMs - since) / HOUR);
 }
 
 // ---- applying views ---------------------------------------------------------------------------------------------------------
@@ -933,6 +972,8 @@ function applyMe(me: MeView, seq: number, requestedAt: number) {
   toldSignedOut = false;
   patch({ me, meAt: requestedAt, phase: "ready", local, meProblem: null, lost: false, now: Date.now() });
   noteShade(me.plant.seed, toggleShown(snap, "shade"), requestedAt);
+  // so the identity menu and the switch question can name this garden by its flower and its day
+  rememberGarden(me.plant.plot, me.plant.species, me.plant.plantedAt);
   startBridge();
   bridgeStep();
 }

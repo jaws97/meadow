@@ -267,6 +267,8 @@ export interface MeView {
     revive: boolean;
     replant: boolean;
     shade: boolean;
+    /** the game hour the shade cloth went on (pending changes included), or null while it is off */
+    shadeSinceH: number | null;
     cover: boolean;
   };
   /** actions recorded since the state's hour; they take effect when their hour completes */

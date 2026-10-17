@@ -9,9 +9,18 @@ export function speciesName(id: SpeciesId): string {
   return SPECIES[id].name;
 }
 
-/** "Day 1", "Day 12". */
+/**
+ * "Planted today", "Day 1", "Day 12", from the server's day of the plant's life (the day it went in being day 1): IST
+ * calendar days since planting, as the plant's own care panel and its identity menu count them, so one garden reads
+ * the same day wherever it is seen.
+ */
 export function dayText(day: number): string {
-  return `Day ${day}`;
+  return day <= 1 ? "Planted today" : `Day ${day - 1}`;
+}
+
+/** "Priya's Night Jasmine", "A friend's Marigold": a flower by its owner, so two people with one name are told apart. */
+export function flowerOf(name: string, species: SpeciesId): string {
+  return `${name}'s ${speciesName(species)}`;
 }
 
 /** Night Jasmine opens at dusk; every other flower with the morning light. */

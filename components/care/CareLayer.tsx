@@ -8,12 +8,14 @@
 // lib/client/plant does the work: it fetches and refreshes the plant, eases the model's live state into the 3D plant,
 // and gives each action its optimistic effect and calm reply. This file decides what to ask first and what asks at all.
 // One thing asks at a time: in rain (falling now, or heavy rain the forecast says will soak the bed) the rain hint is
-// the only voice about water, so the can loses its cue and says "raining" or "rain due", the soil chip goes quiet and a
-// thirsty line from the last hour becomes "The rain is giving me a drink." Otherwise the can on damp soil asks "The soil
-// is still damp. Water anyway?", plant food on a rich bed asks too, a can or a feed inside its rate limit explains from
-// when it is welcome instead of failing, a rain cover left on in dry weather is gently pointed out, and lifting a shade
-// that has been up for a day and a half asks for the evening. "Ready for a drink" is said once: in the plant's line
-// when it says so, else on the soil chip; the can's breathing ring shows where to act.
+// the only voice about water ("Heavy rain tonight; skip the can.", with the rain cover offered), so the can loses its
+// cue and says "raining" or "rain due", the soil chip goes quiet and a thirsty line from the last hour becomes "The rain
+// is giving me a drink."; a tap on the can then asks before it pours (naming damp soil too), until "Water anyway" says
+// to stop asking for that rain. The can on damp soil asks "The soil is still damp. Water anyway?", plant food on a
+// rich bed asks too, a can or a feed inside its rate limit explains from when it is welcome instead of failing, a rain
+// cover left on in dry weather is gently pointed out, and lifting a shade that has been up for a day and a half (the
+// server's shadeSinceH) asks for the evening. "Ready for a drink" is said once: in the plant's line when it says so,
+// else on the soil chip; the can's breathing ring shows where to act.
 //
 // The card's height reaches the garden camera through the store (dockBottom, dockRight), so the plant stands in the
 // open part of the view and eases up when the card grows for a question or a reply. A plant that has gone to sleep
@@ -28,6 +30,7 @@ import { CarePrompt, type PromptSpec } from "@/components/care/CarePrompt";
 import { CloseIcon, CoverIcon, LeafIcon, RainIcon } from "@/components/care/icons";
 import { RestingCard } from "@/components/care/RestingCard";
 import { StatusChips, type ChipsModel } from "@/components/care/StatusChips";
+import { sidePanel } from "@/lib/client/dock";
 import {
   dismissNotice,
   friendsLine,
@@ -42,12 +45,11 @@ import {
   plantStore,
   rainHint,
   rainHintText,
-  rainLead,
   refreshPlant,
   restingOf,
   say,
   sendCare,
-  shadeUpSince,
+  shadeUpHours,
   shownVisual,
   soilWord,
   startPlantSync,
@@ -66,7 +68,9 @@ const SIDE_PANEL = "(min-width: 1024px) and (orientation: landscape)";
 const SHORT_LANDSCAPE = "(orientation: landscape) and (max-height: 540px)";
 
 /** A shade up this long leaves sun-naive leaves when lifted (the model counts 48 h; the word comes a little before). */
-const LONG_SHADE_MS = 36 * 3_600_000;
+const LONG_SHADE_H = 36;
+/** Once the rain question is answered "Water anyway", the can does not ask about rain again for this long (the forecast's twelve hours). */
+const RAIN_ASKED_MS = 12 * 3_600_000;
 /** A cover put on this recently is not yet pointed out in dry weather. */
 const COVER_SETTLE_MS = 45 * 60_000;
 const SPRINKLE_KEY = "garden-sprinkle-thanks:v1";
@@ -79,6 +83,12 @@ function shortWhen(iso: string | null, now: number): string | null {
   return `from ${words.split(",")[0]}`;
 }
 
+/**
+ * While the loading veil still covers the garden (a garden link opening on a fresh device, say), the card under it
+ * takes no focus and no taps.
+ */
+const underVeil = (s: { veiled: boolean; phase: string }) => s.veiled && s.phase !== "revealing" && s.phase !== "live";
+
 /** The fractional hour of the day in Bangalore. */
 function istHourOf(ms: number): number {
   return (((ms / 3_600_000 + IST_OFFSET_MIN / 60) % 24) + 24) % 24;
@@ -87,7 +97,8 @@ function istHourOf(ms: number): number {
 /**
  * Publishes how much of the screen the panel covers: the bottom card's height as --care-dock (for other bottom-edge
  * overlays) and, with the narrow sideways panel's width, to the garden store, so the camera keeps the plant in the
- * open part of the view. The wide side panel publishes nothing: the garden there is composed round it already.
+ * open part of the view. The wide side panel stays out of the store (the garden there is composed round it already)
+ * and only tells the camera's bed shot it is there (lib/client/dock).
  */
 function useDock(panel: RefObject<HTMLElement | null>) {
   useEffect(() => {
@@ -102,6 +113,7 @@ function useDock(panel: RefObject<HTMLElement | null>) {
       const laid = r.width > 0 && r.height > 0;
       const bottom = !laid || side.matches || short.matches ? 0 : Math.max(0, Math.round(window.innerHeight - r.top));
       const right = laid && short.matches ? Math.max(0, Math.round(window.innerWidth - r.left)) : 0;
+      sidePanel.width = laid && side.matches && !short.matches ? Math.max(0, Math.round(window.innerWidth - r.left)) : 0;
       root.style.setProperty("--care-dock", `${bottom}px`);
       const g = garden.get();
       if (g.dockBottom !== bottom || g.dockRight !== right) garden.set({ dockBottom: bottom, dockRight: right });
@@ -121,6 +133,7 @@ function useDock(panel: RefObject<HTMLElement | null>) {
       short.removeEventListener("change", publish);
       window.removeEventListener("resize", publish);
       root.style.removeProperty("--care-dock");
+      sidePanel.width = 0;
       garden.set({ dockBottom: 0, dockRight: 0 });
     };
   }, [panel]);
@@ -190,7 +203,10 @@ function CarePanel({ me }: { me: MeView }) {
   const [coverOnAt, setCoverOnAt] = useState(0);
   const trigger = useRef<HTMLElement | null>(null);
   const promptSeq = useRef(0);
+  /** when the rain question was last answered "Water anyway" here (ms) */
+  const rainWaterAnyway = useRef(-Infinity);
   const panel = useRef<HTMLDivElement>(null);
+  const covered = useQuality(underVeil);
   useDock(panel);
 
   const shown = useMemo(() => shownVisual(me, local, now), [me, local, now]);
@@ -224,18 +240,28 @@ function CarePanel({ me }: { me: MeView }) {
 
   function water() {
     if (!me.care.water.ready) return say(notReadyText("water", me.care.water.nextAt, noun, now), "gentle");
-    if (rain) {
+    const damp = shown.canAdvice === "damp" || soil === "soaked";
+    // the rain asks first, and says so when the soil is damp too, so its "Water anyway" is the one question; only that
+    // answer quiets it for this rain (a skipped can or a cover put on asks again next time), and damp soil still asks
+    if (rain && now - rainWaterAnyway.current > RAIN_ASKED_MS) {
+      const soilWords = soil === "soaked" ? "The soil is soaked just now. " : damp ? "The soil is still damp. " : "";
       return ask({
         title: rainHintText(rain, nowH),
-        body: cover ? "The rain cover is already on, so the bed stays sheltered." : "The rain cover would keep the bed from soaking.",
+        body: soilWords + (cover ? "The rain cover is already on, so the bed stays sheltered." : "The rain cover would keep the bed from soaking."),
         actions: [
           ...(cover ? [] : [{ label: "Put the cover on", primary: true, run: putCoverOn }]),
           { label: "Skip the can", primary: cover, run: () => say("The can can wait. The rain will look after the bed.") },
-          { label: "Water anyway", run: () => void sendCare("water") },
+          {
+            label: "Water anyway",
+            run: () => {
+              rainWaterAnyway.current = now;
+              void sendCare("water");
+            },
+          },
         ],
       });
     }
-    if (shown.canAdvice === "damp" || soil === "soaked") {
+    if (damp) {
       return ask({
         title: "The soil is still damp. Water anyway?",
         body: soil === "soaked" ? "It is soaked just now, and roots like a breath of air between drinks." : undefined,
@@ -264,10 +290,10 @@ function CarePanel({ me }: { me: MeView }) {
   }
 
   function liftShade() {
-    const since = shadeUpSince();
+    const upH = shadeUpHours(now);
     const hour = istHourOf(now);
     // leaves grown under the cloth meet the full sun gently if it comes off toward evening (or at night)
-    if (since !== null && now - since >= LONG_SHADE_MS && hour >= 6 && hour < 16.5) {
+    if (upH !== null && upH >= LONG_SHADE_H && hour >= 6 && hour < 16.5) {
       return ask({
         title: "The leaves are used to the shade. Lift it in the evening so they can adjust.",
         body: "Lifted in the strong midday sun, leaves grown in shade can scorch for a few days.",
@@ -342,14 +368,20 @@ function CarePanel({ me }: { me: MeView }) {
         </button>
       </div>
     );
-  } else if (rain && !cover && !resting) {
+  } else if (rain && !resting && (!cover || rain.when === "soon")) {
+    // "Heavy rain tonight; skip the can." and the rain cover; with the cover already on, only the heavy rain still to
+    // come is said (rain falling on the cover now is the plant's own line)
     slot = (
       <div className="care-hint" data-tone="rain">
         <RainIcon />
-        <p>{rainLead(rain, nowH)}. The rain cover would keep the bed from soaking.</p>
-        <button type="button" className="care-btn care-btn-small" onClick={putCoverOn}>
-          Put the cover on
-        </button>
+        <p>
+          {rainHintText(rain, nowH)} {cover ? "The rain cover is on, so the bed stays sheltered." : "The rain cover would keep the bed from soaking."}
+        </p>
+        {!cover && (
+          <button type="button" className="care-btn care-btn-small" onClick={putCoverOn}>
+            Put the cover on
+          </button>
+        )}
       </div>
     );
   } else if (coverNudge) {
@@ -385,8 +417,9 @@ function CarePanel({ me }: { me: MeView }) {
   };
 
   return (
-    <section className="care-root" aria-label={`Caring for ${me.person.firstName}'s garden`}>
-      <div className="care-panel" ref={panel} onKeyDown={onKeyDown}>
+    <section className="care-root" aria-label={`Caring for ${me.person.firstName}'s garden`} inert={covered}>
+      {/* tabIndex -1: the panel scrolls on a short screen, and a browser would otherwise make the scroller a tab stop of its own */}
+      <div className="care-panel" ref={panel} onKeyDown={onKeyDown} tabIndex={-1}>
         <header className="care-head">
           <p className="care-name">{me.person.firstName}&rsquo;s garden</p>
           {me.plant.rehearsal && <span className="care-tag">Practice garden</span>}
@@ -435,6 +468,7 @@ function QuietCard({ kind }: { kind: "unreachable" | "lost" }) {
   // a first fetch that fails often succeeds on the quick retry: give it a moment before saying anything
   const [shown, setShown] = useState(kind === "lost");
   const panel = useRef<HTMLDivElement>(null);
+  const covered = useQuality(underVeil);
   useEffect(() => {
     if (shown) return;
     const t = window.setTimeout(() => setShown(true), 2500);
@@ -453,8 +487,8 @@ function QuietCard({ kind }: { kind: "unreachable" | "lost" }) {
   };
 
   return (
-    <section className="care-root" aria-label="Your garden">
-      <div className="care-panel care-quiet" ref={panel} hidden={!shown}>
+    <section className="care-root" aria-label="Your garden" inert={covered}>
+      <div className="care-panel care-quiet" ref={panel} hidden={!shown} tabIndex={-1}>
         <div className="care-quiet-row">
           <span className="care-rest-glyph" aria-hidden="true">
             <LeafIcon />

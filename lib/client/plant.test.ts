@@ -19,6 +19,7 @@ import {
   plantedText,
   rainHint,
   rainHintText,
+  rainLead,
   renderTarget,
   restingOf,
   sayLine,
@@ -89,9 +90,42 @@ describe("words", () => {
     const tonight = [106, 107, 108].map((h) => ({ h, wx: { P: 4 } }));
     const hint = rainHint(weather({ forecast: tonight }), 100);
     expect(hint).toEqual({ when: "soon", heavy: true, startsInH: 6 });
-    expect(rainHintText(hint!, 100)).toBe("Heavy rain in the morning; skip the can.");
+    expect(rainHintText(hint!, 100)).toBe("Heavy rain this morning; skip the can.");
     expect(rainHintText({ when: "soon", heavy: true, startsInH: 6 }, 110)).toBe("Heavy rain tonight; skip the can.");
     expect(rainHint(weather({ forecast: [{ h: 101, rainMm: 2 }] }), 100)).toBeNull();
+  });
+
+  it("says when heavy rain arrives by the first real rain, not a drizzle ahead of it", () => {
+    // hour 107 is 11:00 IST; a trickle now, then the downpour from 16:00 (hour 112)
+    const rows = [
+      { h: 107, rainMm: 0.2 },
+      { h: 108, rainMm: 0.1 },
+      ...[112, 113, 114, 115].map((h) => ({ h, rainMm: 3 })),
+    ];
+    const hint = rainHint(weather({ nowH: 107, forecast: rows }), 107);
+    expect(hint).toEqual({ when: "soon", heavy: true, startsInH: 5 });
+    expect(rainHintText(hint!, 107)).toBe("Heavy rain this afternoon; skip the can.");
+    // the same answer read an hour later (kept by the CDN) still counts from the page's own hour
+    expect(rainHint(weather({ nowH: 107, forecast: rows }), 108)).toEqual({ when: "soon", heavy: true, startsInH: 4 });
+  });
+
+  it("falls back to the route's own rainSoon without forecast rows, and asks nothing of old weather", () => {
+    const rainSoon = { heavy: true, mm: 12.4, startsInH: 6 };
+    expect(rainHint(weather({ nowH: 107, forecast: [], rainSoon }), 107)).toEqual({ when: "soon", heavy: true, startsInH: 6 });
+    expect(rainHint(weather({ nowH: 107, rainSoon }), 109)).toEqual({ when: "soon", heavy: true, startsInH: 4 });
+    expect(rainHint(weather({ nowH: 107, rainSoon: { heavy: false, mm: 3, startsInH: 2 } }), 107)).toBeNull();
+    expect(rainHint(weather({ nowH: 107, rainSoon: null }), 107)).toBeNull();
+    expect(rainHint(weather({ lagHours: 3, rainSoon }), 107)).toBeNull();
+  });
+
+  it("names the part of the day the heavy rain comes in", () => {
+    // hour 115 is 19:00 IST on 14 Nov
+    expect(rainLead({ when: "soon", heavy: true, startsInH: 1 }, 115)).toBe("Heavy rain is on its way");
+    expect(rainLead({ when: "soon", heavy: true, startsInH: 4 }, 115)).toBe("Heavy rain tonight");
+    expect(rainLead({ when: "soon", heavy: true, startsInH: 11 }, 115)).toBe("Heavy rain tomorrow morning");
+    expect(rainLead({ when: "soon", heavy: true, startsInH: 3 }, 103)).toBe("Heavy rain this morning");
+    expect(rainLead({ when: "soon", heavy: true, startsInH: 6 }, 106)).toBe("Heavy rain this afternoon");
+    expect(rainLead({ when: "now", heavy: false, startsInH: 0 }, 106)).toBe("It is raining at the office");
   });
 
   it("speaks the plant's line as a sentence", () => {

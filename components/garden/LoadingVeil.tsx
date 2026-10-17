@@ -1,7 +1,9 @@
 "use client";
 // The loading moment: a seed of light on a night-garden sky, its sprout
-// swaying, a halo breathing round it and motes drifting up, over a line that
-// says what the garden is doing. It is in the page's first HTML (the route
+// swaying, a halo breathing round it and motes drifting up, over one line,
+// "The garden is waking" (WAKING_LINE), the same words the gift's first look
+// uses while the garden loads, whoever is arriving and whichever garden it is
+// (the party screen's own veil can import it). It is in the page's first HTML (the route
 // is prerendered), so it is on screen before any script arrives, and it
 // stays up while the canvas chunk loads, the shaders compile behind it and
 // the governor settles the budget (lib/garden/quality's phases). Then it
@@ -15,8 +17,7 @@
 // The veil belongs to the first opening only. Once the garden has been seen
 // it never comes back: a later tier change holds a still of the garden
 // instead (frameHold.ts). If the governor steps the tier while the veil is
-// still up, the line says the garden is settling for this screen and the
-// vine never grows backwards.
+// still up, the vine never grows backwards.
 //
 // The motion is CSS on HTML elements (LoadingVeil.css), transform and
 // opacity only, so it runs on the compositor and never stutters while the
@@ -27,15 +28,8 @@ import { garden } from "@/lib/garden/store";
 import { useQuality, type Phase } from "@/lib/garden/quality";
 import "@/components/garden/LoadingVeil.css";
 
-const LINES: Record<Phase, string> = {
-  boot: "Gathering the seeds",
-  compiling: "Unfurling the leaves",
-  warming: "Letting the light in",
-  calibrating: "Letting the light in",
-  revealing: "Letting the light in",
-  live: "",
-};
-const SETTLING = "Settling the garden for this screen";
+/** The one loading line, wherever the garden is loading (the gift's first look says it too). */
+export const WAKING_LINE = "The garden is waking";
 
 /** How far along the vine has grown, and how slowly it gets there (compiling has no progress to report, so it creeps). */
 const PROGRESS: Record<Phase, [number, string]> = {
@@ -118,7 +112,6 @@ export function LoadingVeil() {
   // calibrating) re-runs the opening phases, and the bar holds where it was.
   const progress = settling ? Math.max(target, PROGRESS.calibrating[0]) : target;
   const out = phase === "revealing";
-  const line = settling && phase !== "revealing" ? SETTLING : LINES[phase];
   return (
     <div className={`garden-veil-veil${poster ? " garden-veil-has-poster" : ""}${out ? " garden-veil-out" : ""}`} aria-hidden={out}>
       {poster && <div className="garden-veil-poster" style={{ backgroundImage: `url(${poster})` }} />}
@@ -136,9 +129,8 @@ export function LoadingVeil() {
             <Sprout />
           </div>
         </div>
-        <p className="garden-veil-title">{poster ? "Welcome back to your garden" : "Your garden is waking"}</p>
-        <p key={line} className="garden-veil-line" role="status" aria-live="polite">
-          {line}
+        <p className="garden-veil-title" role="status">
+          {WAKING_LINE}
         </p>
         <div className="garden-veil-track">
           <div className="garden-veil-fill" style={{ transform: `scaleX(${progress})`, ["--t" as string]: duration }} />

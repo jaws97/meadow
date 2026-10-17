@@ -2,8 +2,9 @@
 // Who has come through the garden's door, and what they see over the live garden:
 // - a personal garden link (/garden#k=..., taken out of the address bar as the page loads, or when it is pasted into
 //   an open page, lib/client/session.ts) is exchanged for this device's session; if the device already shows someone
-//   else's garden, the person is asked
-//   before switching (and can switch back later); a replaced link is explained, never an error page;
+//   else's garden, the person is asked before switching (and can switch back later), with both gardens named by
+//   their flower so two colleagues with one first name are told apart ("Open Priya's Night Jasmine garden here?",
+//   lib/client/gardens); a replaced link is explained, never an error page;
 // - someone whose device already holds a garden goes straight to it, with the care layer and the identity pill (and
 //   if that session ends while the garden is open, the care layer says so and the door explains in a dialog);
 // - someone with the party code (the QR link, ?code=...; none is needed on a development server) is given the seed;
@@ -16,7 +17,8 @@
 // opened link): Lijas's rose stays behind the planting moment and the link sheet, and the care layer's plant swap (a
 // soft night over the whole page while the new plant is built) happens after the sheet has gone. A note about a
 // switch waits until that night has lifted (settle.ts), and focus lands on the name pill whenever the person arrives
-// in a garden from the sheet or a dialog, so a keyboard or screen reader is never left on the page itself.
+// in a garden from the sheet or a dialog, so a keyboard or screen reader is never left on the page itself. The pill is
+// rendered before the care layer, so it also comes first when tabbing.
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Dialog } from "@/components/gift/Dialog";
@@ -26,6 +28,7 @@ import { GiftVeil } from "@/components/gift/GiftVeil";
 import { IdentityMenu } from "@/components/gift/IdentityMenu";
 import { Showcase } from "@/components/gift/Showcase";
 import { afterGardenSettles } from "@/components/gift/settle";
+import { gardenName, gardenNames, knownFacts, lookUpGarden, type GardenFacts } from "@/lib/client/gardens";
 import {
   ApiProblem,
   OFFLINE_MESSAGE,
@@ -59,7 +62,17 @@ const PLANT_WITHOUT_CODE = IS_DEV && !(typeof window !== "undefined" && new URLS
 
 type Door =
   | { mode: "resolving" }
-  | { mode: "switch"; token: string; current: PersonSummary; target: PersonSummary; message: string; busy: boolean; problem: string | null }
+  | {
+      mode: "switch";
+      token: string;
+      current: PersonSummary;
+      target: PersonSummary;
+      /** each garden's flower and day, when they could be found in a moment (null: the first name alone) */
+      currentFacts: GardenFacts | null;
+      targetFacts: GardenFacts | null;
+      busy: boolean;
+      problem: string | null;
+    }
   | { mode: "notice"; title: string; message: string; retryToken: string | null }
   | { mode: "gift"; partyCode: string | null }
   /** focus: the person arrived here from the sheet or a dialog, so focus goes to the name pill */
@@ -108,7 +121,9 @@ async function linkDoor(token: string): Promise<Door> {
       return gardenAfterLink(r.person, null);
     }
     if (r.kind === "switch_needed") {
-      return { mode: "switch", token, current: r.current, target: r.target, message: r.message, busy: false, problem: null };
+      // both gardens by their flower before asking (a moment at most; lookUpGarden gives up after a couple of seconds)
+      const [currentFacts, targetFacts] = await Promise.all([lookUpGarden(r.current), lookUpGarden(r.target)]);
+      return { mode: "switch", token, current: r.current, target: r.target, currentFacts, targetFacts, busy: false, problem: null };
     }
     forgetGardenLink();
     return { mode: "notice", title: "This garden link has been replaced", message: r.message, retryToken: null };
@@ -169,24 +184,26 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
   // The care layer found that this device no longer holds the garden it was showing (its session ended, say by a
   // reset from another device). The door takes the event, so the name pill goes and the explanation is the door's own
   // dialog rather than the care layer's fallback card.
-  const gardenName = door.mode === "garden" ? door.person.firstName : null;
+  const shownName = door.mode === "garden" ? door.person.firstName : null;
+  const shownPlot = door.mode === "garden" ? door.person.plot : null;
   useEffect(() => {
-    if (gardenName === null) return;
+    if (shownName === null) return;
     const onSignedOut = (e: Event) => {
       e.preventDefault();
-      const name = (e as CustomEvent<{ firstName?: string | null } | null>).detail?.firstName ?? gardenName;
+      const firstName = (e as CustomEvent<{ firstName?: string | null } | null>).detail?.firstName ?? shownName;
+      const garden = { firstName, plot: shownPlot };
       setToast(null);
       setPendingNote(null);
       setDoor({
         mode: "notice",
-        title: `This device no longer holds ${name}'s garden`,
+        title: `This device no longer holds ${gardenName(garden, knownFacts(garden))}`,
         message: "Open your newest garden link on this device to come back to it.",
         retryToken: null,
       });
     };
     window.addEventListener(SIGNED_OUT_EVENT, onSignedOut);
     return () => window.removeEventListener(SIGNED_OUT_EVENT, onSignedOut);
-  }, [gardenName]);
+  }, [shownName, shownPlot]);
 
   useEffect(() => {
     if (!pendingNote) return;
@@ -228,7 +245,10 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
         forgetGardenLink();
         const next = await gardenAfterLink(r.person, d.current);
         setDoor(next.mode === "garden" ? { ...next, focus: true } : next);
-        if (next.mode === "garden") note(`Now showing ${next.person.firstName}'s garden on this device.`, next.person);
+        if (next.mode === "garden") {
+          const facts = next.person.plot === d.target.plot ? d.targetFacts : knownFacts(next.person);
+          note(`Now showing ${gardenName(next.person, facts)} on this device.`, next.person);
+        }
         return;
       }
       if (r.kind === "invalid") {
@@ -244,6 +264,20 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
 
   return (
     <div className={`gift-root ${display.variable}`}>
+      {/* the name pill first, so it comes before the care buttons when tabbing (its layer is set in gift.css) */}
+      {door.mode === "garden" && (
+        <IdentityMenu
+          person={door.person}
+          previous={door.previous}
+          focusOnMount={door.focus === true}
+          onSwitchedBack={(person) => {
+            setDoor({ mode: "garden", person, previous: null });
+            note(`Back in ${gardenName(person, knownFacts(person))}.`, person);
+          }}
+          note={toast}
+        />
+      )}
+
       {/* keyed by whose garden it is, so a switch starts the care layer afresh for the new plant */}
       {door.mode === "garden" && <CareLayer key={personKey(door.person)} />}
 
@@ -265,47 +299,17 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
         </>
       )}
 
-      {/* no hint caption here: the care layer's card holds the bottom of the screen */}
-      {door.mode === "garden" && (
-        <IdentityMenu
-          person={door.person}
-          previous={door.previous}
-          focusOnMount={door.focus === true}
-          onSwitchedBack={(person) => {
-            setDoor({ mode: "garden", person, previous: null });
-            note(`Back in ${person.firstName}'s garden.`, person);
+      {door.mode === "switch" && (
+        <SwitchDialog
+          door={door}
+          onConfirm={() => confirmSwitch(door)}
+          onStay={() => {
+            forgetGardenLink();
+            go(withFocus(sessionDoor()));
           }}
-          note={toast}
         />
       )}
 
-      {door.mode === "switch" && (
-        <Dialog label="Switch gardens on this device">
-          <h2 className="gift-title gift-title-sm">{`Open ${door.target.firstName}'s garden here?`}</h2>
-          <p className="gift-text">{door.message}</p>
-          {door.problem && (
-            <p className="gift-error" role="alert">
-              {door.problem}
-            </p>
-          )}
-          <div className="gift-dialog-actions">
-            <button type="button" className="gift-primary" disabled={door.busy} onClick={() => confirmSwitch(door)}>
-              {door.busy ? "Opening the garden" : `Open ${door.target.firstName}'s garden`}
-            </button>
-            <button
-              type="button"
-              className="gift-secondary"
-              disabled={door.busy}
-              onClick={() => {
-                forgetGardenLink();
-                go(withFocus(sessionDoor()));
-              }}
-            >
-              {`Stay with ${door.current.firstName}'s garden`}
-            </button>
-          </div>
-        </Dialog>
-      )}
 
       {door.mode === "notice" && (
         <Dialog
@@ -337,5 +341,41 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
         </Dialog>
       )}
     </div>
+  );
+}
+
+/**
+ * "Open Priya's Night Jasmine garden here? This device is showing Priya's Marigold garden." Both gardens by their
+ * flower (and their day too when the name and flower are shared), or by the first name alone when the flower could not
+ * be found.
+ */
+function SwitchDialog({
+  door,
+  onConfirm,
+  onStay,
+}: {
+  door: Extract<Door, { mode: "switch" }>;
+  onConfirm: () => void;
+  onStay: () => void;
+}) {
+  const [target, current] = gardenNames(door.target, door.targetFacts, door.current, door.currentFacts);
+  return (
+    <Dialog label="Switch gardens on this device">
+      <h2 className="gift-title gift-title-sm">{`Open ${target} here?`}</h2>
+      <p className="gift-text">{`This device is showing ${current}. You can switch back afterwards.`}</p>
+      {door.problem && (
+        <p className="gift-error" role="alert">
+          {door.problem}
+        </p>
+      )}
+      <div className="gift-dialog-actions">
+        <button type="button" className="gift-primary" disabled={door.busy} onClick={onConfirm}>
+          {door.busy ? "Opening the garden" : `Open ${target}`}
+        </button>
+        <button type="button" className="gift-secondary" disabled={door.busy} onClick={onStay}>
+          {`Stay with ${current}`}
+        </button>
+      </div>
+    </Dialog>
   );
 }

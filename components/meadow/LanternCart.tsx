@@ -1,8 +1,10 @@
 "use client";
-// The Lantern Cart, as an obviously placeholder silhouette built from
-// primitives: a woven tub on a little frame, four spoked wheels, a short pull
-// handle, and a warm lantern hanging from a pole at the back. The real cart is
-// waiting for a concept sign-off; this one exists so the physics has a body.
+// The Lantern Cart's old placeholder, an obviously stand-in silhouette built
+// from primitives: a woven tub on a little frame, four spoked wheels, a short
+// pull handle, and a warm lantern hanging from a pole at the back. Superseded
+// by the firefly trolley (FireflyTrolley.tsx), which the Meadow now draws for
+// both the physics cart and the glider; nothing imports this file any more,
+// and it can be deleted.
 //
 // The parent owns the wheels' transforms (they follow the vehicle's wheel
 // states every frame); the lantern swings on its own, a damped pendulum fed

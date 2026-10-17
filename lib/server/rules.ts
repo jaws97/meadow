@@ -172,6 +172,8 @@ export interface CareStatus {
   replant: boolean;
   /** the shade cloth and rain cover as the player last set them, including this hour's changes */
   shade: boolean;
+  /** the game hour the shade cloth went on (the hour its change was recorded in), or null while it is off */
+  shadeSinceH: number | null;
   cover: boolean;
 }
 
@@ -181,10 +183,38 @@ function lastOf(state: PlantState, pending: readonly RecordedEvent[], kind: "wat
   return last;
 }
 
-function lastToggle(pending: readonly RecordedEvent[], kind: "shade" | "cover", fallback: boolean): boolean {
-  let value = fallback, id = -Infinity;
-  for (const e of pending) if (e.kind === kind && e.on !== null && e.id > id) { id = e.id; value = e.on; }
-  return value;
+// A replant waiting in pending gives a fresh bed, shade cloth and rain cover off; step() takes it before that hour's
+// shade and cover changes whatever their ids, so only those and later ones count after it.
+function pendingReplantH(pending: readonly RecordedEvent[]): number | null {
+  let h: number | null = null;
+  for (const e of pending) if (e.kind === "replant" && (h === null || e.h > h)) h = e.h;
+  return h;
+}
+
+/** The latest pending shade or cover change that will count, or null. */
+function lastToggle(pending: readonly RecordedEvent[], kind: "shade" | "cover"): RecordedEvent | null {
+  const from = pendingReplantH(pending) ?? -Infinity;
+  let last: RecordedEvent | null = null;
+  for (const e of pending) if (e.kind === kind && e.on !== null && e.h >= from && (last === null || e.id > last.id)) last = e;
+  return last;
+}
+
+/** The shade cloth or rain cover as the player last set it, the changes still pending included. */
+function toggleOn(state: PlantState, pending: readonly RecordedEvent[], kind: "shade" | "cover"): boolean {
+  const last = lastToggle(pending, kind);
+  if (last) return last.on === true;
+  return pendingReplantH(pending) === null && state[kind];
+}
+
+/**
+ * The game hour the shade cloth went on, or null while it is off: the pending change that put it on, or else
+ * state.h - shadeH from the replayed state (step() counts shadeH, the hours it has been on, from the hour its change was
+ * filed at, and resets it when the cloth comes off or a fresh seed goes in).
+ */
+function shadeSince(state: PlantState, pending: readonly RecordedEvent[]): number | null {
+  const last = lastToggle(pending, "shade");
+  if (last) return last.on ? last.h : null;
+  return pendingReplantH(pending) === null && state.shade ? state.h - state.shadeH : null;
 }
 
 /**
@@ -202,8 +232,9 @@ export function careStatus(state: PlantState, pending: readonly RecordedEvent[],
       : { ready: false, nextH: null },
     revive: !state.alive && !state.fairyUsed && !waking,
     replant: !state.alive && state.fairyUsed && canPlant(nowH) && !waking,
-    shade: lastToggle(pending, "shade", state.shade),
-    cover: lastToggle(pending, "cover", state.cover),
+    shade: toggleOn(state, pending, "shade"),
+    shadeSinceH: shadeSince(state, pending),
+    cover: toggleOn(state, pending, "cover"),
   };
 }
 
@@ -266,7 +297,7 @@ export function decideCare(input: { kind: CareKind; on: boolean | null }, ctx: C
     case "cover": {
       // a change that changes nothing is not recorded, so repeated taps cannot grow the event log
       const on = input.on === true;
-      if (on === lastToggle(pending, input.kind, state[input.kind])) return { action: "unchanged", h, on };
+      if (on === toggleOn(state, pending, input.kind)) return { action: "unchanged", h, on };
       const changes = pending.filter((e) => e.kind === input.kind && e.h === h).length;
       if (changes >= TOGGLES_PER_HOUR) {
         const what = input.kind === "shade" ? "shade cloth" : "rain cover";

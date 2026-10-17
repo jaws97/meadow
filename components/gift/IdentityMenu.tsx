@@ -3,21 +3,26 @@
 // about it: a fresh personal garden link to open the garden on another device (POST /api/link; the newest five keep
 // working), and, after this device switched gardens, the way back to the one it showed before
 // (POST /api/session/back). The fresh link opens in a dialog with the same panel the planting ended with. A short
-// note ("Now showing Ravi's garden on this device") can hang under the pill for a few seconds after a switch.
+// note ("Now showing Ravi's Marigold garden on this device") can hang under the pill for a few seconds after a switch.
+// Two colleagues can share a first name, so the menu opens on the garden's flower and day ("Night Jasmine · Day 3")
+// and the way back names the other garden's flower too (lib/client/gardens).
 //
-// Rendered into the body, like the sheet and the dialogs, so the care layer's soft night during a plant swap (a
-// body-level layer) never covers the pill or its note. Focus comes to the pill when the person has just arrived in
-// this garden from the sheet or a dialog (focusOnMount), after switching back, and when the fresh-link dialog closes
-// (the menu item that opened it has gone by then).
+// Rendered by the garden's door just before the care layer, so the pill comes first when tabbing through the page,
+// and stacked in the page's own layers (gift.css .gift-id): over the care card and a plant swap's soft night, under
+// the loading veil. While that veil still covers the garden (a garden link opening on a fresh device) the pill takes
+// no focus or taps. Focus comes to the pill when the person has just arrived in this garden from the sheet or a dialog
+// (focusOnMount, once the veil has lifted), after switching back, and when the fresh-link dialog closes (the menu item
+// that opened it has gone by then).
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { Dialog } from "@/components/gift/Dialog";
-import { display } from "@/components/gift/fonts";
 import { Chevron, Leaf, LinkIcon, Swap } from "@/components/gift/icons";
 import { LinkPanel } from "@/components/gift/LinkPanel";
+import { factsLine, gardenNames, useGardenFacts } from "@/lib/client/gardens";
 import { ApiProblem, OFFLINE_MESSAGE, newGardenLink, switchBack, type PersonSummary } from "@/lib/client/session";
+import { useQuality } from "@/lib/garden/quality";
 
 const possessive = (name: string) => `${name}'s`;
+const underVeil = (s: { veiled: boolean; phase: string }) => s.veiled && s.phase !== "revealing" && s.phase !== "live";
 
 export function IdentityMenu({
   person,
@@ -41,12 +46,18 @@ export function IdentityMenu({
   const root = useRef<HTMLDivElement>(null);
   const pill = useRef<HTMLButtonElement>(null);
   const [focusFirst] = useState(focusOnMount);
+  const covered = useQuality(underVeil);
+  const facts = useGardenFacts(person);
+  const previousFacts = useGardenFacts(previous);
+  const backTo = previous ? gardenNames(previous, previousFacts, person, facts)[0] : null;
+  const what = facts ? factsLine(facts) : null;
 
   useEffect(() => {
-    if (focusFirst) pill.current?.focus({ preventScroll: true });
-  }, [focusFirst]);
+    if (focusFirst && !covered) pill.current?.focus({ preventScroll: true });
+  }, [focusFirst, covered]);
 
-  // the menu closes on a tap outside it or Escape, and gives focus back to the pill
+  // the menu closes on a tap outside it or Escape, and gives focus back to the pill (when Tab moves on past it, it
+  // closes too, and focus stays where the person took it: onBlur below)
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
@@ -94,64 +105,76 @@ export function IdentityMenu({
     }
   }
 
-  return createPortal(
-    <div className={`gift-root ${display.variable}`}>
-      <div ref={root} className="gift-id">
-        <button
-          ref={pill}
-          type="button"
-          className="gift-id-pill"
-          aria-expanded={open}
-          aria-haspopup="true"
-          onClick={() => {
-            setOpen((o) => !o);
-            setMessage(null);
-          }}
-        >
-          <Leaf size={16} />
-          <span>{possessive(person.firstName)} garden</span>
-          <Chevron size={16} className="gift-chevron" />
-        </button>
-        {open && (
-          <div className="gift-id-menu" role="group" aria-label="Your garden">
-            <button type="button" className="gift-id-item" onClick={makeLink} disabled={busy !== null}>
-              <LinkIcon size={18} />
-              {busy === "link" ? "Making a fresh link" : "Open on another device"}
+  return (
+    <div
+      ref={root}
+      className="gift-id"
+      inert={covered}
+      onBlur={(e) => {
+        // only a move to somewhere else on the page: a tap on the menu's own words, or leaving the window, keeps it
+        const to = e.relatedTarget as Node | null;
+        if (open && to && !e.currentTarget.contains(to)) setOpen(false);
+      }}
+    >
+      <button
+        ref={pill}
+        type="button"
+        className="gift-id-pill"
+        aria-expanded={open}
+        aria-haspopup="true"
+        onClick={() => {
+          setOpen((o) => !o);
+          setMessage(null);
+        }}
+      >
+        <Leaf size={16} />
+        <span>{possessive(person.firstName)} garden</span>
+        {what && <span className="gift-sr">, {what}</span>}
+        <Chevron size={16} className="gift-chevron" />
+      </button>
+      {open && (
+        <div className="gift-id-menu" role="group" aria-label="Your garden">
+          {what && (
+            <p className="gift-id-what" aria-hidden="true">
+              {what}
+            </p>
+          )}
+          <button type="button" className="gift-id-item" onClick={makeLink} disabled={busy !== null}>
+            <LinkIcon size={18} />
+            {busy === "link" ? "Making a fresh link" : "Open on another device"}
+          </button>
+          {previous && backTo && (
+            <button type="button" className="gift-id-item" onClick={goBack} disabled={busy !== null}>
+              <Swap size={18} />
+              {busy === "back" ? "Switching back" : `Back to ${backTo}`}
             </button>
-            {previous && (
-              <button type="button" className="gift-id-item" onClick={goBack} disabled={busy !== null}>
-                <Swap size={18} />
-                {busy === "back" ? "Switching back" : `Back to ${possessive(previous.firstName)} garden`}
-              </button>
-            )}
-            {message && (
-              <p className="gift-id-msg" role="alert">
-                {message}
-              </p>
-            )}
-          </div>
-        )}
-        {/* a live region that stays on the page, so the note is announced when its words arrive */}
-        <p className="gift-sr" role="status">
-          {note && !open ? note : ""}
+          )}
+          {message && (
+            <p className="gift-id-msg" role="alert">
+              {message}
+            </p>
+          )}
+        </div>
+      )}
+      {/* a live region that stays on the page, so the note is announced when its words arrive */}
+      <p className="gift-sr" role="status">
+        {note && !open ? note : ""}
+      </p>
+      {note && !open && (
+        <p className="gift-id-note" aria-hidden="true">
+          {note}
         </p>
-        {note && !open && (
-          <p className="gift-id-note" aria-hidden="true">
-            {note}
-          </p>
-        )}
-        {link && (
-          <Dialog label="A fresh link to your garden" onClose={() => setLink(null)} returnFocus={() => pill.current}>
-            <LinkPanel link={link} variant="fresh" />
-            <div className="gift-dialog-actions">
-              <button type="button" className="gift-primary" onClick={() => setLink(null)}>
-                Done
-              </button>
-            </div>
-          </Dialog>
-        )}
-      </div>
-    </div>,
-    document.body,
+      )}
+      {link && (
+        <Dialog label="A fresh link to your garden" onClose={() => setLink(null)} returnFocus={() => pill.current}>
+          <LinkPanel link={link} variant="fresh" />
+          <div className="gift-dialog-actions">
+            <button type="button" className="gift-primary" onClick={() => setLink(null)}>
+              Done
+            </button>
+          </div>
+        </Dialog>
+      )}
+    </div>
   );
 }

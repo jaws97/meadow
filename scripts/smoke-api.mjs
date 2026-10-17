@@ -1,7 +1,8 @@
 // End-to-end smoke test of the real API against a running server (default http://localhost:3000, or SMOKE_BASE_URL).
 // Plants two test seeds named "Test Seed (delete me)" and walks the API: retries, care and its limits, sprinkles, the
 // Meadow, a catch-up across completed hours, personal garden links opened on other devices (sign in, the switch prompt,
-// switch back, reset, sign out), the practice-copy guard and the weather; then DELETES every row it created (people
+// switch back, reset, sign out), the practice-copy guard and the weather (the hour just completed, the next 24 hours of
+// forecast and the heavy-rain hint, none of it stored as weather rows); then DELETES every row it created (people
 // cascade to their gardens, plants, events, checkpoints, sprinkles, sessions and links) and checks that nothing is left.
 //
 //   node --env-file=.env.local scripts/smoke-api.mjs
@@ -134,16 +135,21 @@ async function run(sql) {
   const water = await call("POST", "/api/care", { jar: a, body: { kind: "water", clientEventId: waterId } });
   check(water.status === 200 && water.json?.event?.duplicate === false, "POST /api/care water records a can", `status ${water.status} ${water.json?.message ?? ""}`);
   check(water.json?.me?.pending?.some((e) => e.kind === "water"), "the can shows as pending until the hour completes");
+  check(water.json?.me?.care?.shade === false && water.json?.me?.care?.shadeSinceH === null, "care.shadeSinceH is null while the shade cloth is off");
   const retry = await call("POST", "/api/care", { jar: a, body: { kind: "water", clientEventId: waterId } });
   check(retry.status === 200 && retry.json?.event?.duplicate === true, "retrying the same clientEventId is idempotent");
   const soon = await call("POST", "/api/care", { jar: a, body: { kind: "water", clientEventId: randomUUID() } });
   check(soon.status === 429 && soon.json?.error === "too_soon" && typeof soon.json?.retryAt === "string", "a second can within 4 hours is declined with retryAt", soon.json?.message);
   const shade = await call("POST", "/api/care", { jar: a, body: { kind: "shade", on: true, clientEventId: randomUUID() } });
   check(shade.status === 200 && shade.json?.me?.care?.shade === true, "the shade cloth goes on");
+  const shadeH = shade.json?.event?.h;
+  check(Number.isInteger(shadeH) && shade.json?.me?.care?.shadeSinceH === shadeH, "care.shadeSinceH is the hour the shade cloth went on",
+    `shadeSinceH ${shade.json?.me?.care?.shadeSinceH}, event h ${shadeH}`);
   const [{ n: eventsBefore }] = await sql`select count(*)::int as n from meadow.plant_events e join meadow.plants p on p.id = e.plant_id where p.plot_index = ${plotA}`;
   const shadeAgain = await call("POST", "/api/care", { jar: a, body: { kind: "shade", on: true, clientEventId: randomUUID() } });
   const [{ n: eventsAfter }] = await sql`select count(*)::int as n from meadow.plant_events e join meadow.plants p on p.id = e.plant_id where p.plot_index = ${plotA}`;
   check(shadeAgain.status === 200 && shadeAgain.json?.event?.unchanged === true && eventsAfter === eventsBefore, "shade on when it is already on records nothing", `events ${eventsBefore} -> ${eventsAfter}`);
+  check(shadeAgain.json?.me?.care?.shadeSinceH === shadeH, "and keeps the hour it first went on");
   const toggles = [];
   for (let i = 0; i < 5; i++) toggles.push((await call("POST", "/api/care", { jar: a, body: { kind: "cover", on: i % 2 === 0, clientEventId: randomUUID() } })).status);
   check(toggles.slice(0, 4).every((s) => s === 200) && toggles[4] === 429, "four cover changes an hour are fine, the fifth waits for the next hour", toggles.join(","));
@@ -157,6 +163,7 @@ async function run(sql) {
   check(me.status === 200 && me.json?.plant?.plot === plotA && typeof me.json?.visual?.says === "string",
     "GET /api/me returns the caught-up plant", `stage ${me.json?.state?.stage}, says "${me.json?.visual?.says}", canAdvice ${me.json?.visual?.canAdvice}`);
   check(me.headers.get("cache-control")?.includes("no-store"), "GET /api/me is never cached");
+  check(me.json?.care?.shade === true && me.json?.care?.shadeSinceH === shadeH, "GET /api/me says when the shade cloth went on", `shadeSinceH ${me.json?.care?.shadeSinceH}`);
   const anon = await call("GET", "/api/me");
   check(anon.status === 401 && anon.json?.error === "no_session", "GET /api/me without a session is a calm 401");
 
@@ -207,6 +214,10 @@ async function run(sql) {
     "GET /api/me rebuilds a plant six hours behind from its events and real weather",
     `state h ${st?.h}, now h ${now?.h}, weather upToDate ${wxs?.upToDate}, moisture ${caught.json?.visual?.moisture?.toFixed?.(2)}`);
   check(caught.json?.pending?.some((e) => e.kind === "water"), "this hour's can is still pending after the rebuild");
+  check(caught.json?.care?.shadeSinceH === shadeH, "the shade cloth's hour survives the rebuild", `shadeSinceH ${caught.json?.care?.shadeSinceH}`);
+  const shadeOff = await call("POST", "/api/care", { jar: a, body: { kind: "shade", on: false, clientEventId: randomUUID() } });
+  check(shadeOff.status === 200 && shadeOff.json?.me?.care?.shade === false && shadeOff.json?.me?.care?.shadeSinceH === null,
+    "the shade cloth comes off and care.shadeSinceH is null again", `status ${shadeOff.status} ${shadeOff.json?.message ?? ""}`);
   await new Promise((r) => setTimeout(r, 5_000)); // past the Meadow's few-second reuse window
   const meadow2 = await call("GET", "/api/meadow");
   check(meadow2.status === 200 && meadow2.json?.plots?.some((p) => p.plot === plotB), "GET /api/meadow catches every plant up in one pass");
@@ -319,6 +330,24 @@ async function run(sql) {
   const weather = await call("GET", "/api/weather/now");
   check(weather.status === 200 && typeof weather.json?.temperatureC === "number" && typeof weather.json?.lagHours === "number", "GET /api/weather/now",
     `${weather.json?.temperatureC} C, ${weather.json?.humidityPct}% RH, rain ${weather.json?.rainMm} mm, hour from ${weather.json?.from}, lagHours ${weather.json?.lagHours}`);
+  const wj = weather.json ?? {};
+  const fc = Array.isArray(wj.forecast) ? wj.forecast : [];
+  const shaped = fc.every((r) => Number.isInteger(r.h) && typeof r.temperatureC === "number" && typeof r.rainMm === "number" && r.rainMm >= 0
+    && (r.cloudPct === null || (Number.isInteger(r.cloudPct) && r.cloudPct >= 0 && r.cloudPct <= 100)) && typeof r.sunWm2 === "number" && typeof r.isDay === "boolean");
+  check(Number.isInteger(wj.nowH) && wj.nowH === wj.h + 1 + wj.lagHours && fc.length === 24 && fc.every((r, i) => r.h === wj.nowH + i) && shaped,
+    "the weather carries the next 24 hours of forecast from the hour in progress",
+    `nowH ${wj.nowH}, ${fc.length} hours from h ${fc[0]?.h}; first: ${fc[0]?.temperatureC} C, rain ${fc[0]?.rainMm} mm, cloud ${fc[0]?.cloudPct}%, sun ${fc[0]?.sunWm2} W/m2`);
+  // the model's rainSoon over the next 12 hours, recomputed from the rows served
+  const due = fc.filter((r) => r.h < wj.nowH + 12);
+  const dueMm = Math.round(due.reduce((t, r) => t + r.rainMm, 0) * 10) / 10;
+  const firstRain = due.find((r) => r.rainMm >= 0.1);
+  const rs = wj.rainSoon;
+  check(rs !== null && typeof rs?.heavy === "boolean" && Math.abs(rs.mm - dueMm) < 0.05 && rs.startsInH === (firstRain ? firstRain.h - wj.nowH : null),
+    "rainSoon reads the next 12 forecast hours", `heavy ${rs?.heavy}, ${rs?.mm} mm, starts in ${rs?.startsInH} h`);
+  check(/^public\b/.test(weather.headers.get("cache-control") ?? "") && /s-maxage=300\b/.test(weather.headers.get("cache-control") ?? "") && !weather.headers.get("set-cookie"),
+    "the weather is the same for everyone, cached briefly by the CDN", weather.headers.get("cache-control"));
+  const [{ n: storedAhead }] = await sql`select count(*)::int as n from meadow.weather_hours where h >= ${wj.nowH ?? 0}`;
+  check(storedAhead === 0, "no forecast or unfinished hour is stored as a weather row", `${storedAhead} rows at or after h ${wj.nowH}`);
   const notJson = await call("POST", "/api/care", { jar: a, raw: "kind=water", headers: { "content-type": "application/x-www-form-urlencoded" } });
   check(notJson.status === 415, "a non-JSON body is refused with 415");
   const brokenJson = await call("POST", "/api/care", { jar: a, raw: "{nope", headers: { "content-type": "application/json" } });

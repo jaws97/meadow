@@ -1,12 +1,14 @@
 "use client";
 // The visit card: who planted this flower, which seed it is, which day of its life, and how it is doing in kind
-// words; then what a visitor can do. A friend's plant offers today's one Sprinkle (POST /api/sprinkle, only for
+// words; then what a visitor can do. The flower and the day sit right under the name (and name the card for screen
+// readers), so two colleagues with one first name are told apart. A friend's plant offers today's one Sprinkle (POST /api/sprinkle, only for
 // someone whose garden is on this device; "1 left today", or the server's own words once it is shared or if it is
 // refused) and "See their garden", a read-only look at their whole garden. A person's own plant says "This is
 // yours" instead. The owner's rose on the dais has a card of its own.
 //
 // On a phone the card sits at the bottom of the screen and tells the camera how much it covers, so the plant is
-// framed in the part left clear; on a landscape screen it stands to the side.
+// framed in the part left clear; on a landscape screen it stands to the side. Focus moves into the card when it opens
+// (so its name, flower and day are read out), and back to Find a friend when it is closed from inside it.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ROSE } from "@/components/meadow/autopilot";
 import { sprinkleAt } from "@/components/meadow/Bursts";
@@ -20,6 +22,7 @@ import {
   useMeadowData,
   type FriendGarden,
 } from "@/components/meadow/data";
+import { findButton } from "@/components/meadow/FindFriend";
 import { CloseIcon, DropIcon, GateIcon, LeafIcon } from "@/components/meadow/icons";
 import { OWNER_NAME } from "@/components/meadow/plantLook";
 import { meadow } from "@/components/meadow/runtime";
@@ -32,8 +35,11 @@ type SprinkleState =
   | { plot: number; state: "refused"; message: string };
 
 function close() {
+  // focus in the card would fall to the page with it: Find a friend is the way on
+  const inside = document.activeElement?.closest(".meadow-card") != null;
   ui.set({ card: null });
   meadow.requests.cancel = true;
+  if (inside) requestAnimationFrame(() => findButton.current?.focus({ preventScroll: true }));
 }
 
 export function VisitCard() {
@@ -69,9 +75,10 @@ export function VisitCard() {
     };
   }, [card]);
 
-  // Escape closes it
+  // focus moves in as the card opens (or turns to another plant); Escape closes it
   useEffect(() => {
     if (card === null) return;
+    ref.current?.focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
     };
@@ -82,7 +89,7 @@ export function VisitCard() {
   if (card === null) return null;
   return (
     <div className="meadow-card-dock">
-      <div ref={ref} key={card} className="meadow-card meadow-glass" role="dialog" aria-label="A flower in the Meadow">
+      <div ref={ref} key={card} className="meadow-card meadow-glass" role="dialog" aria-labelledby="meadow-card-name meadow-card-sub" tabIndex={-1}>
         <button type="button" className="meadow-close" onClick={close} aria-label="Close">
           <CloseIcon />
         </button>
@@ -95,8 +102,10 @@ export function VisitCard() {
 function RoseCard() {
   return (
     <>
-      <h2>{OWNER_NAME}</h2>
-      <p className="meadow-sub">Enchanted Rose · Always in bloom</p>
+      <h2 id="meadow-card-name">{OWNER_NAME}</h2>
+      <p id="meadow-card-sub" className="meadow-sub">
+        Enchanted Rose · Always in bloom
+      </p>
       <p className="meadow-mood">The rose at the heart of the Meadow. Every seed here was a gift from {OWNER_NAME}.</p>
       <div className="meadow-row">
         <a className="meadow-button meadow-button-quiet" href="/meadow/garden?plot=rose">
@@ -154,8 +163,12 @@ function PlantCard({ plot }: { plot: number }) {
 
   return (
     <>
-      <h2>{name}</h2>
-      {sub && <p className="meadow-sub">{sub}</p>}
+      <h2 id="meadow-card-name">{name}</h2>
+      {sub && (
+        <p id="meadow-card-sub" className="meadow-sub">
+          {sub}
+        </p>
+      )}
       <p className="meadow-mood">{mood}</p>
       <div className="meadow-row">
         {me === null ? null : mine ? (

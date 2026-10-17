@@ -2,7 +2,7 @@
 // rate limits for care, shade and cover changes, the conditions for Fairy Dust and replanting, how stored rows become
 // the model's events, the IST clock helpers, and the Meadow's bands.
 import { describe, expect, it } from "vitest";
-import { BED, PLANT_OPEN_H, createPlant, dateOfHour, toVisual, type PlantState } from "@/lib/sim";
+import { BED, PLANT_OPEN_H, createPlant, dateOfHour, step, toVisual, type HourWeather, type PlantState, type SimEvent } from "@/lib/sim";
 import {
   bloomBand,
   careStatus,
@@ -164,6 +164,33 @@ describe("decideCare: shade and cover cannot flood the event log", () => {
   });
 });
 
+describe("shade and cover after a replant still waiting for its hour", () => {
+  // a sleeping plant whose Fairy Dust is used, with the shade cloth and rain cover left on
+  const bed = () => asleep({ fairyUsed: true, shade: true, shadeH: 30, cover: true });
+
+  it("shows a fresh bed: both off, as step() will leave them", () => {
+    const replant = ev("replant", 100);
+    expect(careStatus(bed(), [replant], 100)).toMatchObject({ shade: false, shadeSinceH: null, cover: false });
+    // that hour's changes count after the replant whatever their ids; earlier hours' do not
+    expect(careStatus(bed(), [ev("shade", 100, { on: true }), replant], 100)).toMatchObject({ shade: true, shadeSinceH: 100 });
+    expect(careStatus(bed(), [ev("cover", 99, { on: true }), ev("replant", 99), ev("cover", 98, { on: false })], 100).cover).toBe(true);
+  });
+
+  it("records the cloth going on again rather than calling it unchanged", () => {
+    expect(decideCare({ kind: "shade", on: true }, ctx({ state: bed(), pending: [ev("replant", 100)] })))
+      .toEqual({ action: "insert", h: 100, amount: 1 });
+    expect(decideCare({ kind: "cover", on: false }, ctx({ state: bed(), pending: [ev("replant", 100)] })))
+      .toEqual({ action: "unchanged", h: 100, on: false });
+  });
+
+  it("agrees with the model", () => {
+    const wx: HourWeather = { T: 24, RH: 70, P: 0, SW: 300, ET0: 0.2, U: 6, Ts: 24, isDay: 1 };
+    const after = (events: SimEvent[]) => step({ ...bed(), h: 100 }, { h: 100, wx }, events);
+    expect(after([{ id: 1, kind: "replant" }])).toMatchObject({ alive: true, shade: false, cover: false });
+    expect(after([{ id: 1, kind: "shade", amount: 1 }, { id: 2, kind: "replant" }])).toMatchObject({ alive: true, shade: true });
+  });
+});
+
 describe("decideCare: Fairy Dust and replanting", () => {
   it("revives a sleeping plant once", () => {
     expect(decideCare({ kind: "revive", on: null }, ctx({ state: asleep() }))).toMatchObject({ action: "insert" });
@@ -196,6 +223,36 @@ describe("careStatus", () => {
     const s = careStatus(fresh(), pending, 100);
     expect(s.shade).toBe(false);
     expect(s.cover).toBe(true);
+  });
+
+  it("says when the shade cloth went on: the pending change that put it on, or else the replayed state's", () => {
+    expect(careStatus(fresh(), [], 100).shadeSinceH).toBeNull();
+    expect(careStatus(fresh(), [ev("shade", 100, { on: true })], 100)).toMatchObject({ shade: true, shadeSinceH: 100 });
+    // the state at hour 60 has had the cloth on for 30 hours: it went on at hour 30
+    expect(careStatus(fresh({ h: 60, shade: true, shadeH: 30 }), [], 100)).toMatchObject({ shade: true, shadeSinceH: 30 });
+    // a pending change off clears it; on again starts from that change's hour
+    const off = ev("shade", 60, { on: false });
+    expect(careStatus(fresh({ h: 60, shade: true, shadeH: 30 }), [off], 100)).toMatchObject({ shade: false, shadeSinceH: null });
+    expect(careStatus(fresh({ h: 60, shade: true, shadeH: 30 }), [off, ev("shade", 61, { on: true })], 100).shadeSinceH).toBe(61);
+    // the cover never moves it
+    expect(careStatus(fresh({ h: 60, shade: true, shadeH: 30 }), [ev("cover", 60, { on: true })], 100).shadeSinceH).toBe(30);
+  });
+
+  it("finds the hour the shade went on from a state the model replayed", () => {
+    const wx: HourWeather = { T: 30, RH: 50, P: 0, SW: 700, ET0: 0.4, U: 6, Ts: 30, isDay: 1 };
+    const events: Record<number, SimEvent[]> = {
+      30: [{ id: 1, kind: "shade", amount: 1 }],
+      40: [{ id: 2, kind: "shade", amount: 0 }],
+      44: [{ id: 3, kind: "shade", amount: 1 }],
+    };
+    let s = fresh();
+    for (let h = s.h; h < 70; h++) {
+      s = step(s, { h, wx }, events[h] ?? []);
+      if (h === 35) expect(careStatus(s, [], 36).shadeSinceH).toBe(30);
+      if (h === 41) expect(careStatus(s, [], 42).shadeSinceH).toBeNull();
+    }
+    expect(s.h).toBe(70);
+    expect(careStatus(s, [], 70)).toMatchObject({ shade: true, shadeSinceH: 44 });
   });
 
   it("offers Fairy Dust, then a replant, to a sleeping plant", () => {

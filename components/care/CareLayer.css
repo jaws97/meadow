@@ -822,6 +822,10 @@
 
 /* ---- a different plant coming in --------------------------------------------------------------------------------------- */
 
+/*
+ * Laid in the garden page's own layers (lib/client/plant setDim): over the canvas, under the care card (15), the name
+ * pill (17) and the loading veil (20), so the card stays readable while the new plant is built.
+ */
 .care-swap {
   position: fixed;
   inset: 0;
