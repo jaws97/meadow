@@ -2,6 +2,10 @@
 // A tiny external store: React re-renders only where a value is selected,
 // and the render loop reads the latest state directly without re-rendering.
 // In the browser the quality tier starts at what the device can carry.
+// For a signed-in visitor the plant's numbers are the model's live Visual,
+// eased in by lib/client/plant; the defaults are the owner's rose in full bloom.
+// The care layer also says how much of the screen its card covers (dock), so
+// the camera can keep the plant in the open part of the view.
 import { useSyncExternalStore } from "react";
 import { planFor, readDevice, recallTier } from "@/lib/garden/device";
 import { quality } from "@/lib/garden/quality";
@@ -17,6 +21,26 @@ export interface GardenState {
   health: number;
   moisture: number;
   scorch: number;
+  /** the model's droop for a live plant (0 upright .. 1 wilted); null derives it from moisture and health (droopOf) */
+  droop: number | null;
+  /** leaf yellowing 0..1 (short of nitrogen, or old drought injury); the lower leaves turn first */
+  chlorosis: number;
+  /** a dark, water-soaked stem base 0..1 */
+  rot: number;
+  /** pest pressure 0..1, mushrooms 0..5 and snails 0..3 in the bed (kept for the UI; not drawn yet) */
+  pests: number;
+  mushrooms: number;
+  snails: number;
+  /** the flower against a full one: smaller after stress while budding, 0.7 for a second-chance sprout */
+  flowerSize: number;
+  /** a soft extra glow for an hour after the plant is talked to, 0..1 */
+  glow: number;
+  /** the shade cloth (1 up, 0 folded away) and the rain cover over the bed; the garden eases them in and out */
+  shade: number;
+  cover: number;
+  /** CSS px of the screen's bottom (a card) and right edge (a narrow side panel) under the care layer; 0 for none */
+  dockBottom: number;
+  dockRight: number;
   wind: number;
   /** fractional hour in Bangalore */
   hour: number;
@@ -34,6 +58,18 @@ const initial: GardenState = {
   health: 1,
   moisture: 0.6,
   scorch: 0,
+  droop: null,
+  chlorosis: 0,
+  rot: 0,
+  pests: 0,
+  mushrooms: 0,
+  snails: 0,
+  flowerSize: 1,
+  glow: 0,
+  shade: 0,
+  cover: 0,
+  dockBottom: 0,
+  dockRight: 0,
   wind: 0.5,
   hour: 12,
   autoClock: true,
@@ -85,7 +121,8 @@ export const garden = {
     };
   },
   reset() {
-    garden.set({ ...initial, hour: state.hour, quality: state.quality });
+    // the clock, the tier and the care layer's dock are the screen's, not the plant's
+    garden.set({ ...initial, hour: state.hour, quality: state.quality, dockBottom: state.dockBottom, dockRight: state.dockRight });
   },
 };
 

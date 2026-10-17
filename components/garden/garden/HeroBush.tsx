@@ -14,13 +14,16 @@
 // in a cup of sepals with only its tip coloured, in a plain unlit crimson:
 // they appear as the hero's own bud forms and never glow at dusk, so they
 // support the bloom instead of competing with it. Each cane is a handful of
-// merged meshes; nothing is allocated per frame.
+// merged meshes; nothing is allocated per frame. A live plant's own droop and
+// yellowing (lib/client/plant, through the store) reach the bush as they
+// reach the hero.
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { GeoBuilder, HERO_GROUND_Y, makeBudGeometry } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { LAYOUT } from "@/lib/garden/layout";
+import { heroLeafFade } from "@/components/garden/garden/heroGrowth";
 import { garden, useGarden, type Quality } from "@/lib/garden/store";
 import { makeLeafGeometry, makeSepalGeometry, makeStemGeometry, stemEndTransform, stemPointAt } from "@/lib/plant/geometry";
 import { droopOf, fadeOf, leafDropped, leafHealth, quantize, type PlantVisual } from "@/lib/plant/growth";
@@ -248,7 +251,7 @@ export function HeroBush({ speciesId, seed, quality }: { speciesId: SpeciesId; s
   );
 
   // The same health bands as the hero's low leaves, so the bush yellows with it.
-  const fade = useGarden((s) => quantize(fadeOf(leafHealth(s, BUSH_ORDER)), 4));
+  const fade = useGarden((s) => quantize(heroLeafFade(fadeOf(leafHealth(s, BUSH_ORDER)), s.chlorosis, BUSH_ORDER), 4));
   const burn = useGarden((s) => quantize(s.scorch * (0.5 + 0.5 * BUSH_ORDER), 3));
   const leafMat = leafMaterial(sp, fade, burn, quality);
   const stemMat = stemMaterial(sp, 1, 4);
@@ -256,22 +259,31 @@ export function HeroBush({ speciesId, seed, quality }: { speciesId: SpeciesId; s
 
   const canes = useRef<CaneRefs[]>([]);
   const skirt = useRef<THREE.Group>(null);
-  const vis = useRef<PlantVisual | null>(null);
+  const vis = useRef<(PlantVisual & { droop: number }) | null>(null);
+  // a new plant starts from its own numbers, as the hero does (Plant.tsx)
+  const plantKey = `${speciesId}|${seed}`;
+  const visKey = useRef(plantKey);
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
     const k = 1 - Math.exp(-dt * 2.5);
     const s = garden.get();
+    if (visKey.current !== plantKey) {
+      visKey.current = plantKey;
+      vis.current = null;
+    }
     let v = vis.current;
     if (!v) {
-      v = { growth: s.growth, bloom: s.bloom, health: s.health, moisture: s.moisture, scorch: s.scorch };
+      const base = { growth: s.growth, bloom: s.bloom, health: s.health, moisture: s.moisture, scorch: s.scorch };
+      v = { ...base, droop: s.droop ?? droopOf(base) };
       vis.current = v;
     } else {
       v.growth += (s.growth - v.growth) * k;
       v.health += (s.health - v.health) * k;
       v.moisture += (s.moisture - v.moisture) * k;
+      v.droop = s.droop === null ? droopOf(v) : v.droop + (s.droop - v.droop) * k;
     }
-    const droop = droopOf(v);
+    const droop = v.droop;
     const lh = leafHealth(v, BUSH_ORDER);
     const dropped = leafDropped(BUSH_ORDER, lh);
     const t = env.time;

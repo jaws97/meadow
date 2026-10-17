@@ -73,6 +73,16 @@ export function heroSepalPart(bud: number): number {
 }
 
 /**
+ * How faded a hero leaf reads (the leaf texture yellows up to about 0.55, then
+ * browns): the fade of poor health (lib/plant/growth fadeOf), or a live
+ * plant's yellowing (chlorosis), whichever shows more. Yellowing turns the
+ * lower, older leaves first and never browns them.
+ */
+export function heroLeafFade(healthFade: number, chlorosis: number, order: number): number {
+  return Math.max(healthFade, 0.55 * clamp01(chlorosis * (1.25 - 0.7 * order)));
+}
+
+/**
  * The companions' height (as a share of their full height) and how open
  * their flowers are, by the hero's growth: low and in leaf through the
  * hero's first week, flowering as its bud swells, in full bloom with it.

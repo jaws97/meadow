@@ -1,0 +1,1052 @@
+/*
+ * The care layer's look (CareLayer.tsx): a warm glass card over the live garden, in the gift flow's colours (cream ink,
+ * honey gold, night glass) so the two read as one place. A plain stylesheet with prefixed class names, like
+ * LoadingVeil.css and gift.css: the project's Turbopack rule runs every .css file through Tailwind as global CSS.
+ *
+ * Layout: on phones and portrait iPads a card along the bottom edge, its care buttons within reach of a thumb; on
+ * laptops and landscape iPads (the gift flow's own breakpoint) a panel beside the flower, which the camera keeps near
+ * the middle; on a phone held sideways (short landscape) a narrow panel at the right, the buttons three by two. The
+ * card publishes its height as --care-dock on the root element, so other bottom-edge overlays (the gesture hint,
+ * toasts) can sit above it, and to the garden camera, which shifts its lens to keep the plant in the open part.
+ *
+ * Calm: no red anywhere (thirst is honey, a sick plant lavender, rest moonlight), motion is transform and opacity only
+ * and stops for reduced motion, every target is at least 44 px. Backdrop blur re-blurs the canvas every frame, so it is
+ * kept to wide screens; phones get a more opaque glass instead.
+ */
+
+.care-root {
+  --care-ink: #f6ead6;
+  --care-ink-2: rgba(246, 234, 214, 0.8);
+  --care-ink-3: rgba(246, 234, 214, 0.58);
+  --care-ink-4: rgba(246, 234, 214, 0.38);
+  --care-gold: #f2cd8e;
+  --care-gold-hi: #ffe2b0;
+  --care-line: rgba(255, 236, 200, 0.12);
+  --care-glass-a: rgba(17, 21, 33, 0.9);
+  --care-glass-b: rgba(10, 13, 21, 0.95);
+  --care-display: var(--font-display), "Iowan Old Style", Georgia, serif;
+  --care-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  pointer-events: none;
+  color: var(--care-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.care-root *,
+.care-root *::before,
+.care-root *::after {
+  box-sizing: border-box;
+}
+
+.care-root p {
+  margin: 0;
+}
+
+.care-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---- the card ------------------------------------------------------------------------------------------------------ */
+
+.care-panel {
+  position: absolute;
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(62dvh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 14px 8px;
+  border: 1px solid var(--care-line);
+  border-radius: 26px;
+  background: linear-gradient(180deg, var(--care-glass-a), var(--care-glass-b));
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 240, 215, 0.07);
+  pointer-events: auto;
+  scrollbar-width: none;
+  animation: care-rise 0.8s var(--care-ease) both;
+}
+
+.care-panel::-webkit-scrollbar {
+  display: none;
+}
+
+/* a warm light falling across the top of the glass, as on the gift sheet */
+.care-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(90% 60% at 12% -16%, rgba(255, 196, 120, 0.12), rgba(255, 196, 120, 0) 62%),
+    radial-gradient(70% 40% at 100% 0%, rgba(140, 160, 255, 0.05), rgba(140, 160, 255, 0) 70%);
+}
+
+.care-panel > * {
+  position: relative;
+}
+
+@media (min-width: 640px) {
+  .care-panel {
+    left: 0;
+    right: 0;
+    bottom: max(20px, env(safe-area-inset-bottom));
+    width: min(560px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 16px 18px 10px;
+    gap: 12px;
+  }
+}
+
+@media (min-width: 768px) {
+  .care-root {
+    --care-glass-a: rgba(17, 21, 33, 0.72);
+    --care-glass-b: rgba(10, 13, 21, 0.82);
+  }
+  .care-panel {
+    backdrop-filter: blur(20px) saturate(1.15);
+    -webkit-backdrop-filter: blur(20px) saturate(1.15);
+  }
+}
+
+/* A laptop or a landscape iPad: a panel beside the flower. */
+@media (min-width: 1024px) and (orientation: landscape) {
+  .care-panel {
+    left: auto;
+    right: max(40px, 3.2vw);
+    top: 50%;
+    bottom: auto;
+    width: clamp(320px, 25vw, 400px);
+    margin: 0;
+    max-height: calc(100dvh - 80px);
+    padding: 22px 22px 12px;
+    gap: 14px;
+    border-radius: 28px;
+    transform: translateY(-50%);
+    animation-name: care-slide;
+  }
+}
+
+@keyframes care-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes care-slide {
+  from {
+    opacity: 0;
+    transform: translate3d(18px, -50%, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, -50%, 0);
+  }
+}
+
+/* ---- whose garden, and the plant's own words ------------------------------------------------------------------------ */
+
+/* The identity pill (top left) already names the garden on a phone; the panel names it on wide screens. */
+.care-head {
+  display: none;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.care-name {
+  font-family: var(--care-display);
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  color: var(--care-ink);
+}
+
+.care-tag {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(242, 205, 142, 0.28);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--care-gold);
+}
+
+@media (min-width: 1024px) and (orientation: landscape) {
+  .care-head {
+    display: flex;
+  }
+}
+
+.care-says {
+  --mood: #b9de9a;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  font-family: var(--care-display);
+  font-size: 17px;
+  line-height: 1.35;
+  color: var(--care-ink);
+}
+
+.care-says[data-mood="blooming"] {
+  --mood: #ffc6b3;
+}
+.care-says[data-mood="thirsty"] {
+  --mood: #f2cd8e;
+}
+.care-says[data-mood="soggy"] {
+  --mood: #a9c9e8;
+}
+.care-says[data-mood="unwell"] {
+  --mood: #c9b8f0;
+}
+.care-says[data-mood="resting"] {
+  --mood: #cfd8f4;
+}
+
+.care-mood {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 0.55em;
+  border-radius: 50%;
+  background: var(--mood);
+  box-shadow: 0 0 12px var(--mood);
+  transition: background 1.2s ease, box-shadow 1.2s ease;
+}
+
+/* a seed not yet up: a quiet narrator's line, not the plant's words */
+.care-says[data-voice="narrator"] {
+  font-size: 16px;
+  color: var(--care-ink-2);
+}
+
+@media (min-width: 1024px) and (orientation: landscape) {
+  .care-says {
+    font-size: 19px;
+  }
+  .care-says[data-voice="narrator"] {
+    font-size: 17px;
+  }
+}
+
+/* ---- chips ----------------------------------------------------------------------------------------------------------- */
+
+.care-chips {
+  display: flex;
+  gap: 6px;
+  margin: 0 -14px;
+  padding: 0 14px;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 18px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 18px), transparent);
+}
+
+.care-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.care-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px 0 9px;
+  border-radius: 16px;
+  border: 1px solid rgba(246, 234, 214, 0.1);
+  background: rgba(246, 234, 214, 0.06);
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--care-ink-2);
+}
+
+.care-chip-icon {
+  display: inline-flex;
+  color: var(--care-ink-3);
+}
+
+.care-chip-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.care-chip-strong {
+  color: var(--care-ink);
+  font-weight: 500;
+}
+
+.care-chip[data-tone="ask"] {
+  border-color: rgba(242, 205, 142, 0.32);
+  background: rgba(242, 205, 142, 0.09);
+  color: var(--care-gold-hi);
+}
+.care-chip[data-tone="ask"] .care-chip-icon {
+  color: var(--care-gold);
+}
+.care-chip[data-tone="rain"] .care-chip-icon {
+  color: #a9c9e8;
+}
+.care-chip[data-tone="sun"] .care-chip-icon {
+  color: #f6d38f;
+}
+.care-chip[data-tone="moon"] .care-chip-icon {
+  color: #cfd8f4;
+}
+.care-chip[data-tone="bloom"] .care-chip-icon,
+.care-chip[data-tone="friends"] .care-chip-icon {
+  color: #ffc6b3;
+}
+
+@media (min-width: 640px) {
+  .care-chips {
+    margin: 0 -18px;
+    padding: 0 18px;
+  }
+}
+
+@media (min-width: 1024px) and (orientation: landscape) {
+  .care-chips {
+    flex-wrap: wrap;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
+/* ---- the slot: a question, a reply, or a hint -------------------------------------------------------------------------- */
+
+.care-slot {
+  animation: care-fade 0.45s var(--care-ease) both;
+}
+
+@keyframes care-fade {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.care-notice,
+.care-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 4px 6px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(242, 205, 142, 0.18);
+  background: rgba(242, 205, 142, 0.07);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--care-ink);
+  animation: care-fade 0.45s var(--care-ease) both;
+}
+
+.care-notice > svg,
+.care-hint > svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--care-gold);
+}
+
+.care-notice p,
+.care-hint p {
+  flex: 1;
+  padding: 4px 0;
+}
+
+.care-notice[data-tone="gentle"] {
+  border-color: rgba(201, 184, 240, 0.22);
+  background: rgba(201, 184, 240, 0.07);
+}
+.care-notice[data-tone="gentle"] > svg {
+  color: #d8cbf6;
+}
+
+.care-hint {
+  flex-wrap: wrap;
+  padding-right: 8px;
+}
+.care-hint[data-tone="rain"] {
+  border-color: rgba(169, 201, 232, 0.24);
+  background: rgba(169, 201, 232, 0.08);
+}
+.care-hint[data-tone="rain"] > svg {
+  color: #a9c9e8;
+}
+/* the words keep a comfortable measure; on a narrow card the button steps down beneath them */
+.care-hint p {
+  flex: 1 1 210px;
+}
+.care-hint .care-btn-small {
+  margin: 0 0 4px auto;
+}
+.care-hint-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 0 4px auto;
+}
+.care-hint-actions .care-btn-small {
+  margin: 0;
+}
+.care-hint-actions .care-icon-btn {
+  margin: 0;
+}
+
+.care-icon-btn {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: -6px -2px -6px 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--care-ink-3);
+  cursor: pointer;
+}
+
+.care-icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (hover: hover) {
+  .care-icon-btn:hover {
+    color: var(--care-ink);
+    background: rgba(246, 234, 214, 0.06);
+  }
+}
+
+.care-prompt {
+  padding: 12px 12px 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(242, 205, 142, 0.24);
+  background: rgba(242, 205, 142, 0.07);
+}
+
+.care-prompt-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.care-prompt-title {
+  flex: 1;
+  padding-top: 3px;
+  font-family: var(--care-display);
+  font-size: 17px;
+  line-height: 1.3;
+  color: var(--care-ink);
+}
+
+.care-prompt-body {
+  margin-top: 4px !important;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--care-ink-2);
+}
+
+.care-prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.care-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid rgba(246, 234, 214, 0.22);
+  border-radius: 22px;
+  background: rgba(246, 234, 214, 0.04);
+  font: inherit;
+  font-size: 14.5px;
+  color: var(--care-ink);
+  cursor: pointer;
+  transition: background 0.3s ease, border-color 0.3s ease, transform 0.2s ease;
+}
+
+.care-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.care-btn-primary {
+  border-color: transparent;
+  background: linear-gradient(180deg, #f8dfad, #eab96c);
+  color: #2b1d0c;
+  font-weight: 500;
+  box-shadow: 0 6px 18px rgba(234, 185, 108, 0.22);
+}
+
+.care-btn-small {
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+
+@media (hover: hover) {
+  .care-btn:hover {
+    background: rgba(246, 234, 214, 0.1);
+  }
+  .care-btn-primary:hover {
+    background: linear-gradient(180deg, #fbe6bd, #efc27c);
+  }
+}
+
+.care-btn:active {
+  transform: scale(0.97);
+}
+
+/* ---- the care buttons -------------------------------------------------------------------------------------------------- */
+
+.care-actions {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 2px;
+  margin: 0 -6px;
+}
+
+.care-act {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 64px;
+  padding: 4px 0 0;
+  border: 0;
+  border-radius: 18px;
+  background: none;
+  font: inherit;
+  color: var(--care-ink);
+  cursor: pointer;
+}
+
+.care-act-token {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid rgba(246, 234, 214, 0.15);
+  background: radial-gradient(120% 120% at 30% 18%, rgba(255, 246, 228, 0.13), rgba(255, 246, 228, 0.03) 62%);
+  color: var(--care-ink);
+  transition:
+    transform 0.25s var(--care-ease),
+    background 0.5s ease,
+    border-color 0.5s ease,
+    color 0.5s ease,
+    opacity 0.5s ease;
+}
+
+.care-act-token svg {
+  width: 25px;
+  height: 25px;
+}
+
+.care-act-label {
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  color: var(--care-ink-2);
+}
+
+.care-act-sub {
+  min-height: 15px;
+  margin-top: -3px;
+  font-size: 12px;
+  line-height: 15px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: var(--care-ink-3);
+}
+
+/* rain is the reason the can waits: the soft rain blue, not the honey of a cue */
+.care-act-sub[data-tone="rain"] {
+  color: #b5d2ee;
+}
+
+.care-act:focus-visible {
+  outline: none;
+}
+
+.care-act:focus-visible .care-act-token {
+  box-shadow:
+    0 0 0 2px rgba(10, 13, 21, 0.9),
+    0 0 0 4px #ffd99a;
+}
+
+@media (hover: hover) {
+  .care-act:hover .care-act-token {
+    background: radial-gradient(120% 120% at 30% 18%, rgba(255, 246, 228, 0.2), rgba(255, 246, 228, 0.06) 62%);
+    border-color: rgba(246, 234, 214, 0.26);
+  }
+}
+
+.care-act:active .care-act-token {
+  transform: scale(0.93);
+}
+
+/* the shade cloth or the rain cover is up */
+.care-act[aria-pressed="true"] .care-act-token {
+  border-color: rgba(242, 205, 142, 0.7);
+  background: radial-gradient(120% 120% at 30% 18%, rgba(255, 222, 168, 0.42), rgba(234, 185, 108, 0.16) 66%);
+  color: var(--care-gold-hi);
+}
+
+.care-act[aria-pressed="true"] .care-act-sub {
+  color: var(--care-gold);
+}
+
+/* the plant asks for water: a soft ring breathes round the can */
+.care-act[data-cue] .care-act-token::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(242, 205, 142, 0.6);
+  animation: care-breathe 3.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.care-act[data-cue] .care-act-sub {
+  color: var(--care-gold);
+}
+
+.care-act[data-cue="thirsty"] .care-act-token {
+  border-color: rgba(242, 205, 142, 0.55);
+  background: radial-gradient(120% 120% at 30% 18%, rgba(255, 222, 168, 0.26), rgba(234, 185, 108, 0.08) 66%);
+}
+
+.care-act[data-cue="thirsty"] .care-act-token::after {
+  border-color: rgba(255, 214, 150, 0.85);
+  animation-duration: 3s;
+}
+
+@keyframes care-breathe {
+  0%,
+  100% {
+    transform: scale(0.98);
+    opacity: 0.95;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.35;
+  }
+}
+
+.care-act[data-cue="ready"] .care-act-token {
+  border-color: rgba(242, 205, 142, 0.38);
+}
+
+/* waiting on its rate limit: quieter, still there to explain */
+.care-act[data-resting] .care-act-token {
+  opacity: 0.55;
+}
+.care-act[data-resting] .care-act-label {
+  color: var(--care-ink-3);
+}
+
+.care-act[data-busy] .care-act-token {
+  animation: care-sending 1.4s ease-in-out infinite;
+}
+
+@keyframes care-sending {
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@media (min-width: 1024px) and (orientation: landscape) {
+  .care-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 8px;
+    margin: 2px 0 0;
+  }
+  .care-act {
+    min-height: 84px;
+  }
+  .care-act-token {
+    width: 56px;
+    height: 56px;
+  }
+  .care-act-token svg {
+    width: 27px;
+    height: 27px;
+  }
+  .care-act-label {
+    font-size: 13.5px;
+  }
+  .care-act-sub {
+    font-size: 12.5px;
+  }
+}
+
+/* ---- a resting plant --------------------------------------------------------------------------------------------------- */
+
+.care-rest {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(207, 216, 244, 0.18);
+  background:
+    radial-gradient(120% 140% at 12% -10%, rgba(176, 190, 255, 0.16), rgba(176, 190, 255, 0.02) 62%),
+    rgba(246, 234, 214, 0.03);
+}
+
+.care-rest-glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(207, 216, 244, 0.28);
+  background: radial-gradient(circle at 40% 30%, rgba(222, 228, 255, 0.24), rgba(222, 228, 255, 0.04) 70%);
+  color: #e3e8ff;
+  animation: care-glimmer 5s ease-in-out infinite;
+}
+
+.care-rest[data-settling] .care-rest-glyph {
+  animation-duration: 2.6s;
+}
+
+@keyframes care-glimmer {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(200, 210, 255, 0);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(200, 210, 255, 0.35);
+  }
+}
+
+.care-rest-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.care-rest-title {
+  font-family: var(--care-display);
+  font-size: 17px;
+  line-height: 1.3;
+  color: var(--care-ink);
+}
+
+.care-rest-body {
+  margin-top: 4px !important;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--care-ink-2);
+}
+
+.care-rest-title:focus {
+  outline: none;
+}
+
+/* why the Fairy Dust (or the sprout) did not reach the garden: beside the button that has come back, never an alarm */
+.care-rest-problem {
+  margin-top: 10px !important;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(201, 184, 240, 0.24);
+  background: rgba(201, 184, 240, 0.08);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--care-ink);
+  animation: care-fade 0.45s var(--care-ease) both;
+}
+
+.care-rest-btn {
+  margin-top: 12px;
+}
+
+@media (max-width: 639px) {
+  .care-rest-btn {
+    width: 100%;
+  }
+}
+
+/* ---- the weather credit ------------------------------------------------------------------------------------------------- */
+
+.care-credit {
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  text-align: center;
+  color: var(--care-ink-3);
+}
+
+@media (min-width: 1024px) and (orientation: landscape) {
+  .care-credit {
+    text-align: left;
+  }
+}
+
+/* ---- a different plant coming in --------------------------------------------------------------------------------------- */
+
+.care-swap {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+  background:
+    radial-gradient(80% 55% at 50% 42%, rgba(64, 86, 150, 0.18), rgba(64, 86, 150, 0) 72%),
+    radial-gradient(120% 60% at 50% 112%, rgba(255, 168, 88, 0.16), rgba(255, 168, 88, 0) 62%),
+    rgba(7, 10, 19, 0.94);
+}
+
+.care-swap[data-state="in"] {
+  animation: care-swap-in 0.48s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.care-swap[data-state="out"] {
+  animation: care-swap-out 1.2s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes care-swap-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes care-swap-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ---- the garden cannot be shown: a small calm card ---------------------------------------------------------------------- */
+
+.care-quiet {
+  gap: 12px;
+  padding-bottom: 14px;
+}
+
+.care-quiet[hidden] {
+  display: none;
+}
+
+.care-quiet-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.care-quiet .care-rest-glyph {
+  color: var(--care-gold);
+  border-color: rgba(242, 205, 142, 0.26);
+  background: radial-gradient(circle at 40% 30%, rgba(255, 226, 176, 0.18), rgba(255, 226, 176, 0.03) 70%);
+}
+
+.care-quiet .care-rest-glyph svg {
+  width: 22px;
+  height: 22px;
+}
+
+.care-quiet-btn {
+  align-self: flex-start;
+  margin-left: 56px;
+}
+
+.care-quiet-btn[aria-disabled="true"] {
+  opacity: 0.7;
+  cursor: default;
+}
+
+@media (max-width: 639px) {
+  .care-quiet-btn {
+    align-self: stretch;
+    margin-left: 0;
+  }
+}
+
+/* ---- a phone held sideways: a narrow panel at the right ---------------------------------------------------------------- */
+
+@media (orientation: landscape) and (max-height: 540px) {
+  .care-panel {
+    left: auto;
+    right: max(10px, env(safe-area-inset-right));
+    top: auto;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    width: min(304px, 40vw);
+    max-height: calc(100dvh - 20px);
+    margin: 0;
+    padding: 12px 12px 6px;
+    gap: 8px;
+    border-radius: 22px;
+    transform: none;
+    animation-name: care-slide-short;
+  }
+  .care-head {
+    display: none;
+  }
+  .care-says,
+  .care-says[data-voice="narrator"] {
+    font-size: 15px;
+    gap: 9px;
+  }
+  .care-chips {
+    flex-wrap: wrap;
+    gap: 5px;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  .care-chip {
+    height: 28px;
+    padding: 0 10px 0 8px;
+    font-size: 12px;
+  }
+  .care-chip-icon svg {
+    width: 15px;
+    height: 15px;
+  }
+  .care-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 2px;
+    margin: 0;
+  }
+  .care-act {
+    min-height: 60px;
+    gap: 3px;
+  }
+  .care-act-token {
+    width: 44px;
+    height: 44px;
+  }
+  .care-act-token svg {
+    width: 22px;
+    height: 22px;
+  }
+  .care-act-label {
+    font-size: 12px;
+  }
+  .care-notice,
+  .care-hint,
+  .care-prompt-body,
+  .care-rest-body {
+    font-size: 13px;
+  }
+  .care-prompt-title,
+  .care-rest-title {
+    font-size: 15px;
+  }
+  .care-rest {
+    padding: 10px;
+  }
+  .care-rest-btn,
+  .care-quiet-btn {
+    width: 100%;
+    margin-left: 0;
+  }
+  .care-credit {
+    text-align: left;
+  }
+}
+
+@keyframes care-slide-short {
+  from {
+    opacity: 0;
+    transform: translate3d(14px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- big screens ------------------------------------------------------------------------------------------------------- */
+
+@media (min-width: 1800px) and (orientation: landscape) {
+  .care-panel {
+    width: clamp(400px, 22vw, 480px);
+    padding: 26px 26px 14px;
+  }
+  .care-name {
+    font-size: 26px;
+  }
+  .care-says {
+    font-size: 22px;
+  }
+  .care-chip {
+    height: 36px;
+    font-size: 14.5px;
+  }
+}
+
+/* ---- reduced motion ---------------------------------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .care-panel,
+  .care-slot,
+  .care-notice,
+  .care-hint,
+  .care-rest-problem {
+    animation-duration: 0.01s;
+  }
+  .care-act[data-cue] .care-act-token::after {
+    animation: none;
+    transform: scale(1.08);
+    opacity: 0.7;
+  }
+  .care-act[data-busy] .care-act-token,
+  .care-rest-glyph {
+    animation: none;
+  }
+  .care-swap[data-state="in"] {
+    animation-duration: 0.15s;
+  }
+  .care-swap[data-state="out"] {
+    animation-duration: 0.4s;
+  }
+  .care-act-token,
+  .care-btn {
+    transition-duration: 0.01s;
+  }
+}

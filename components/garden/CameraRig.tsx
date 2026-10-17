@@ -16,6 +16,12 @@
 // OrbitControls stays live so the viewer can lean right in to the flower:
 // a drag (mouse, trackpad or one finger) orbits, the wheel, a trackpad pinch
 // or two fingers zoom.
+// When the care layer covers part of the screen (its card along a phone's
+// bottom edge, its narrow panel beside a phone held sideways; the store's
+// dock), the lens shifts (setViewOffset) so the plant stands in the open part
+// of the view, easing up as the card grows for a question and back as it
+// shrinks. The framing itself is untouched, and with nothing docked there is
+// no shift at all.
 import { OrbitControls } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useCallback, useLayoutEffect, useMemo, useRef, type ComponentRef } from "react";
@@ -23,6 +29,7 @@ import * as THREE from "three";
 import { HERO_GROUND_Y } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { framingFor, LAYOUT, type Framing } from "@/lib/garden/layout";
+import { garden } from "@/lib/garden/store";
 import { lerp, smoothstep } from "@/lib/plant/prng";
 
 type Controls = ComponentRef<typeof OrbitControls>;
@@ -79,10 +86,22 @@ const DRIFT_RESUME_AFTER = 5;
 /** seconds the drift takes to ease back to full strength */
 const DRIFT_EASE = 5;
 
+/**
+ * The lens shift for a docked care layer: the plant (head to foot) is centred
+ * in the open part of the view, its head kept below the name pill, at this
+ * rate per second; under half a pixel it is cleared.
+ */
+const LENS_RATE = 2.2;
+const LENS_TOP = 0.11;
+const LENS_TOP_MAX = 96;
+const LENS_GAP = 12;
+
 const UP = new THREE.Vector3(0, 1, 0);
 const offset = new THREE.Vector3();
 const prevTarget = new THREE.Vector3();
 const driftLift = new THREE.Vector3();
+const lensHead = new THREE.Vector3();
+const lensFoot = new THREE.Vector3();
 
 interface Drift {
   /** drift currently applied to the camera, so each frame moves it by the difference */
@@ -133,12 +152,54 @@ function framingOffset(f: Framing, out: THREE.Vector3): THREE.Vector3 {
   return out.set(Math.sin(f.azimuth) * flat, Math.sin(f.elevation) * f.distance, Math.cos(f.azimuth) * flat);
 }
 
+/**
+ * Eases the lens shift (CSS px, content moved left and up) toward keeping the plant in the part of the view the care
+ * layer leaves open: head to foot centred above a bottom card, the head kept clear of the name pill; centred left of
+ * a narrow side panel. Nothing docked, and once the shift has eased away, the view offset is cleared.
+ */
+function shiftLens(camera: THREE.Camera, L: { x: number; y: number }, width: number, height: number, dt: number) {
+  if (!(camera instanceof THREE.PerspectiveCamera)) return;
+  const { dockBottom, dockRight } = garden.get();
+  let wantX = 0;
+  let wantY = 0;
+  if ((dockBottom > 0 || dockRight > 0) && width > 0 && height > 0) {
+    camera.updateMatrixWorld();
+    // where the head and the plant's foot fall without the shift (it moves the picture by whole pixels: ndc + 2 px / size)
+    lensHead.copy(env.headPos).project(camera);
+    lensFoot.set(env.headPos.x, HERO_GROUND_Y, env.headPos.z).project(camera);
+    const headY = ((1 - (lensHead.y - (2 * L.y) / height)) / 2) * height;
+    const footY = ((1 - (lensFoot.y - (2 * L.y) / height)) / 2) * height;
+    if (dockBottom > 0) {
+      const top = Math.min(LENS_TOP_MAX, height * LENS_TOP);
+      const open = (top + height - dockBottom - LENS_GAP) / 2;
+      // up only, and never so far that the head goes under the name pill
+      wantY = Math.min(Math.max(0, (headY + footY) / 2 - open), Math.max(0, headY - top));
+    }
+    if (dockRight > 0) {
+      const plantX = ((lensHead.x + (2 * L.x) / width + 1) / 2) * width;
+      wantX = Math.max(0, plantX - (width - dockRight) / 2);
+    }
+  }
+  const k = 1 - Math.exp(-dt * LENS_RATE);
+  L.x += (wantX - L.x) * k;
+  L.y += (wantY - L.y) * k;
+  if (wantX === 0 && wantY === 0 && Math.abs(L.x) < 0.5 && Math.abs(L.y) < 0.5) {
+    L.x = 0;
+    L.y = 0;
+    if (camera.view?.enabled) camera.clearViewOffset();
+    return;
+  }
+  camera.setViewOffset(width, height, L.x, L.y, width, height);
+}
+
 export function CameraRig() {
   const controls = useRef<Controls>(null);
   const camera = useThree((s) => s.camera);
   const width = useThree((s) => s.size.width);
   const height = useThree((s) => s.size.height);
   const drift = useRef<Drift>({ yaw: 0, lift: 0, interacting: false, lastGesture: -Infinity, zoom: 1 });
+  /** the lens shift now applied, CSS px: content moved left (x) and up (y) */
+  const lens = useRef({ x: 0, y: 0 });
   const aspect = Math.round(width / Math.max(1, height) / ASPECT_STEP) * ASPECT_STEP;
   const framing = useMemo(() => framingFor(aspect), [aspect]);
   // Read by the frame loop; written here so a resize is picked up without a re-subscription.
@@ -250,6 +311,8 @@ export function CameraRig() {
       offset.y += dLift;
       camera.position.copy(c.target).add(offset);
     }
+
+    shiftLens(camera, lens.current, width, height, dt);
   });
 
   return (

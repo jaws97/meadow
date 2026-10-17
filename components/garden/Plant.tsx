@@ -11,6 +11,11 @@
 // personal garden the hero runs on its own schedule (garden/heroGrowth): the
 // cane lengthens across the whole fortnight, leaves run up it as it reaches
 // them, and a growing tip, then a swelling bud, crowns it from the first day.
+// For a signed-in visitor the store carries the model's live numbers
+// (lib/client/plant): its own droop, the leaves' yellowing, the flower's
+// size, the stem base darkening with rot and a soft glow after a kind word;
+// with the defaults (the owner's rose) every one of them leaves the look as
+// it was.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
@@ -53,6 +58,7 @@ import { BASE_EXPOSURE } from "@/components/garden/Effects";
 import { OPTIONAL_LIGHT } from "@/components/garden/lightSets";
 import {
   heroBudGrowth,
+  heroLeafFade,
   heroLeafUnfurl,
   heroLeaves,
   heroSegmentGrowth,
@@ -124,6 +130,14 @@ interface PlantContextValue {
   geo: PlantGeometry;
   refs: PlantRefs;
   quality: Quality;
+}
+
+/** The store's numbers as the frame loop eases them. */
+interface HeroVisual extends PlantVisual {
+  droop: number;
+  flower: number;
+  glow: number;
+  rot: number;
 }
 
 interface Stamen {
@@ -224,7 +238,7 @@ function Leaf({ index }: { index: number }) {
 
   const at = useMemo(() => stemPointAt(seg.length, seg.dx, seg.dz, leaf.t), [seg, leaf.t]);
 
-  const fadeBand = useGarden((s) => quantize(fadeOf(leafHealth(s, leaf.order)), 4));
+  const fadeBand = useGarden((s) => quantize(heroLeafFade(fadeOf(leafHealth(s, leaf.order)), s.chlorosis, leaf.order), 4));
   const burnBand = useGarden((s) => quantize(s.scorch * (0.5 + 0.5 * leaf.order), 3));
   const leafMat = leafMaterial(sp, fadeBand, burnBand, quality);
 
@@ -600,15 +614,22 @@ export function Plant() {
   const ctx = useMemo<PlantContextValue>(() => ({ bp, geo, refs: R, quality }), [bp, geo, R, quality]);
 
   const budMat = budMaterial(sp);
-  const vis = useRef<PlantVisual | null>(null);
+  const vis = useRef<HeroVisual | null>(null);
+  // A different plant (a colleague's seed replacing the owner's rose) starts from its own numbers, not eased from the last one's.
+  const visKey = useRef(key);
 
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
     const k = 1 - Math.exp(-dt * 2.5);
     const s = garden.get();
+    if (visKey.current !== key) {
+      visKey.current = key;
+      vis.current = null;
+    }
     let v = vis.current;
     if (!v) {
-      v = { growth: s.growth, bloom: s.bloom, health: s.health, moisture: s.moisture, scorch: s.scorch };
+      const base = { growth: s.growth, bloom: s.bloom, health: s.health, moisture: s.moisture, scorch: s.scorch };
+      v = { ...base, droop: s.droop ?? droopOf(base), flower: s.flowerSize, glow: s.glow, rot: s.rot };
       vis.current = v;
     } else {
       v.growth += (s.growth - v.growth) * k;
@@ -616,16 +637,24 @@ export function Plant() {
       v.health += (s.health - v.health) * k;
       v.moisture += (s.moisture - v.moisture) * k;
       v.scorch += (s.scorch - v.scorch) * k;
+      // without a live droop the plant droops from its eased moisture and health, as it always has
+      v.droop = s.droop === null ? droopOf(v) : v.droop + (s.droop - v.droop) * k;
+      v.flower += (s.flowerSize - v.flower) * k;
+      v.glow += (s.glow - v.glow) * k;
+      v.rot += (s.rot - v.rot) * k;
     }
 
     const t = env.time;
-    const droop = droopOf(v);
+    const droop = v.droop;
     const gust = 0.5 + 0.5 * Math.sin(t * 0.37) * Math.sin(t * 0.11 + 1.3);
     const windAmp = env.wind * (0.4 + 0.6 * gust);
     axis.set(Math.sin(bp.leanDir), 0, -Math.cos(bp.leanDir));
 
     // stem segments
     const n = bp.stem.length;
+    // Rot darkens the cane where it meets the mulch: the base segment's material is the hero's alone (stemMaterial keys it by position).
+    const baseMat = R.tubes[0]?.material;
+    if (baseMat instanceof THREE.MeshPhysicalMaterial) baseMat.color.setRGB(1 - 0.42 * v.rot, 1 - 0.5 * v.rot, 1 - 0.56 * v.rot);
     for (let i = 0; i < n; i++) {
       const seg = bp.stem[i];
       const gi = heroSegmentGrowth(v.growth, i, n);
@@ -712,7 +741,8 @@ export function Plant() {
     const petalsShown = bud > 0.04;
     if (head) {
       head.visible = heroStemFraction(v.growth) > 0.005;
-      head.scale.setScalar(0.3 + 0.7 * bud);
+      // a flower that budded under stress, or a second-chance sprout's, opens smaller
+      head.scale.setScalar((0.3 + 0.7 * bud) * (0.6 + 0.4 * v.flower));
       head.rotation.x = bp.headTilt + droop * 0.9 + windAmp * 0.03 * Math.sin(t * 1.7);
     }
 
@@ -766,8 +796,10 @@ export function Plant() {
     const lift = Math.max(1, state.gl.toneMappingExposure / BASE_EXPOSURE);
     // lite's petals have no transmission to spread their light, so it reads stronger there
     const tierGlow = quality === "lite" ? 0.75 : 1;
+    // a kind word lifts the petals' own light a little for the hour that follows
+    const kind = 1 + 0.5 * v.glow;
     const ei =
-      (lerp(f.emissiveDay, f.emissiveNight, night) * (0.3 + 0.7 * v.health) * (0.2 + 0.8 * eb) * pulse * tierGlow) / lift;
+      (lerp(f.emissiveDay, f.emissiveNight, night) * (0.3 + 0.7 * v.health) * (0.2 + 0.8 * eb) * pulse * tierGlow * kind) / lift;
     const mats = R.petalMats;
     for (let j = 0; j < mats.length; j++) mats[j].emissiveIntensity = ei;
     budMat.emissiveIntensity = ei * 0.3;

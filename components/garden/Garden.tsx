@@ -11,22 +11,31 @@
 // written the env at -10 and before the parts and their materials read it.
 // It also stages the companions by the hero's growth (see heroGrowth): low
 // and in leaf while the owner's flower is young, in flower as it buds.
+// For a signed-in visitor's plant two more parts follow the store: a mound of
+// fresh soil while the seed has not come up (SeedMound), and the shade cloth
+// and rain cover on their hoops (BedCovers); neither draws for a grown plant
+// with both folded away, as the owner's rose always is.
 import { useFrame } from "@react-three/fiber";
 import { swayUniforms } from "@/lib/garden/dressing";
 import { garden, useGarden } from "@/lib/garden/store";
 import { Bed } from "@/components/garden/garden/Bed";
+import { BedCovers } from "@/components/garden/garden/BedCovers";
 import { Border } from "@/components/garden/garden/Border";
 import { Companions } from "@/components/garden/garden/Companions";
 import { HeroBush } from "@/components/garden/garden/HeroBush";
 import { Lantern } from "@/components/garden/garden/Lantern";
 import { Path } from "@/components/garden/garden/Path";
+import { SeedMound } from "@/components/garden/garden/SeedMound";
 import { WateringCan } from "@/components/garden/garden/WateringCan";
 import { driveGardenMaterials, gardenMaterials } from "@/components/garden/garden/materials";
 import { stepWeather, weather } from "@/components/garden/garden/weather";
 import { companionGrow, companionOpen } from "@/components/garden/garden/heroGrowth";
 
-/** The hero's growth as the companions follow it, eased like the plant's own (Plant.tsx) so both move together. */
-const staged = { primed: false, growth: 1 };
+/**
+ * The hero's growth as the companions follow it, eased like the plant's own (Plant.tsx) so both move together, and
+ * started afresh with it when a new plant (another seed) takes the bed.
+ */
+const staged = { primed: false, growth: 1, seed: "" };
 
 export function Garden() {
   const seed = useGarden((s) => s.seed);
@@ -37,9 +46,10 @@ export function Garden() {
     const dt = Math.min(delta, 0.1);
     stepWeather(dt);
     driveGardenMaterials(gardenMaterials(), weather);
-    const g = garden.get().growth;
-    if (!staged.primed) {
+    const { growth: g, seed: owner } = garden.get();
+    if (!staged.primed || staged.seed !== owner) {
       staged.primed = true;
+      staged.seed = owner;
       staged.growth = g;
     } else staged.growth += (g - staged.growth) * (1 - Math.exp(-dt * 2.5));
     swayUniforms.uGrow.value = companionGrow(staged.growth);
@@ -55,6 +65,8 @@ export function Garden() {
       <WateringCan quality={quality} />
       <Companions seed={seed} quality={quality} />
       <HeroBush speciesId={speciesId} seed={seed} quality={quality} />
+      <SeedMound quality={quality} />
+      <BedCovers quality={quality} />
     </group>
   );
 }
