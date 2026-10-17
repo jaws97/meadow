@@ -1,0 +1,599 @@
+// A person's garden on the server: planting a seed, reading the plant caught up to the last completed hour, recording
+// care, and sending a friend a sprinkle. Server-only; route handlers call these and turn ApiErrors into responses.
+//
+// Time: the model counts game hours from 10 Nov 2026 00:00 IST. A visit steps the plant's checkpoint through every
+// completed hour (catchup.ts), so the state describes the top of the current hour; actions taken during the hour are
+// recorded now and take effect when the hour completes (they come back as `pending` until then).
+//
+// Concurrency: recording an event locks the plant's checkpoint row, files the event at max(now hour, checkpoint hour)
+// and bumps the checkpoint version, so no catch-up computed without the event can be saved and no event is ever filed
+// behind a checkpoint that has already passed its hour. Retries are idempotent through (plant, client_event_id). Every
+// locking transaction runs through db.ts transaction(), which bounds its waits.
+//
+// Planting: a seed needs the party code from the QR link (party.ts), so the internet at large cannot plant. Plots are
+// handed out under one advisory lock, inner rings first, growing past the planned rings when needed (plots.ts). A
+// global throttle (PLANTINGS_PER_MINUTE) slows a runaway script; the UI retries a 429 or 503 by itself with the same
+// clientEventId. A retried planting is answered with the original only for the same name and species, within half an
+// hour, and from no session or its own (rules.ts decideSeedReplay).
+//
+// Rehearsals (env.ts): before the seeds are handed out, planting works outside production, or in production with
+// MEADOW_REHEARSAL=1 before the game clock starts (never on or after 10 Nov). Such plants are marked plants.rehearsal:
+// they take plots from the outer end of the planned rings, the production Meadow hides them, and
+// scripts/clear-rehearsals.mjs removes them. A non-production server may tend only rehearsal plants.
+//
+// Writes outside a locking transaction (checkpoint saves) still go through db.ts transaction(), so every write waits
+// a bounded time for a lock whichever role the app connects as.
+import "server-only";
+import { randomBytes } from "node:crypto";
+import type postgres from "postgres";
+import type { SpeciesId } from "@/lib/plant/species";
+import {
+  BED,
+  CLIM_T,
+  SIM_VERSION,
+  expectBloom,
+  hourIndexOf,
+  toVisual,
+  type PlantState,
+  type TimedEvent,
+  type Visual,
+} from "@/lib/sim";
+import { advanceCheckpoint, seedState, type AdvanceDeps, type CheckpointRecord } from "./catchup";
+import { db, transaction, type Queryable } from "./db";
+import { isProduction, partyCodes, rehearsalAllowed, showRehearsals, writesDerivedState } from "./env";
+import { ApiError } from "./http";
+import { createGardenLink, createSession } from "./identity";
+import { requirePartyCode } from "./party";
+import { PLOT_CAPACITY, assignPlot } from "./plots";
+import {
+  careStatus,
+  decideCare,
+  decideSeedReplay,
+  healthBand,
+  hourIso,
+  istClock,
+  istDayOfHour,
+  plantingOpensText,
+  plantingWindow,
+  stageOf,
+  toRecordedEvent,
+  toTimedEvent,
+  type EventRow,
+  type HealthBand,
+  type PriorPlanting,
+  type RecordedEvent,
+  type Stage,
+} from "./rules";
+import { hashToken } from "./tokens";
+import type { CareInput, CareKind, SeedInput, SprinkleInput } from "./validate";
+import { ensureWeather, loadWeather } from "./weather-store";
+
+// any constant works; it only has to be the same for every instance
+const PLOT_LOCK_KEY = 0x706c6f74; // "plot"
+/**
+ * Plantings per minute across the whole Meadow before new ones are asked to wait a few seconds: the whole office could
+ * plant within one minute of the QR code going up and still pass. The party code keeps strangers out; this only brakes
+ * a runaway script from someone who has the link.
+ */
+export const PLANTINGS_PER_MINUTE = 300;
+
+/** Seconds a throttled planting waits: 4-10, spread so that a crowd told to wait does not come back in step. */
+function plantingRetryAfterS(): number {
+  return 4 + Math.floor(Math.random() * 7);
+}
+
+function practiceOnly(): ApiError {
+  return new ApiError(409, "practice_only", "This is a practice copy of the garden; real gardens are tended on the live site only.");
+}
+
+// ---- loading ----------------------------------------------------------------------------------------------------------
+
+export interface PlantRef {
+  personId: string;
+  firstName: string;
+  showName: boolean;
+  plantId: string;
+  species: SpeciesId;
+  seed: string;
+  plot: number;
+  plantedH: number;
+  rehearsal: boolean;
+}
+
+interface PlantRefRow {
+  person_id: string;
+  first_name: string;
+  show_name: boolean;
+  plant_id: string;
+  species: SpeciesId;
+  seed: string;
+  plot_index: number;
+  planted_h: number;
+  rehearsal: boolean;
+}
+
+function toPlantRef(r: PlantRefRow): PlantRef {
+  return {
+    personId: r.person_id, firstName: r.first_name, showName: r.show_name, plantId: r.plant_id,
+    species: r.species, seed: r.seed, plot: r.plot_index, plantedH: r.planted_h, rehearsal: r.rehearsal,
+  };
+}
+
+/** A person's plant (garden slot 0), or null when they have none. */
+export async function findPlantOfPerson(personId: string, q: Queryable = db()): Promise<PlantRef | null> {
+  const rows = await q<PlantRefRow[]>`
+    select pe.id as person_id, pe.first_name, pe.show_name, p.id as plant_id, p.species, p.seed, p.plot_index, p.planted_h,
+           p.rehearsal
+    from meadow.people pe
+    join meadow.gardens g on g.person_id = pe.id
+    join meadow.plants p on p.garden_id = g.id and p.garden_slot = 0
+    where pe.id = ${personId}`;
+  return rows[0] ? toPlantRef(rows[0]) : null;
+}
+
+async function requirePlant(personId: string): Promise<PlantRef> {
+  const plant = await findPlantOfPerson(personId);
+  if (!plant) throw new ApiError(404, "no_plant", "There is no seed in your garden yet. Plant one to begin.");
+  return plant;
+}
+
+interface CheckpointRow {
+  h: number;
+  state: PlantState;
+  sim_version: number;
+  version: number;
+}
+
+const toCheckpoint = (r: CheckpointRow): CheckpointRecord => ({ h: r.h, state: r.state, simVersion: r.sim_version, version: r.version });
+
+async function loadRecorded(q: Queryable, plantId: string, fromH: number, toH: number | null): Promise<RecordedEvent[]> {
+  const rows = await q<EventRow[]>`
+    select id, h, kind, amount, actor_id, client_event_id from meadow.plant_events
+    where plant_id = ${plantId} and h >= ${fromH} and h < ${toH ?? 2147483647}
+    order by h, id`;
+  return rows.map(toRecordedEvent);
+}
+
+async function findEvent(q: Queryable, plantId: string, clientEventId: string): Promise<EventRow | null> {
+  const rows = await q<EventRow[]>`
+    select id, h, kind, amount, actor_id, client_event_id from meadow.plant_events
+    where plant_id = ${plantId} and client_event_id = ${clientEventId}`;
+  return rows[0] ?? null;
+}
+
+function timed(events: readonly RecordedEvent[]): TimedEvent[] {
+  const out: TimedEvent[] = [];
+  for (const e of events) {
+    const t = toTimedEvent(e);
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * A PlantState as a JSON parameter. Pass it through sql.json(), never as a JSON.stringify()'d string with ::jsonb: the
+ * server types such a parameter as jsonb and postgres.js would encode the string again, storing a JSON string scalar.
+ */
+export function asJson(state: PlantState): postgres.JSONValue {
+  return state as unknown as postgres.JSONValue;
+}
+
+/** Saves a caught-up state if the checkpoint still has expectedVersion, mirroring the generation onto the plant. */
+async function saveCheckpoint(q: Queryable, plantId: string, expectedVersion: number, state: PlantState): Promise<boolean> {
+  const rows = await q<{ n: number }[]>`
+    with c as (
+      update meadow.checkpoints
+      set h = ${state.h}, state = ${q.json(asJson(state))}, sim_version = ${state.v}, version = version + 1, updated_at = now()
+      where plant_id = ${plantId} and version = ${expectedVersion}
+      returning plant_id
+    ), g as (
+      update meadow.plants set generation = ${state.gen}
+      where id in (select plant_id from c) and generation <> ${state.gen}
+    )
+    select count(*)::int as n from c`;
+  return rows[0]?.n === 1;
+}
+
+function advanceDeps(plant: PlantRef): AdvanceDeps {
+  const planting = { speciesId: plant.species, plantedH: plant.plantedH, owner: plant.personId };
+  const persist = writesDerivedState();
+  return {
+    planting,
+    async loadCheckpoint() {
+      const rows = await db()<CheckpointRow[]>`
+        select h, state, sim_version, version from meadow.checkpoints where plant_id = ${plant.plantId}`;
+      if (rows[0]) return toCheckpoint(rows[0]);
+      // a plant without a checkpoint (never expected) starts from its planting
+      const seed = seedState(planting);
+      if (persist) {
+        await transaction((tx) => tx`
+          insert into meadow.checkpoints (plant_id, h, state, sim_version)
+          values (${plant.plantId}, ${seed.h}, ${tx.json(asJson(seed))}, ${SIM_VERSION})
+          on conflict (plant_id) do nothing`);
+      }
+      return { h: seed.h, state: seed, simVersion: SIM_VERSION, version: 0 };
+    },
+    loadEvents: async (fromH, toH) => timed(await loadRecorded(db(), plant.plantId, fromH, toH)),
+    ensureWeather: async (fromH, toH) => {
+      await ensureWeather(fromH, toH);
+    },
+    loadWeather,
+    // outside production the catch-up is computed for the response and never saved (env.ts)
+    saveCheckpoint: persist ? (expected, state) => transaction((tx) => saveCheckpoint(tx, plant.plantId, expected, state)) : undefined,
+  };
+}
+
+// ---- the view the UI reads (GET /api/me, and every care response) ----------------------------------------------------
+
+export interface MeView {
+  person: { firstName: string; showName: boolean };
+  plant: {
+    plot: number;
+    species: SpeciesId;
+    seed: string;
+    generation: number;
+    plantedH: number;
+    plantedAt: string;
+    /** a practice plant (before the opening hour, or planted through a non-production server); hidden from the live Meadow */
+    rehearsal: boolean;
+  };
+  now: { h: number; at: string; clock: number };
+  state: {
+    /** the moment the state describes: the start of hour h (the top of the current hour when up to date) */
+    h: number;
+    at: string;
+    alive: boolean;
+    stage: Stage;
+    health: HealthBand;
+    /** 0 at the seed, 0.64 when buds form, 1 at a mature bud */
+    development: number;
+    ripeH: number | null;
+    bloomH: number | null;
+    bloomedAt: string | null;
+    diedH: number | null;
+    fairyUsed: boolean;
+    /** sprinkles received today that the model counted (up to 2) */
+    sprinklesToday: number;
+  };
+  visual: Visual;
+  /**
+   * when the flower should open if care stays good from now; null once it has bloomed, when asleep, beyond 90 days, or
+   * for a plant planted before the game clock starts
+   */
+  forecast: { bloomH: number; bloomAt: string; days: number | null } | null;
+  care: {
+    water: { ready: boolean; nextH: number | null; nextAt: string | null };
+    feed: { ready: boolean; nextH: number | null; nextAt: string | null };
+    revive: boolean;
+    replant: boolean;
+    shade: boolean;
+    cover: boolean;
+  };
+  /** actions recorded since the state's hour; they take effect when their hour completes */
+  pending: { kind: CareKind | "sprinkle"; h: number; at: string; on: boolean | null }[];
+  /** friends who sprinkled this plant today, by first name ("A friend" when they keep their name private) */
+  friendsToday: string[];
+  weather: { upToDate: boolean; waitingFromH: number | null };
+}
+
+const round = (x: number, d: number) => Math.round(x * 10 ** d) / 10 ** d;
+
+async function friendsToday(plantId: string, nowH: number): Promise<string[]> {
+  const rows = await db()<{ name: string }[]>`
+    select case when pe.show_name then pe.first_name else 'A friend' end as name
+    from meadow.sprinkles s join meadow.people pe on pe.id = s.giver_id
+    where s.plant_id = ${plantId} and s.ist_day = ${istDayOfHour(nowH)}
+    order by s.id`;
+  return rows.map((r) => r.name);
+}
+
+function buildMe(plant: PlantRef, state: PlantState, pending: readonly RecordedEvent[], now: Date, waitingFromH: number | null, friends: string[]): MeView {
+  const nowH = hourIndexOf(now), clock = istClock(now);
+  const visual = toVisual(state, null, clock);
+  // the model's -1 "not yet" marks misread at negative hours, so a plant planted before the game clock gets no forecast
+  const forecast = state.bloomH < 0 && plant.plantedH >= 0
+    ? expectBloom(state, null, { h: Math.max(nowH, state.h), climT: CLIM_T })
+    : null;
+  const care = careStatus(state, pending, nowH);
+  return {
+    person: { firstName: plant.firstName, showName: plant.showName },
+    plant: {
+      plot: plant.plot, species: plant.species, seed: plant.seed, generation: state.gen,
+      plantedH: plant.plantedH, plantedAt: hourIso(plant.plantedH), rehearsal: plant.rehearsal,
+    },
+    now: { h: nowH, at: now.toISOString(), clock: round(clock, 3) },
+    state: {
+      h: state.h, at: hourIso(state.h), alive: state.alive, stage: stageOf(state), health: healthBand(visual),
+      development: round(state.D, 4),
+      ripeH: state.ripeH >= 0 ? state.ripeH : null,
+      bloomH: state.bloomH >= 0 ? state.bloomH : null,
+      bloomedAt: state.bloomH >= 0 ? hourIso(state.bloomH) : null,
+      diedH: state.diedH >= 0 ? state.diedH : null,
+      fairyUsed: state.fairyUsed,
+      sprinklesToday: Math.min(state.daySpr, BED.sprinkleCap),
+    },
+    visual,
+    forecast: forecast && forecast.bloomH >= 0 ? { bloomH: forecast.bloomH, bloomAt: hourIso(forecast.bloomH), days: forecast.days } : null,
+    care: {
+      ...care,
+      water: { ...care.water, nextAt: care.water.nextH === null ? null : hourIso(care.water.nextH) },
+      feed: { ...care.feed, nextAt: care.feed.nextH === null ? null : hourIso(care.feed.nextH) },
+    },
+    pending: pending.map((e) => ({ kind: e.kind, h: e.h, at: hourIso(e.h), on: e.on })),
+    friendsToday: friends,
+    weather: { upToDate: waitingFromH === null, waitingFromH },
+  };
+}
+
+/** The caller's plant, caught up to the last completed hour. */
+export async function getMe(personId: string, now: Date = new Date()): Promise<MeView> {
+  const plant = await requirePlant(personId);
+  const nowH = hourIndexOf(now);
+  const adv = await advanceCheckpoint(advanceDeps(plant), nowH);
+  const [pending, friends] = await Promise.all([loadRecorded(db(), plant.plantId, adv.state.h, null), friendsToday(plant.plantId, nowH)]);
+  return buildMe(plant, adv.state, pending, now, adv.weatherWaitingFromH, friends);
+}
+
+// ---- planting ---------------------------------------------------------------------------------------------------------
+
+export interface PlantResult {
+  personId: string;
+  /** a new session for this device, or null when it already holds this garden's session (a retry from the same device) */
+  sessionToken: string | null;
+  linkToken: string;
+  /** true when this was a retry of a planting that already happened (same clientEventId) */
+  replay: boolean;
+  me: MeView;
+}
+
+function isUniqueViolation(err: unknown, constraint: string): boolean {
+  const e = err as { code?: string; constraint_name?: string };
+  return e?.code === "23505" && e.constraint_name === constraint;
+}
+
+async function findPriorPlanting(requestHash: Buffer): Promise<PriorPlanting | null> {
+  const rows = await db()<{ id: string; first_name: string; species: string; created_at: Date }[]>`
+    select pe.id, pe.first_name, p.species, pe.created_at
+    from meadow.people pe
+    join meadow.gardens g on g.person_id = pe.id
+    join meadow.plants p on p.garden_id = g.id and p.garden_slot = 0
+    where pe.seed_request_hash = ${requestHash}`;
+  const r = rows[0];
+  return r ? { personId: r.id, firstName: r.first_name, species: r.species, createdAt: r.created_at } : null;
+}
+
+async function answerRetry(prior: PriorPlanting, input: SeedInput, sessionPersonId: string | null, now: Date): Promise<PlantResult> {
+  const decision = decideSeedReplay(prior, input, sessionPersonId, now);
+  if (decision === "mismatch") {
+    throw new ApiError(409, "seed_request_used", "That planting request was already used for a different seed. Refresh the page and plant again.");
+  }
+  if (decision === "expired") {
+    throw new ApiError(409, "seed_request_expired", "That seed was planted a while ago and is growing. Open your personal garden link to visit it.");
+  }
+  const { sessionToken, linkToken } = await transaction(async (tx) => ({
+    sessionToken: sessionPersonId === prior.personId ? null : await createSession(tx, prior.personId),
+    linkToken: await createGardenLink(tx, prior.personId),
+  }));
+  return { personId: prior.personId, sessionToken, linkToken, replay: true, me: await getMe(prior.personId, now) };
+}
+
+/**
+ * Plants a seed for a new person: checks the planting window, gives them the next plot, and creates the person, their
+ * garden, the plant and its first checkpoint, a session and a personal garden link, all in one transaction.
+ */
+export async function plantSeed(input: SeedInput, opts: { sessionPersonId: string | null; now?: Date }): Promise<PlantResult> {
+  const now = opts.now ?? new Date();
+  const h = hourIndexOf(now);
+  requirePartyCode(input.partyCode, partyCodes(), isProduction());
+  const window = plantingWindow(h, rehearsalAllowed(h));
+  if (window === "early") {
+    throw new ApiError(409, "not_yet", `Seeds are handed out at the party on ${plantingOpensText()}. See you there!`);
+  }
+  if (window === "closed") {
+    throw new ApiError(409, "planting_closed", "Planting closed on 10 Dec. You can still wander the Meadow and enjoy everyone's flowers.");
+  }
+  // a retry first, so a device whose first attempt set the cookie but lost the response still gets its garden link
+  const requestHash = hashToken(`seed:${input.requestId}`);
+  const prior = await findPriorPlanting(requestHash);
+  if (prior) return answerRetry(prior, input, opts.sessionPersonId, now);
+  if (opts.sessionPersonId) {
+    const mine = await findPlantOfPerson(opts.sessionPersonId);
+    if (mine) {
+      throw new ApiError(409, "already_planted", `This device already holds ${mine.firstName}'s garden; the seed is waiting there.`,
+        { plot: mine.plot, firstName: mine.firstName });
+    }
+  }
+
+  const species = input.species;
+  const rehearsal = window === "rehearsal" || !isProduction();
+  const seed = randomBytes(6).toString("base64url");
+  try {
+    const created = await transaction(async (tx) => {
+      // one planting at a time hands out plots, so two seeds never race for the same one
+      await tx`select pg_advisory_xact_lock(${PLOT_LOCK_KEY})`;
+      const [recent] = await tx<{ n: number }[]>`
+        select count(*)::int as n from meadow.plants where created_at > now() - interval '1 minute'`;
+      if (recent.n >= PLANTINGS_PER_MINUTE) {
+        throw new ApiError(429, "busy_planting", "So many seeds are going in at once! Yours is next in a few seconds.", { retryAfterS: plantingRetryAfterS() });
+      }
+      const taken = await tx<{ plot_index: number }[]>`select plot_index from meadow.plants`;
+      const plot = assignPlot(taken.map((r) => r.plot_index), { from: rehearsal ? "outer" : "inner" });
+      if (plot === null) {
+        console.error(`[meadow api] the Meadow is full: all ${taken.length} plots are taken`);
+        throw new ApiError(503, "meadow_full", "The Meadow has no free plot just now. The committee has been told; please try again a little later.");
+      }
+      if (plot >= PLOT_CAPACITY) console.warn(`[meadow api] plot ${plot} is beyond the ${PLOT_CAPACITY} planned plots; the Meadow is growing outward`);
+      const [person] = await tx<{ id: string }[]>`
+        insert into meadow.people (first_name, show_name, seed_request_hash)
+        values (${input.firstName}, ${input.showName}, ${requestHash}) returning id`;
+      const [garden] = await tx<{ id: string }[]>`insert into meadow.gardens (person_id) values (${person.id}) returning id`;
+      const [plant] = await tx<{ id: string }[]>`
+        insert into meadow.plants (garden_id, garden_slot, species, seed, plot_index, planted_h, sim_version, rehearsal)
+        values (${garden.id}, 0, ${species}, ${seed}, ${plot}, ${h}, ${SIM_VERSION}, ${rehearsal}) returning id`;
+      const state = seedState({ speciesId: species, plantedH: h, owner: person.id });
+      await tx`
+        insert into meadow.checkpoints (plant_id, h, state, sim_version)
+        values (${plant.id}, ${state.h}, ${tx.json(asJson(state))}, ${SIM_VERSION})`;
+      const ref: PlantRef = {
+        personId: person.id, firstName: input.firstName, showName: input.showName, plantId: plant.id, species, seed, plot,
+        plantedH: h, rehearsal,
+      };
+      return {
+        ref,
+        state,
+        sessionToken: await createSession(tx, person.id),
+        linkToken: await createGardenLink(tx, person.id),
+      };
+    });
+    return {
+      personId: created.ref.personId,
+      sessionToken: created.sessionToken,
+      linkToken: created.linkToken,
+      replay: false,
+      me: buildMe(created.ref, created.state, [], now, null, []),
+    };
+  } catch (err) {
+    // the same request raced itself (a double tap before the first response): answer with the planting that won
+    if (isUniqueViolation(err, "people_seed_request_hash_key")) {
+      const winner = await findPriorPlanting(requestHash);
+      if (winner) return answerRetry(winner, input, opts.sessionPersonId, now);
+    }
+    throw err;
+  }
+}
+
+/** A fresh personal garden link for someone who already has a garden (the newest few links keep working). */
+export async function newGardenLink(personId: string): Promise<string> {
+  await requirePlant(personId);
+  return createGardenLink(db(), personId);
+}
+
+// ---- care -------------------------------------------------------------------------------------------------------------
+
+export interface CareResult {
+  /** duplicate: a retry, or a shade/cover change that was already in place (unchanged: true); nothing new was recorded */
+  event: { kind: CareKind; h: number; at: string; duplicate: boolean; unchanged: boolean };
+  me: MeView;
+}
+
+/** Records a care action (water, shade, cover, feed, tend, talk, revive, replant) for the caller's plant. */
+export async function recordCare(personId: string, input: CareInput, now: Date = new Date()): Promise<CareResult> {
+  const plant = await requirePlant(personId);
+  if (!plant.rehearsal && !isProduction()) throw practiceOnly();
+  const nowH = hourIndexOf(now);
+  const adv = await advanceCheckpoint(advanceDeps(plant), nowH);
+
+  const outcome = await transaction(async (tx) => {
+    const [cp] = await tx<CheckpointRow[]>`
+      select h, state, sim_version, version from meadow.checkpoints where plant_id = ${plant.plantId} for update`;
+    if (!cp) throw new ApiError(404, "no_plant", "There is no seed in your garden yet. Plant one to begin.");
+    // judge by the freshest state we have: the saved checkpoint, or the catch-up just computed if it could not be saved
+    const state = cp.sim_version === SIM_VERSION && cp.h >= adv.state.h ? cp.state : adv.state;
+    const pending = await loadRecorded(tx, plant.plantId, state.h, null);
+    const existing = await findEvent(tx, plant.plantId, input.clientEventId);
+    const decision = decideCare(input, {
+      state, pending, existing: existing ? toRecordedEvent(existing) : null, nowH, checkpointH: cp.h,
+    });
+    if (decision.action !== "insert") return { decision, state, pending, event: null };
+    // the checkpoint row lock serialises events per plant, so the same id cannot be inserted twice
+    const [inserted] = await tx<EventRow[]>`
+      insert into meadow.plant_events (plant_id, h, kind, amount, client_event_id)
+      values (${plant.plantId}, ${decision.h}, ${input.kind}, ${decision.amount}, ${input.clientEventId})
+      returning id, h, kind, amount, actor_id, client_event_id`;
+    // a catch-up computed before this event must not be saved now
+    await tx`update meadow.checkpoints set version = version + 1 where plant_id = ${plant.plantId}`;
+    const event = toRecordedEvent(inserted);
+    return { decision, state, pending: [...pending, event], event };
+  });
+
+  const { decision } = outcome;
+  if (decision.action === "reject") {
+    throw new ApiError(decision.status, decision.code, decision.message,
+      decision.retryH === undefined ? {} : { retryH: decision.retryH, retryAt: hourIso(decision.retryH) });
+  }
+  const recorded = decision.action === "duplicate" ? decision.event : outcome.event;
+  const h = recorded ? recorded.h : decision.action === "unchanged" ? decision.h : nowH;
+  const friends = await friendsToday(plant.plantId, nowH);
+  return {
+    event: {
+      kind: input.kind, h, at: hourIso(h),
+      duplicate: decision.action !== "insert",
+      unchanged: decision.action === "unchanged",
+    },
+    me: buildMe(plant, outcome.state, outcome.pending, now, adv.weatherWaitingFromH, friends),
+  };
+}
+
+// ---- sprinkles --------------------------------------------------------------------------------------------------------
+
+export interface SprinkleResult {
+  plot: number;
+  /** the friend's first name as the Meadow shows it */
+  name: string;
+  /** whether the model counts it (the first two sprinkles a plant gets each day water it; later ones are good wishes) */
+  counts: boolean;
+  duplicate: boolean;
+  message: string;
+}
+
+/** One small sprinkle from the caller to the plant in another person's plot: one per giver per IST day. */
+export async function sprinkle(giverId: string, input: SprinkleInput, now: Date = new Date()): Promise<SprinkleResult> {
+  const nowH = hourIndexOf(now);
+  const rows = await db()<PlantRefRow[]>`
+    select pe.id as person_id, pe.first_name, pe.show_name, p.id as plant_id, p.species, p.seed, p.plot_index, p.planted_h,
+           p.rehearsal
+    from meadow.plants p
+    join meadow.gardens g on g.id = p.garden_id
+    join meadow.people pe on pe.id = g.person_id
+    where p.plot_index = ${input.plot}`;
+  const target = rows[0] ? toPlantRef(rows[0]) : null;
+  // a practice plant hidden from this Meadow counts as an empty plot
+  if (!target || (target.rehearsal && !showRehearsals(nowH))) throw new ApiError(404, "plot_empty", "Nobody has planted in that plot yet.");
+  if (!target.rehearsal && !isProduction()) throw practiceOnly();
+  if (target.personId === giverId) {
+    throw new ApiError(400, "own_plant", "That is your own flower; give it a can of water instead. Sprinkles are for friends.");
+  }
+  const name = target.showName ? target.firstName : "A friend";
+  const day = istDayOfHour(nowH);
+
+  return transaction(async (tx) => {
+    const [cp] = await tx<{ h: number }[]>`select h from meadow.checkpoints where plant_id = ${target.plantId} for update`;
+    const h = Math.max(nowH, cp?.h ?? nowH);
+    const existing = await findEvent(tx, target.plantId, input.clientEventId);
+    if (existing) {
+      if (existing.kind !== "sprinkle" || existing.actor_id !== giverId) {
+        throw new ApiError(409, "client_event_id_reused", "That clientEventId was already used for a different action; send a fresh one.");
+      }
+      const [n] = await tx<{ before: number }[]>`
+        select count(*)::int as before from meadow.sprinkles s
+        where s.plant_id = ${target.plantId} and s.ist_day = ${istDayOfHour(existing.h)}
+          and s.id < (select id from meadow.sprinkles where event_id = ${String(existing.id)})`;
+      const counts = (n?.before ?? 0) < BED.sprinkleCap;
+      return { plot: target.plot, name, counts, duplicate: true, message: sprinkleMessage(name, counts) };
+    }
+    const given = await tx<{ id: string }[]>`
+      insert into meadow.sprinkles (giver_id, plant_id, ist_day, h)
+      values (${giverId}, ${target.plantId}, ${day}, ${h})
+      on conflict (giver_id, ist_day) do nothing returning id`;
+    if (!given[0]) {
+      throw new ApiError(409, "sprinkled_today", "You have shared today's sprinkle already. Tomorrow brings another.");
+    }
+    const [before] = await tx<{ n: number }[]>`
+      select count(*)::int as n from meadow.sprinkles
+      where plant_id = ${target.plantId} and ist_day = ${day} and id < ${given[0].id}`;
+    const [event] = await tx<{ id: string }[]>`
+      insert into meadow.plant_events (plant_id, h, kind, actor_id, client_event_id)
+      values (${target.plantId}, ${h}, 'sprinkle', ${giverId}, ${input.clientEventId}) returning id`;
+    await tx`update meadow.sprinkles set event_id = ${event.id} where id = ${given[0].id}`;
+    await tx`update meadow.checkpoints set version = version + 1 where plant_id = ${target.plantId}`;
+    const counts = before.n < BED.sprinkleCap;
+    return { plot: target.plot, name, counts, duplicate: false, message: sprinkleMessage(name, counts) };
+  });
+}
+
+function sprinkleMessage(name: string, counts: boolean): string {
+  const who = name === "A friend" ? "your friend's" : `${name}'s`;
+  return counts
+    ? `Your sprinkle landed on ${who} flower; it will feel it within the hour.`
+    : `Two friends have already sprinkled ${who} flower today, so yours arrives as a sparkle of good wishes.`;
+}

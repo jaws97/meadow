@@ -1,0 +1,90 @@
+// Which deployment this is, and what it may write: only production saves checkpoints and weather; Vercel without
+// VERCEL_ENV is never production; rehearsals are open everywhere except production, where MEADOW_REHEARSAL=1 opens them
+// only before the game clock starts, so no plant planted on or after 10 Nov can be marked or hidden as a rehearsal.
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { PLANT_OPEN_H } from "@/lib/sim";
+import { deployment, isProduction, partyCodes, rehearsalAllowed, showRehearsals, writesDerivedState } from "./env";
+import { plantingWindow } from "./rules";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
+
+describe("deployment", () => {
+  it("follows VERCEL_ENV on Vercel", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_ENV", "preview");
+    expect(deployment()).toBe("preview");
+    expect(writesDerivedState()).toBe(false);
+    vi.stubEnv("VERCEL_ENV", "production");
+    expect(deployment()).toBe("production");
+    expect(writesDerivedState()).toBe(true);
+  });
+
+  it("never treats Vercel without VERCEL_ENV as production, even though NODE_ENV is production there", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_ENV", "");
+    expect(deployment()).toBe("preview");
+    expect(writesDerivedState()).toBe(false);
+    expect(rehearsalAllowed(PLANT_OPEN_H + 1)).toBe(true);
+  });
+
+  it("treats next dev and tests as development, and a local production build (no VERCEL) as production", () => {
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "development");
+    expect(deployment()).toBe("development");
+    vi.stubEnv("NODE_ENV", "test");
+    expect(isProduction()).toBe(false);
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isProduction()).toBe(true);
+  });
+});
+
+describe("rehearsals", () => {
+  it("are open outside production at any hour before the seeds are handed out", () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("MEADOW_REHEARSAL", "");
+    expect(rehearsalAllowed(-48)).toBe(true);
+    expect(rehearsalAllowed(15)).toBe(true);
+    expect(showRehearsals(15)).toBe(true);
+  });
+
+  it("need MEADOW_REHEARSAL=1 in production, and only before the game clock starts", () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("MEADOW_REHEARSAL", "");
+    expect(rehearsalAllowed(-24)).toBe(false);
+    expect(showRehearsals(-24)).toBe(false);
+    vi.stubEnv("MEADOW_REHEARSAL", "1");
+    expect(rehearsalAllowed(-1)).toBe(true);
+    expect(showRehearsals(-1)).toBe(true);
+    expect(rehearsalAllowed(0)).toBe(false);
+    expect(showRehearsals(0)).toBe(false);
+  });
+
+  it("cannot touch a party-day planting at 15:00 IST in production, even with MEADOW_REHEARSAL=1 left on", () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("MEADOW_REHEARSAL", "1");
+    const h = 15; // 10 Nov 15:00 IST, when the party starts
+    expect(rehearsalAllowed(h)).toBe(false);
+    expect(showRehearsals(h)).toBe(false);
+    // the planting is either real (open) or refused until the opening hour (early), never a rehearsal
+    expect(plantingWindow(h, rehearsalAllowed(h))).toBe(h >= PLANT_OPEN_H ? "open" : "early");
+    for (let hour = 0; hour < PLANT_OPEN_H + 48; hour++) {
+      expect(plantingWindow(hour, rehearsalAllowed(hour))).not.toBe("rehearsal");
+    }
+  });
+});
+
+describe("partyCodes", () => {
+  it("reads a comma-separated list, trimmed, so a code can be rotated without a gap", () => {
+    vi.stubEnv("MEADOW_PARTY_CODE", "");
+    expect(partyCodes()).toEqual([]);
+    vi.stubEnv("MEADOW_PARTY_CODE", " Rose-7f3k9q , lantern2x8p ,");
+    expect(partyCodes()).toEqual(["Rose-7f3k9q", "lantern2x8p"]);
+  });
+});
