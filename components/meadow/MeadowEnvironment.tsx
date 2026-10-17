@@ -12,10 +12,16 @@
 // cart and still reach across the overview), snapped to whole texels so its edges never shimmer as it follows. The
 // key light never comes in lower than twelve degrees, and by night the moon takes over the shadows, faint and cool.
 // A small environment map, rendered once, gives the full plants' petals and leaves something soft to reflect.
+//
+// The cart's guardian light (the jar of fireflies) is mounted here too, from the first frame, and follows whichever
+// trolley is live (GuardianLight in FireflyTrolley.tsx): the cart arriving once the physics has loaded, or the glider
+// taking over, then never changes the light count, which would recompile every material in the Meadow. The lite tier
+// has no such light at all (the trolley paints its glow on instead), so a phone pays for none.
 import { Environment, Lightformer } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { GuardianLight, meadowLite } from "@/components/meadow/FireflyTrolley";
 import { meadowLayout } from "@/components/meadow/layout";
 import { meadow } from "@/components/meadow/runtime";
 import { istDateAt, istNow, skyState, sunInfo } from "@/lib/sky/sun";
@@ -100,6 +106,7 @@ export function MeadowEnvironment({ shadowSize }: { shadowSize: number }) {
   const hemi = useRef<THREE.HemisphereLight>(null);
   const scene = useThree((s) => s.scene);
   const pinned = useMemo(() => readHour(), []);
+  const [lite] = useState(meadowLite);
   const uniforms = useMemo(
     () => ({
       uZenith: { value: new THREE.Color("#86aedb") },
@@ -195,6 +202,7 @@ export function MeadowEnvironment({ shadowSize }: { shadowSize: number }) {
     <>
       <Sky uniforms={uniforms} />
       <hemisphereLight ref={hemi} args={["#dfe9ff", "#7f9160", 1.05]} />
+      {!lite && <GuardianLight />}
       <directionalLight
         ref={sun}
         color="#ffe1b8"

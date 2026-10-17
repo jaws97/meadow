@@ -1,27 +1,38 @@
 "use client";
-// The physics-free fallback: a lantern that glides at hover height, selected
-// with ?mover=glide, or taken up automatically when the physics cart cannot
-// start or cannot hold its frame rate (MeadowCanvas). It needs no WASM and no
-// physics world, so Seed Day always has a way to explore the Meadow.
+// The physics-free fallback, selected with ?mover=glide, or taken up
+// automatically when the physics cart cannot start or cannot hold its frame
+// rate (MeadowCanvas). It needs no WASM and no physics world, so Seed Day
+// always has a way to explore the Meadow.
 //
 // It is a point that accelerates toward the wished velocity (10 m/s^2, at
 // most 5 m/s), coasts to rest when let go, and is pushed out of the same
-// walls, trunks and kerbs the cart collides with, as a 0.35 m disc.
+// walls, trunks and kerbs the cart collides with, as a disc about the
+// trolley's width. What it draws is the same firefly trolley as the physics
+// cart, rolling along the ground: the wheels turn with the distance covered,
+// the front pair steer into its turns (from how fast it is turning at the
+// speed it is going, as a cart's would), and the tub settles back a touch as
+// it sets off, dips as it slows and leans out of a turn. So when the Meadow
+// falls back to gliding, the cart simply carries on.
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { GLIDE_TOP_SPEED } from "@/components/meadow/autopilot";
-import { Lantern } from "@/components/meadow/LanternCart";
+import { DRIVE, WHEEL, WHEELBASE } from "@/components/meadow/cart";
+import { GROUND_Y } from "@/components/meadow/concepts/kit";
+import { FireflyTrolley } from "@/components/meadow/FireflyTrolley";
 import { wrapAngle, yawOf } from "@/components/meadow/layout";
 import { createCommand, createMoverState, type Mover } from "@/components/meadow/mover";
-import { blobTexture } from "@/components/meadow/parts";
 import { meadow } from "@/components/meadow/runtime";
 import { pushOut, type P2 } from "@/components/meadow/space";
 
 const ACCEL = 10;
 const COAST = 3;
-const HOVER = 1.6;
-const RADIUS = 0.35;
+/** The trolley's half-width at its hubs: what the walls push against, so it never noses into a kerb. */
+const RADIUS = 0.5;
+/** The chassis' height over the ground with the trolley standing on its wheels. */
+const RIDE_Y = -GROUND_Y;
+/** Below this forward speed (m/s) the steering is worked out as if at this speed, so turning on the spot stays calm. */
+const STEER_SPEED = 0.6;
 /** Keyboard turning rate, rad/s. */
 const TURN_RATE = 2.4;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -147,52 +158,50 @@ class Glider implements Mover {
 export function GlideMover() {
   const glider = useMemo(() => new Glider(), []);
   const body = useRef<THREE.Group>(null);
-  const shadow = useMemo(() => blobTexture(), []);
+  const wheels = useRef<Array<THREE.Group | null>>([null, null, null, null]);
+  const roll = useRef({ spin: 0, steer: 0, yaw: glider.state.yaw, forward: 0, pitch: 0, lean: 0 });
   useEffect(() => {
     meadow.mover = glider;
     meadow.stats.loading = false;
     return () => {
       if (meadow.mover === glider) meadow.mover = null;
-      shadow.dispose();
     };
-  }, [glider, shadow]);
+  }, [glider]);
 
-  useFrame((state, dtRaw) => {
+  useFrame((_, dtRaw) => {
     const dt = Math.min(dtRaw, 1 / 20);
     glider.step(dt);
     const g = body.current;
     if (!g) return;
-    const bob = Math.sin(state.clock.elapsedTime * 1.6) * 0.05;
-    g.position.set(glider.ground.x, HOVER + bob + glider.lift, glider.ground.z);
-    g.quaternion.copy(glider.state.quaternion);
+    const s = glider.state;
+    const r = roll.current;
+    // the wheels roll with the ground covered, and the front pair steer into the turn it is making
+    r.spin += (s.forwardSpeed * dt) / WHEEL.radius;
+    const yawRate = wrapAngle(s.yaw - r.yaw) / Math.max(dt, 1e-4);
+    r.yaw = s.yaw;
+    const speed = (s.forwardSpeed < 0 ? -1 : 1) * Math.max(Math.abs(s.forwardSpeed), STEER_SPEED);
+    const lock = DRIVE.steerAtRest;
+    const steer = THREE.MathUtils.clamp(Math.atan((yawRate * WHEELBASE) / speed), -lock, lock);
+    r.steer += (steer - r.steer) * (1 - Math.exp(-10 * dt));
+    for (let i = 0; i < 4; i++) {
+      // as PhysicsCart poses them: steer about the upright, then roll about the axle
+      wheels.current[i]?.rotation.set(0, i < 2 ? r.steer : 0, -r.spin, "YXZ");
+    }
+    // a little weight: back as it sets off, forward as it slows, out of a turn
+    const accel = (s.forwardSpeed - r.forward) / Math.max(dt, 1e-4);
+    r.forward = s.forwardSpeed;
+    const k = 1 - Math.exp(-6 * dt);
+    r.pitch += (THREE.MathUtils.clamp(accel * 0.006, -0.045, 0.045) - r.pitch) * k;
+    r.lean += (THREE.MathUtils.clamp(yawRate * s.forwardSpeed * 0.008, -0.05, 0.05) - r.lean) * k;
+    g.position.set(glider.ground.x, RIDE_Y + glider.lift, glider.ground.z);
+    g.quaternion.copy(s.quaternion);
+    g.rotateZ(r.pitch);
+    g.rotateX(r.lean);
   }, -5);
 
   return (
-    <>
-      <group ref={body}>
-        {/* A larger lantern than the cart's, hung from nothing: the guardian light on its own. */}
-        <group scale={2.2} position={[0, 0.55, 0]}>
-          <Lantern hookLength={0.6} />
-        </group>
-      </group>
-      <GroundShadow glider={glider} texture={shadow} />
-    </>
-  );
-}
-
-function GroundShadow({ glider, texture }: { glider: Glider; texture: THREE.Texture }) {
-  const ref = useRef<THREE.Mesh>(null);
-  useFrame(() => {
-    const m = ref.current;
-    if (!m) return;
-    m.position.set(glider.ground.x, 0.02, glider.ground.z);
-    const s = 1.1 - Math.min(0.5, glider.lift * 0.4);
-    m.scale.set(s, s, s);
-  }, -4.9);
-  return (
-    <mesh ref={ref} rotation={[-Math.PI / 2, 0, 0]} renderOrder={1}>
-      <planeGeometry args={[1.2, 1.2]} />
-      <meshBasicMaterial map={texture} transparent depthWrite={false} />
-    </mesh>
+    <group ref={body}>
+      <FireflyTrolley wheels={wheels} />
+    </group>
   );
 }

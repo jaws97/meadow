@@ -1,6 +1,6 @@
 // The Lantern Cart's dimensions and tuning, kept apart from the Rapier code
-// in vehicle.ts so that the placeholder body (and the glide fallback, which
-// draws the same lantern) can read them without pulling the physics build
+// in vehicle.ts so that the trolley's body (FireflyTrolley.tsx, which the
+// glide fallback draws too) can read them without pulling the physics build
 // into the main bundle. Values are the folio cart at half scale unless a
 // comment says why they moved.
 // Approach adapted from Bruno Simon's folio-2025 (MIT): Physics/PhysicsVehicle.js.

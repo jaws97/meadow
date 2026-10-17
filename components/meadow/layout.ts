@@ -147,6 +147,8 @@ const LAWN = 2.8;
 export const HEDGE_SPEC = { t: 0.9, h: 1.35 } as const;
 /** How far in from a bed's face the cart pulls up beside a plant. */
 const PARK_OFF = 0.85;
+/** How far the cart at the Meadow's start is turned off the path, its nose out toward the camera (radians). */
+const SPAWN_TURN = 0.85;
 
 const TAU = Math.PI * 2;
 
@@ -450,8 +452,10 @@ export function buildLayout(rings: number = PLOT_RINGS.length): MeadowLayout {
   const trees = buildTrees(hedgeR);
   const { nodes, edges } = buildGraph(paths, beds, avenues);
   // On the inner path where the camera's avenue meets it, rolling round anticlockwise: the rose fills the view behind.
+  // Turned a little out toward the avenue (and the camera), so the first view is the cart's front three-quarter, the
+  // jar framed by its hoop, rather than side-on with the hoop seen edge-on.
   const spawnA = Math.PI / 4;
-  const spawn: PathNode = { ...polar(paths[0].r + 0.4, spawnA), yaw: tangentYaw(spawnA) };
+  const spawn: PathNode = { ...polar(paths[0].r + 0.4, spawnA), yaw: tangentYaw(spawnA) + SPAWN_TURN };
   return {
     rings,
     beds,

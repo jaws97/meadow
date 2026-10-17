@@ -45,6 +45,12 @@ export const meadow = {
   cameraDistance: 17,
   /** 0 full day .. 1 deep night, by the sun over Bangalore (MeadowEnvironment): lanterns and petals glow with it. */
   night: 0,
+  /**
+   * The cart's guardian light, the jar of fireflies: where its heart is in the world and how bright its light, written
+   * by the live trolley every frame (FireflyTrolley). The scene's one point light for it (GuardianLight) follows this,
+   * and is dark while no cart is live, so the cart coming and going never changes the Meadow's light count.
+   */
+  guardian: { position: new THREE.Vector3(), light: 0, live: false },
   /** The soft environment map for the full plants' sheen (MeadowEnvironment), and how strongly it shows at this hour. */
   plantEnv: null as THREE.Texture | null,
   plantEnvStrength: 1,
@@ -142,6 +148,7 @@ export function resetMeadow(kind: MoverKind): void {
   meadow.finger.active = false;
   meadow.handoff = null;
   meadow.notice = null;
+  meadow.guardian.live = false;
   meadow.stats.loading = true;
 }
 

@@ -1,19 +1,21 @@
 "use client";
 // The physics Lantern Cart: one dynamic chassis with a cuboid collider, the
-// raycast vehicle that drives it (vehicle.ts), and the placeholder body drawn
-// on top. It registers itself as the Meadow's Mover once Rapier has built it.
+// raycast vehicle that drives it (vehicle.ts), and the firefly trolley drawn
+// on top (FireflyTrolley.tsx). It registers itself as the Meadow's Mover once
+// Rapier has built it.
 //
 // Timing, per frame: the controller writes a command at priority -6; Rapier
 // steps at -5, running the vehicle update before every fixed step; at -4.9
 // this component reads the interpolated chassis transform (what is drawn, so
-// the camera follows that, never the raw translation) and poses the wheels.
+// the camera follows that, never the raw translation) and poses the wheel
+// mounts, which the trolley's instanced wheels follow later in the frame.
 // The component never re-renders after mount: a re-render would hand the
 // RigidBody fresh props and it would re-apply its spawn transform.
 import { useFrame } from "@react-three/fiber";
 import { CuboidCollider, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierRigidBody } from "@react-three/rapier";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { LanternCart } from "@/components/meadow/LanternCart";
+import { FireflyTrolley } from "@/components/meadow/FireflyTrolley";
 import { createCommand, createMoverState, updateDerived, type Mover } from "@/components/meadow/mover";
 import { meadow, perf } from "@/components/meadow/runtime";
 import { CHASSIS, RIDE, SPAWN_HEIGHT, SUSPENSION, WHEELBASE } from "@/components/meadow/cart";
@@ -128,7 +130,7 @@ export function PhysicsCart() {
     <RigidBody ref={bodyRef} colliders={false} canSleep={false} position={spawn.position} rotation={spawn.rotation}>
       <CuboidCollider args={CHASSIS.half} friction={CHASSIS.friction} massProperties={MASS_PROPS} collisionGroups={CART_GROUPS} />
       <group ref={anchorRef}>
-        <LanternCart wheels={wheels} />
+        <FireflyTrolley wheels={wheels} />
       </group>
     </RigidBody>
   );
