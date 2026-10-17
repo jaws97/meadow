@@ -1,43 +1,48 @@
 "use client";
-// The Meadow spike's WebGL canvas. The page loads it through next/dynamic with
-// ssr:false, so everything here runs only in the browser; a default export
-// because that is what next/dynamic's loader resolves.
+// The Meadow's WebGL canvas. The page loads it through next/dynamic with ssr:false, so everything here runs only in
+// the browser; a default export because that is what next/dynamic's loader resolves.
 //
-// Movers. The physics Lantern Cart is the default; `?mover=glide` chooses the
-// physics-free glider from the start. The physics side lives in its own
-// lazily imported chunk, so the glide path never fetches or boots Rapier.
-// The Meadow also falls back to gliding by itself, with a gentle notice and
-// never an error: if Rapier fails to load or start (an error boundary round
-// the physics world, and a start-up timeout), if the physics chunk itself
-// fails to download (the lazy import catches it and stands in a component
-// that reports the failure, so React never sees a ChunkLoadError), or if the
-// frame rate stays under 30 fps for a few seconds with the cart running. The
-// glider takes over where the cart stood, with the same controls, behind a
-// short warm fade so the wicker cart does not pop into a floating lantern.
-// `?mover=physics` pins the cart for testing: no frame-rate or start-up
-// fallback, only a hard failure. The scene, plots, guides and camera are
-// shared and only ever talk to whichever Mover is live.
+// Movers. The physics Lantern Cart is the default; `?mover=glide` chooses the physics-free glider from the start.
+// The physics side lives in its own lazily imported chunk, so the glide path never fetches or boots Rapier. The
+// Meadow also falls back to gliding by itself, with a gentle notice and never an error: if Rapier fails to load or
+// start (an error boundary round the physics world, and a start-up timeout), if the physics chunk itself fails to
+// download (the lazy import catches it and stands in a component that reports the failure, so React never sees a
+// ChunkLoadError), or if the frame rate stays under 30 fps for a few seconds with the cart running. The glider takes
+// over where the cart stood, with the same controls, behind a short warm fade. `?mover=physics` pins the cart for
+// testing: no frame-rate or start-up fallback, only a hard failure. The scene, plants, guides and camera are shared
+// and only ever talk to whichever Mover is live.
 //
-// Pixels. The canvas's pixel ratio spends a budget per device class (lib/
-// garden/device), so a high-density laptop does not draw four million pixels
-// for a placeholder meadow and a phone keeps its battery.
+// Pixels. The canvas's pixel ratio spends a budget per device class (lib/garden/device), so a high-density laptop
+// does not draw four million pixels and a phone keeps its battery; and if the frame rate still sags for a while
+// (with the glider, or with the cart pinned) the ratio steps down calmly, never below the class's floor. The party
+// screen (the "bigscreen" class) opens a little further back, so the room sees more of the Meadow.
 //
-// Frame order, by useFrame priority: perf probe (-10), controller (-6),
-// Rapier's stepper and its timer (-5.01..-4.99), cart and glider sync
-// (-5..-4.9), camera (-1), guides and sun (-0.5), then R3F renders.
+// The plan. The ground plan follows the rings in use (layout.ts): six planned rings, and whole beds more only if
+// the Meadow outgrows them, rebuilt under a new key when that happens.
+//
+// Frame order, by useFrame priority: perf probe (-10), controller (-6), Rapier's stepper and its timer
+// (-5.01..-4.99), cart and glider sync (-5..-4.9), camera (-1), guides, sky and sun (-0.5), then R3F renders.
 import { Canvas, useFrame, useThree, type CanvasProps } from "@react-three/fiber";
 import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import * as THREE from "three";
+import { Bursts } from "@/components/meadow/Bursts";
 import { CameraRig } from "@/components/meadow/CameraRig";
 import { MeadowController } from "@/components/meadow/controller";
+import { DaisRose } from "@/components/meadow/DaisRose";
+import { meadowData } from "@/components/meadow/data";
+import { Fireflies } from "@/components/meadow/Fireflies";
 import { GlideMover } from "@/components/meadow/GlideMover";
 import { GuideMarkers } from "@/components/meadow/GuideMarkers";
+import { layoutVersion, meadowLayout, plotAt, setLayoutRings, tangentYaw } from "@/components/meadow/layout";
 import { MeadowEnvironment } from "@/components/meadow/MeadowEnvironment";
 import { MeadowScene } from "@/components/meadow/MeadowScene";
 import type { MoverKind } from "@/components/meadow/mover";
-import { PlotMarkers } from "@/components/meadow/PlotMarkers";
-import { meadow, perf, resetMeadow } from "@/components/meadow/runtime";
+import { Plants } from "@/components/meadow/Plants";
+import { meadow, perf, resetMeadow, setStart, setZoom } from "@/components/meadow/runtime";
+import { ui } from "@/components/meadow/ui";
+import { VisitedPlant } from "@/components/meadow/VisitedPlant";
 import { dprForBudget, MIN_DPR, readDevice, type DeviceKind } from "@/lib/garden/device";
+import { ringsToDraw } from "@/lib/server/plots";
 
 interface PhysicsProps {
   onFail: () => void;
@@ -49,9 +54,8 @@ function PhysicsUnavailable({ onFail }: PhysicsProps) {
   return null;
 }
 
-// A failed download (a flaky network, a deploy that replaced the chunk) is
-// caught here, inside the lazy factory: React then never sees the error, which
-// no boundary inside the canvas can catch.
+// A failed download (a flaky network, a deploy that replaced the chunk) is caught here, inside the lazy factory:
+// React then never sees the error, which no boundary inside the canvas can catch.
 const PhysicsWorld = lazy<ComponentType<PhysicsProps>>(() =>
   import("@/components/meadow/PhysicsWorld").then(
     (m) => ({ default: m.default as ComponentType<PhysicsProps> }),
@@ -60,13 +64,16 @@ const PhysicsWorld = lazy<ComponentType<PhysicsProps>>(() =>
 );
 
 const GL: CanvasProps["gl"] = { antialias: true, powerPreference: "high-performance", alpha: false, stencil: false };
-const CAMERA: CanvasProps["camera"] = { fov: 30, near: 0.1, far: 220, position: [20, 12, 20] };
+const CAMERA: CanvasProps["camera"] = { fov: 30, near: 0.1, far: 400, position: [20, 12, 20] };
 const STYLE: CanvasProps["style"] = { position: "absolute", inset: 0, touchAction: "none" };
 const SHADOWS = { enabled: true, type: THREE.PCFShadowMap } as const;
 const PUBLISH_EVERY = 0.5;
 
-/** Megapixels of canvas per device class: the Meadow is light, so these sit above the garden's. */
-const BUDGET: Record<DeviceKind, number> = { phone: 1.3, tablet: 2.0, laptop: 2.4, bigscreen: 2.4 };
+/**
+ * Megapixels of canvas per device class. The Meadow is mostly ground seen from above, so almost all of its cost is
+ * per pixel; these hold 60 fps on an office laptop's integrated graphics and keep a phone cool.
+ */
+const BUDGET: Record<DeviceKind, number> = { phone: 1.0, tablet: 1.5, laptop: 1.6, bigscreen: 2.0 };
 /** Under this many frames per second the cart counts as struggling... */
 const SLOW_FPS = 30;
 /** ...and over this it has recovered (a gap, so a borderline device does not flip on noise). */
@@ -75,6 +82,10 @@ const RECOVERED_FPS = 34;
 const SLOW_WINDOWS = 8;
 /** Readings ignored after the cart appears, while shaders and the first physics steps settle. */
 const SETTLE_WINDOWS = 6;
+/** With no cart left to drop, readings under this for eight seconds step the pixel ratio down. */
+const SAG_FPS = 40;
+const SAG_WINDOWS = 16;
+const DPR_STEPS = [1, 0.85, 0.72] as const;
 /** A physics world that has not produced a cart in this long is treated as failed. */
 const START_TIMEOUT_MS = 12000;
 /** The warm fade round the cart-to-glider swap: out, then back in once the glider is live (ms). */
@@ -91,6 +102,29 @@ const NOTICE: Record<FallbackReason, string> = {
 function readMoverParam(): MoverKind | "pinned-physics" {
   const p = new URLSearchParams(window.location.search).get("mover");
   return p === "glide" ? "glide" : p === "physics" ? "pinned-physics" : "physics";
+}
+
+/** A plot asked for in the address (/meadow?plot=N), the start of a visit. */
+function readPlotParam(): number | null {
+  const raw = new URLSearchParams(window.location.search).get("plot");
+  return raw !== null && /^\d{1,5}$/.test(raw) ? Number(raw) : null;
+}
+
+/**
+ * Where the Meadow opens: beside a plant for a /meadow?plot=N link, else on the inner path with the rose behind the
+ * cart, after the opening shot. The party screen starts a little further back.
+ */
+function prepareStart(plot: number | null, device: DeviceKind): void {
+  const p = plot === null ? null : plotAt(plot);
+  if (p) {
+    setStart(p.park.x, p.park.z, tangentYaw(Math.atan2(p.park.z, p.park.x)), false);
+    // the cart starts beside it, so this visit simply arrives and the camera comes in on the plant
+    meadow.requests.visit = { index: p.index, journey: false };
+  } else {
+    const s = meadowLayout().spawn;
+    setStart(s.x, s.z, s.yaw, true);
+  }
+  if (device === "bigscreen") setZoom(23);
 }
 
 /** Catches Rapier failing to load or initialise, inside the canvas, and hands over to the glider. */
@@ -113,9 +147,9 @@ function Controls({ controller }: { controller: MeadowController }) {
   const get = useThree((s) => s.get);
   useEffect(() => {
     controller.input.attach(gl.domElement);
-    // Dev-only handle for probing the live spike from the console.
+    // Dev-only handle for probing the live Meadow from the console.
     if (process.env.NODE_ENV !== "production") {
-      (window as unknown as { __meadow?: unknown }).__meadow = { state: get(), get, meadow, controller };
+      (window as unknown as { __meadow?: unknown }).__meadow = { state: get(), get, meadow, controller, data: meadowData, plotAt, ui };
     }
     return () => controller.input.detach();
   }, [gl, get, controller]);
@@ -124,12 +158,11 @@ function Controls({ controller }: { controller: MeadowController }) {
 }
 
 /**
- * Frame timing, published twice a second for the HUD, and the watch on the
- * physics cart: a reading under 30 fps for four seconds running hands the
- * Meadow to the glider.
+ * Frame timing, published twice a second for the HUD; the watch on the physics cart (a reading under 30 fps for
+ * four seconds running hands the Meadow to the glider); and, with no cart to drop, the calm pixel step-down.
  */
-function PerfProbe({ watch, onSlow }: { watch: boolean; onSlow: () => void }) {
-  const accRef = useRef({ frames: 0, time: 0, max: 0, first: true, slow: 0, settle: SETTLE_WINDOWS });
+function PerfProbe({ watch, onSlow, onSag }: { watch: boolean; onSlow: () => void; onSag: () => void }) {
+  const accRef = useRef({ frames: 0, time: 0, max: 0, first: true, slow: 0, sag: 0, settle: SETTLE_WINDOWS });
   useFrame(({ gl }, dt) => {
     const acc = accRef.current;
     if (acc.first) {
@@ -160,29 +193,38 @@ function PerfProbe({ watch, onSlow }: { watch: boolean; onSlow: () => void }) {
     acc.frames = 0;
     acc.time = 0;
     acc.max = 0;
-    // A hidden tab, a cart still loading, or the first seconds of driving say nothing about the device.
-    if (!watch || s.loading || document.hidden) {
+    // A hidden tab, a Meadow still loading, or the first seconds say nothing about the device.
+    if (s.loading || document.hidden) {
       acc.slow = 0;
+      acc.sag = 0;
       return;
     }
     if (acc.settle > 0) {
       acc.settle--;
       return;
     }
-    if (s.fps < SLOW_FPS) acc.slow++;
-    else if (s.fps > RECOVERED_FPS) acc.slow = 0;
-    if (acc.slow >= SLOW_WINDOWS) {
-      acc.slow = 0;
-      onSlow();
+    if (watch) {
+      if (s.fps < SLOW_FPS) acc.slow++;
+      else if (s.fps > RECOVERED_FPS) acc.slow = 0;
+      if (acc.slow >= SLOW_WINDOWS) {
+        acc.slow = 0;
+        onSlow();
+      }
+      return;
+    }
+    if (s.fps < SAG_FPS) acc.sag++;
+    else acc.sag = 0;
+    if (acc.sag >= SAG_WINDOWS) {
+      acc.sag = 0;
+      onSag();
     }
   }, -10);
   return null;
 }
 
 /**
- * Runs the respawn veil (meadow.fade, drawn by DevHud's FadeVeil) round a
- * swap: a quick fade out, the swap, then a fade back in once the new mover
- * is live (or after a short wait, whatever happens).
+ * Runs the warm veil (meadow.fade, drawn by DevHud's FadeVeil) round a swap: a quick fade out, the swap, then a
+ * fade back in once the new mover is live (or after a short wait, whatever happens).
  */
 function fadeAround(swap: () => void) {
   const start = performance.now();
@@ -209,30 +251,57 @@ function fadeAround(swap: () => void) {
 }
 
 /** The pixel ratio that spends this device's budget on the window, kept current through resizes and rotation. */
-function useBudgetDpr(): { dpr: number; phone: boolean } {
+function useBudgetDpr(step: number): { dpr: number; kind: DeviceKind } {
   const device = useMemo(() => readDevice(), []);
   const read = useCallback(
-    () => dprForBudget(BUDGET[device.kind], window.innerWidth, window.innerHeight, window.devicePixelRatio || 1, MIN_DPR[device.kind]),
-    [device],
+    () =>
+      dprForBudget(
+        BUDGET[device.kind] * DPR_STEPS[step] ** 2,
+        window.innerWidth,
+        window.innerHeight,
+        window.devicePixelRatio || 1,
+        MIN_DPR[device.kind],
+      ),
+    [device, step],
   );
-  const [dpr, setDpr] = useState(read);
+  const [resized, setResized] = useState(0);
   useEffect(() => {
-    const onResize = () => setDpr(read());
+    const onResize = () => setResized((n) => n + 1);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [read]);
-  return { dpr, phone: device.kind === "phone" };
+  }, []);
+  // re-read on every resize (and rotation) and every step down
+  const dpr = useMemo(() => (resized >= 0 ? read() : 1), [read, resized]);
+  return { dpr, kind: device.kind };
+}
+
+/** Grows the plan when the snapshot reaches past the rings drawn; returns the plan's version for keys. */
+function useLayoutVersion(): number {
+  const [version, setVersion] = useState(layoutVersion);
+  useEffect(() => {
+    const check = () => {
+      if (setLayoutRings(ringsToDraw(meadowData.get().highest))) setVersion(layoutVersion());
+    };
+    check();
+    return meadowData.subscribe(check);
+  }, []);
+  return version;
 }
 
 export default function MeadowCanvas() {
   const [param] = useState(readMoverParam);
   const [kind, setKind] = useState<MoverKind>(param === "glide" ? "glide" : "physics");
   const kindRef = useRef(kind);
-  const { dpr, phone } = useBudgetDpr();
+  const [dprStep, setDprStep] = useState(0);
+  const { dpr, kind: deviceKind } = useBudgetDpr(dprStep);
+  const phone = deviceKind === "phone";
+  const layoutKey = useLayoutVersion();
+  const layout = meadowLayout();
   const controller = useMemo(() => {
     resetMeadow(param === "glide" ? "glide" : "physics");
+    prepareStart(readPlotParam(), deviceKind);
     return new MeadowController();
-  }, [param]);
+  }, [param, deviceKind]);
 
   const fallBack = useCallback(
     (reason: FallbackReason) => {
@@ -245,12 +314,12 @@ export default function MeadowCanvas() {
         meadow.mover = null;
         meadow.moverKind = "glide";
         meadow.mode = "idle";
+        meadow.journey = false;
         meadow.stats.loading = true;
         meadow.notice = { text: NOTICE[reason], at: performance.now() };
         setKind("glide");
       };
-      // A cart on screen fades out and the glider fades in where it stood;
-      // with no cart yet (physics never started) there is nothing to hide.
+      // A cart on screen fades out and the glider fades in where it stood; with no cart yet there is nothing to hide.
       if (meadow.mover) fadeAround(swap);
       else swap();
     },
@@ -258,6 +327,7 @@ export default function MeadowCanvas() {
   );
   const onFail = useCallback(() => fallBack("failed"), [fallBack]);
   const onSlow = useCallback(() => fallBack("slow"), [fallBack]);
+  const onSag = useCallback(() => setDprStep((s) => Math.min(DPR_STEPS.length - 1, s + 1)), []);
   const auto = param === "physics";
 
   // Rapier that never finishes starting (a stalled WASM fetch) counts as failed.
@@ -269,13 +339,20 @@ export default function MeadowCanvas() {
     return () => window.clearTimeout(id);
   }, [kind, auto, onFail]);
 
+  const plantQuality = phone ? "lite" : "balanced";
   return (
     <Canvas shadows={SHADOWS} dpr={dpr} gl={GL} camera={CAMERA} style={STYLE}>
-      <PerfProbe watch={kind === "physics" && auto} onSlow={onSlow} />
+      <PerfProbe watch={kind === "physics" && auto} onSlow={onSlow} onSag={onSag} />
       <Controls controller={controller} />
       <MeadowEnvironment shadowSize={phone ? 1024 : 2048} />
-      <MeadowScene />
-      <PlotMarkers />
+      <group key={layoutKey}>
+        <MeadowScene layout={layout} shadows={!phone} />
+        <Plants layout={layout} shadows={!phone} />
+      </group>
+      <DaisRose quality={plantQuality} />
+      <VisitedPlant quality={plantQuality} />
+      <Bursts />
+      <Fireflies />
       <GuideMarkers />
       {kind === "glide" ? (
         <GlideMover />

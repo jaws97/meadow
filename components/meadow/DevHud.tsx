@@ -1,9 +1,10 @@
 "use client";
-// The spike's developer readout and its few buttons, as plain HTML over the
-// canvas. It polls the shared runtime four times a second, so it costs the
-// render loop nothing. Also here: the fade veil that hides a respawn, which
-// follows the runtime every animation frame so the fade is smooth, and the
-// gentle notice shown when the Meadow falls back to gliding by itself.
+// The Meadow's developer readout (shown with ?dev) and its few buttons, as
+// plain HTML over the canvas. It polls the shared runtime four times a second,
+// so it costs the render loop nothing. Also here, for everyone: the fade
+// veil that hides a respawn, which follows the runtime every animation
+// frame so the fade is smooth, and the gentle notice shown when the Meadow
+// falls back to gliding by itself ("Unstuck" is Unstuck.tsx).
 import { useEffect, useRef, useState } from "react";
 import { meadow } from "@/components/meadow/runtime";
 
@@ -54,7 +55,7 @@ export function DevHud() {
     >
       <div className="pointer-events-auto rounded-lg bg-black/35 px-3 py-2 backdrop-blur-sm">
         <button type="button" className="mb-1 block text-white/90" onClick={() => setOpen((o) => !o)}>
-          Meadow spike {open ? "-" : "+"}
+          Meadow {open ? "-" : "+"}
         </button>
         {open && snap && (
           <div className="grid grid-cols-[auto_auto] gap-x-3">
@@ -89,15 +90,6 @@ export function DevHud() {
           </div>
         )}
       </div>
-      {snap?.stuck && (
-        <button
-          type="button"
-          className="pointer-events-auto mt-3 rounded-full bg-[#fff1cf]/90 px-4 py-2 font-sans text-sm text-[#3b2f22] shadow-lg"
-          onClick={() => (meadow.requests.unstuck = true)}
-        >
-          Unstuck
-        </button>
-      )}
     </div>
   );
 }

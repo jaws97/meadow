@@ -10,10 +10,9 @@
 import { useFrame } from "@react-three/fiber";
 import { CuboidCollider, CylinderCollider, Physics, RigidBody } from "@react-three/rapier";
 import { useRef } from "react";
-import { BED, DAIS, GROUND_HALF, HEDGE, KERBS, PLOTS, TREES } from "@/components/meadow/layout";
+import { DAIS, layoutVersion, meadowLayout, type MeadowLayout } from "@/components/meadow/layout";
 import { PhysicsCart } from "@/components/meadow/PhysicsCart";
 import { perf } from "@/components/meadow/runtime";
-import { PLOT_GROUPS } from "@/components/meadow/vehicle";
 
 const GRAVITY: [number, number, number] = [0, -19.62, 0];
 /**
@@ -24,37 +23,19 @@ const GRAVITY: [number, number, number] = [0, -19.62, 0];
  */
 const BARRIER_H = 1.4;
 
-function MeadowColliders() {
+/** The Meadow's walls: the ground, the dais, every kerb stone and the hedge ring (layout.ts). */
+function MeadowColliders({ layout: L }: { layout: MeadowLayout }) {
   return (
-    <>
-      <RigidBody type="fixed" colliders={false}>
-        <CuboidCollider args={[GROUND_HALF, 0.5, GROUND_HALF]} position={[0, -0.5, 0]} />
-        <CylinderCollider args={[BARRIER_H / 2, DAIS.r]} position={[0, BARRIER_H / 2, 0]} />
-        {KERBS.map((b, i) => (
-          <CuboidCollider key={`k${i}`} args={[b.hx, BARRIER_H / 2, b.hz]} position={[b.x, BARRIER_H / 2, b.z]} rotation={[0, b.yaw, 0]} />
-        ))}
-        {HEDGE.map((b, i) => (
-          <CuboidCollider key={`h${i}`} args={[b.hx, b.h / 2, b.hz]} position={[b.x, b.h / 2, b.z]} rotation={[0, b.yaw, 0]} />
-        ))}
-        {TREES.map((t, i) => (
-          <CylinderCollider key={`t${i}`} args={[t.h / 2, t.r]} position={[t.x, t.h / 2, t.z]} />
-        ))}
-      </RigidBody>
-      {/* The plots' volumes, for later proximity checks. They are sensors in
-          their own group, so the chassis never touches them and the wheel rays
-          (which skip sensors and only see the world group) never land on them. */}
-      <RigidBody type="fixed" colliders={false}>
-        {PLOTS.map((p) => (
-          <CylinderCollider
-            key={p.index}
-            sensor
-            args={[0.4, 0.3]}
-            position={[p.x, BED.soilH + 0.4, p.z]}
-            collisionGroups={PLOT_GROUPS}
-          />
-        ))}
-      </RigidBody>
-    </>
+    <RigidBody type="fixed" colliders={false}>
+      <CuboidCollider args={[L.groundR, 0.5, L.groundR]} position={[0, -0.5, 0]} />
+      <CylinderCollider args={[BARRIER_H / 2, DAIS.r]} position={[0, BARRIER_H / 2, 0]} />
+      {L.kerbs.map((b, i) => (
+        <CuboidCollider key={`k${i}`} args={[b.hx, BARRIER_H / 2, b.hz]} position={[b.x, BARRIER_H / 2, b.z]} rotation={[0, b.yaw, 0]} />
+      ))}
+      {L.hedge.map((b, i) => (
+        <CuboidCollider key={`h${i}`} args={[b.hx, BARRIER_H / 2, b.hz]} position={[b.x, BARRIER_H / 2, b.z]} rotation={[0, b.yaw, 0]} />
+      ))}
+    </RigidBody>
   );
 }
 
@@ -71,9 +52,11 @@ function PhysicsTimer() {
 }
 
 export default function PhysicsWorld() {
+  // the colliders follow the plan; a plan that grows (more rings) rebuilds them under a new key
+  const layout = meadowLayout();
   return (
     <Physics timeStep={1 / 60} interpolate updatePriority={-5} gravity={GRAVITY} colliders={false}>
-      <MeadowColliders />
+      <MeadowColliders key={layoutVersion()} layout={layout} />
       <PhysicsCart />
       <PhysicsTimer />
     </Physics>

@@ -11,12 +11,19 @@
 // locks). Outside production nothing is saved, and rehearsal plants show only where env.ts showRehearsals() says so
 // (never in production on or after 10 Nov). An instance shares one build among concurrent requests and reuses it for
 // a few seconds, short enough that a new sprout reaches the big screen quickly.
+//
+// A friend's garden (gardenOfPlot, GET /api/garden/[plot]) is the read-only view behind "See their garden": the plant in
+// one plot, caught up the same way, with only what the Meadow already shows plus what the garden scene needs to draw it
+// (species, seed, the renderer's Visual and the day count). Nothing about the person beyond the name on their sign. It
+// never writes a checkpoint: the Meadow snapshot keeps every checkpoint fresh in production, so the catch-up here is a
+// few hours at most.
 import "server-only";
 import type { SpeciesId } from "@/lib/plant/species";
-import { catchUp, hourIndexOf, toVisual, type PlantState, type TimedEvent } from "@/lib/sim";
-import { baseState } from "./catchup";
+import { catchUp, hourIndexOf, toVisual, type PlantState, type TimedEvent, type Visual } from "@/lib/sim";
+import { advanceCheckpoint, baseState } from "./catchup";
 import { db, transaction } from "./db";
 import { showRehearsals, writesDerivedState } from "./env";
+import { ApiError } from "./http";
 import { bloomBand, healthBand, hourIso, istClock, stageOf, toRecordedEvent, toTimedEvent, type EventRow, type HealthBand, type Stage } from "./rules";
 import { ensureWeather, loadWeather } from "./weather-store";
 
@@ -156,4 +163,111 @@ async function buildSnapshot(now: Date): Promise<MeadowSnapshot> {
     };
   });
   return { v: 1, h: toH, at: hourIso(toH), count: plots.length, plots };
+}
+
+// ---- a friend's garden (read-only) ------------------------------------------------------------------------------------
+
+export interface FriendGarden {
+  v: 1;
+  plot: number;
+  /** the first name on the garden sign, or "A friend" */
+  name: string;
+  species: SpeciesId;
+  /** the plant's seed, which shapes its leaves and petals in the garden scene */
+  seed: string;
+  generation: number;
+  /** the day of the plant's life by the IST calendar, the day it went in being day 1 (from the replant, for a second chance) */
+  day: number;
+  stage: Stage;
+  health: HealthBand;
+  bloom: 0 | 1 | 2 | 3;
+  /** what the garden scene draws, at the IST clock of `at` */
+  visual: Visual;
+  /** the game hour the plant is caught up to, and when it started */
+  h: number;
+  at: string;
+}
+
+interface FriendRow {
+  plant_id: string;
+  person_id: string;
+  first_name: string;
+  show_name: boolean;
+  species: SpeciesId;
+  seed: string;
+  planted_h: number;
+  rehearsal: boolean;
+}
+
+interface CheckpointRow {
+  h: number;
+  state: PlantState;
+  sim_version: number;
+  version: number;
+}
+
+function plotEmpty(): ApiError {
+  return new ApiError(404, "plot_empty", "Nobody has planted in that plot yet.");
+}
+
+/** The plant in `plot`, caught up to the last completed hour, as a friend may see it; 404 plot_empty when there is none. */
+export async function gardenOfPlot(plot: number, now: Date = new Date()): Promise<FriendGarden> {
+  const sql = db();
+  const nowH = hourIndexOf(now);
+  const rows = await sql<FriendRow[]>`
+    select p.id as plant_id, pe.id as person_id, pe.first_name, pe.show_name, p.species, p.seed, p.planted_h, p.rehearsal
+    from meadow.plants p
+    join meadow.gardens g on g.id = p.garden_id
+    join meadow.people pe on pe.id = g.person_id
+    where p.plot_index = ${plot}`;
+  const r = rows[0];
+  // a practice plant hidden from this Meadow counts as an empty plot, as it does for sprinkles
+  if (!r || (r.rehearsal && !showRehearsals(nowH))) throw plotEmpty();
+
+  const planting = { speciesId: r.species, plantedH: r.planted_h, owner: r.person_id };
+  const adv = await advanceCheckpoint({
+    planting,
+    async loadCheckpoint() {
+      const cps = await sql<CheckpointRow[]>`
+        select h, state, sim_version, version from meadow.checkpoints where plant_id = ${r.plant_id}`;
+      if (!cps[0]) throw plotEmpty();
+      return { h: cps[0].h, state: cps[0].state, simVersion: cps[0].sim_version, version: cps[0].version };
+    },
+    async loadEvents(fromH, toH) {
+      const events = await sql<EventRow[]>`
+        select id, h, kind, amount, actor_id, client_event_id from meadow.plant_events
+        where plant_id = ${r.plant_id} and h >= ${fromH} and h < ${toH}
+        order by h, id`;
+      const out: TimedEvent[] = [];
+      for (const e of events) {
+        const t = toTimedEvent(toRecordedEvent(e));
+        if (t) out.push(t);
+      }
+      return out;
+    },
+    ensureWeather: async (fromH, toH) => {
+      await ensureWeather(fromH, toH);
+    },
+    loadWeather,
+    // read-only: no saveCheckpoint (see the header)
+  }, nowH);
+
+  const s = adv.state;
+  const visual = toVisual(s, null, istClock(now));
+  return {
+    v: 1,
+    plot,
+    name: r.show_name ? r.first_name : "A friend",
+    species: r.species,
+    seed: r.seed,
+    generation: s.gen,
+    // game hour 0 is midnight IST, so whole days of game hours are IST calendar days
+    day: Math.max(1, Math.floor(Math.max(nowH, s.h) / 24) - Math.floor(s.plantedH / 24) + 1),
+    stage: stageOf(s),
+    health: healthBand(visual),
+    bloom: bloomBand(visual),
+    visual,
+    h: s.h,
+    at: hourIso(s.h),
+  };
 }

@@ -9,12 +9,27 @@
 // cases the cart backs up a little, swinging its nose round, then carries on.
 // It also backs off and re-plans when it has pushed against a wall too long.
 //
-// A plot visit ends with the cart pulled up at the kerb facing the plant:
-// it is routed to an approach point first so the last leg points at the bed.
-import { BED, DAIS, wrapAngle, yawOf, type Plot } from "@/components/meadow/layout";
+// A visit ends with the cart pulled up on the path beside the plant, side on,
+// the way you would stop a garden cart to look at a flower: the ring paths are
+// narrow, and a nose-to-the-kerb stop meant a three-point turn in front of
+// every plant. The glider, which can turn on the spot, then faces the plant.
+import { wrapAngle, yawOf } from "@/components/meadow/layout";
 import { setWheel, setWish, type Command, type Mover } from "@/components/meadow/mover";
 import { planRoute } from "@/components/meadow/route";
 import { pointClear, reachableNear, type P2 } from "@/components/meadow/space";
+
+/** Something the cart can visit: a plant (index >= 0) or the rose (ROSE), with where to pull up for it. */
+export interface VisitTarget {
+  index: number;
+  x: number;
+  z: number;
+  park: P2;
+}
+
+/** The index a visit to the owner's rose on the dais goes by. */
+export const ROSE = -2;
+/** A visit that starts this close to its parking spot simply arrives. */
+const ALREADY_THERE = 0.9;
 
 /** Calm cruising, a little under the cart's soft top speed. */
 const CRUISE = 3.8;
@@ -33,8 +48,6 @@ const STOPPED = 0.08;
  */
 const SOFT_BRAKE = 0.05;
 const MAX_THROTTLE = 0.5;
-/** How far off "nose to the plant" a parked cart may be before it swings round, radians. */
-const FACE_TOLERANCE = 0.6;
 /** Chassis footprint, for the bumper clearance checks. */
 const CART_HALF_LENGTH = 0.65;
 const CART_HALF_WIDTH = 0.43;
@@ -42,8 +55,6 @@ const CART_HALF_WIDTH = 0.43;
 export const GLIDE_TOP_SPEED = 5;
 
 type Phase = "drive" | "reverse" | "stop";
-
-const polar = (r: number, a: number): P2 => ({ x: r * Math.cos(a), z: r * Math.sin(a) });
 
 function segDist(px: number, pz: number, a: P2, b: P2): number {
   const t = Math.min(1, Math.max(0, segT(px, pz, a, b)));
@@ -62,10 +73,10 @@ export class Autopilot {
   /** Bumped whenever the route changes, so the dotted guide knows to rebuild. */
   version = 0;
   points: P2[] = [];
-  /** The plot being visited, if any. */
-  plot: Plot | null = null;
-  /** The plot the last finished visit pulled up at, or -1; the controller clears it. */
-  arrivedAt = -1;
+  /** The plant (or the rose) being visited, if any. */
+  plot: VisitTarget | null = null;
+  /** The target the last finished visit pulled up at (a plot index or ROSE), or null; the controller clears it. */
+  arrivedAt: number | null = null;
 
   private seg = 0;
   private phase: Phase = "drive";
@@ -75,11 +86,8 @@ export class Autopilot {
   private replanAfterReverse = false;
   private rampSpeed = 0;
   private goal: P2 = { x: 0, z: 0 };
-  /** While backing up: the point the nose should swing toward, and whether it is a plant being faced. */
+  /** While backing up: the point the nose should swing toward. */
   private swingTarget: P2 | null = null;
-  private faceSwing = false;
-  /** Facing swings tried at this plot; two are allowed, as the inner path is tight. */
-  private faceTries = 0;
 
   /** Drive to the reachable spot nearest (x, z); returns where it will stop. */
   goTo(from: P2, x: number, z: number): P2 {
@@ -91,18 +99,22 @@ export class Autopilot {
   }
 
   /**
-   * Drive to a plot and pull up at its kerb, nose toward the plant. From
-   * close by, the approach point is skipped (looping out to it would orbit);
-   * the arrival swing below turns the cart to face the plant instead.
+   * Drive to a plant and pull up on the path beside it. A cart already
+   * standing at the spot just arrives (the glider still turns to face it).
    */
-  visit(from: P2, plot: Plot): P2 {
-    const { approach, nose } = plotApproach(plot, from);
-    const near = Math.hypot(nose.x - from.x, nose.z - from.z) < 3;
-    const route = planRoute(from, near ? nose : approach);
-    if (!near) route.push(nose);
-    this.plot = plot;
-    this.start(route);
-    return nose;
+  visit(from: P2, target: VisitTarget, mover?: Mover): P2 {
+    this.plot = target;
+    if (Math.hypot(target.park.x - from.x, target.park.z - from.z) < ALREADY_THERE) {
+      this.points = [];
+      this.active = false;
+      this.version++;
+      mover?.face?.(target.x, target.z);
+      this.arrivedAt = target.index;
+      this.plot = null;
+      return target.park;
+    }
+    this.start(planRoute(from, target.park));
+    return target.park;
   }
 
   cancel(): void {
@@ -167,8 +179,6 @@ export class Autopilot {
     this.stallT = 0;
     this.replanAfterReverse = false;
     this.swingTarget = null;
-    this.faceSwing = false;
-    this.faceTries = 0;
     this.active = points.length >= 2;
     this.version++;
   }
@@ -241,8 +251,7 @@ export class Autopilot {
       const aim = this.swingTarget ?? final;
       const alphaAim = wrapAngle(yawOf(aim.x - px, aim.z - pz) - s.yaw);
       const required = requiredRadius(dFinal, alphaFinal);
-      // A swing to face a plot backs off less: the inner path is narrow.
-      const maxBack = this.faceSwing ? 1.4 : 1.8;
+      const maxBack = 1.6;
       const tailBlocked = !cornersClear(px, pz, s.yaw, -CART_HALF_LENGTH - 0.15);
       const done = (Math.abs(alphaAim) < 0.5 && required > rMin * 1.15) || back > maxBack || this.phaseT > 2.6 || tailBlocked;
       if (!done) {
@@ -250,26 +259,13 @@ export class Autopilot {
         wheel(v < -0.9 ? 0 : -0.4, -Math.sign(alphaAim || 1), 0);
         return true;
       }
-      if (this.faceSwing && this.plot) {
-        // Come forward toward the plant, keeping the new heading, and stop
-        // short of the kerb (not back at the old spot, which would undo the swing).
-        const stop = kerbStop(px, pz, this.plot) ?? final;
-        this.points = [{ x: px, z: pz }, stop];
-        this.goal = stop;
-        this.seg = 0;
-        this.version++;
-      }
       this.swingTarget = null;
-      this.faceSwing = false;
       this.phase = "drive";
       this.stallT = 0;
       this.rampSpeed = 0;
       if (this.replanAfterReverse) {
         this.replanAfterReverse = false;
-        const from = { x: px, z: pz };
-        const route = this.plot ? planRoute(from, this.points[this.points.length - 2]) : planRoute(from, this.goal);
-        if (this.plot) route.push(this.goal);
-        this.points = route;
+        this.points = planRoute({ x: px, z: pz }, this.goal);
         this.seg = 0;
         this.version++;
       }
@@ -277,31 +273,9 @@ export class Autopilot {
 
     // Arrived, or close enough beside a target that only a fussy shuffle would reach.
     const lastLeg = this.seg >= this.points.length - 2;
-    if (remaining < ARRIVE || (lastLeg && (dFinal < ARRIVE || (dFinal < 0.8 && Math.abs(v) < 0.4 && Math.abs(alphaFinal) > 0.9)))) {
-      // At a plot but not facing it: back away swinging the nose round, then
-      // come forward toward the plant (twice at most).
-      const plot = this.plot;
-      if (plot && this.faceTries < 2) {
-        const facing = Math.abs(wrapAngle(yawOf(plot.x - px, plot.z - pz) - s.yaw));
-        if (facing > FACE_TOLERANCE) {
-          this.faceTries++;
-          this.swingTarget = { x: plot.x, z: plot.z };
-          this.faceSwing = true;
-          this.startReverse(px, pz, false);
-          this.points = [{ x: px, z: pz }, final];
-          this.seg = 0;
-          this.version++;
-          wheel(0, 0, SOFT_BRAKE);
-          return true;
-        }
-      }
-      this.phase = "stop";
-      wheel(0, 0, SOFT_BRAKE);
-      return true;
-    }
-
-    // Pulling up to a plot: the kerb itself is the stop, so a nose at the kerb has arrived.
-    if (this.plot && lastLeg && dFinal < 1.6 && !cornersClear(px, pz, s.yaw, CART_HALF_LENGTH + 0.12)) {
+    // Beside a plant, a metre either way is "here": a side-on stop needs no fussing.
+    const close = this.plot ? 1.1 : 0.8;
+    if (remaining < ARRIVE || (lastLeg && (dFinal < ARRIVE || (dFinal < close && Math.abs(v) < 0.4 && Math.abs(alphaFinal) > 0.9)))) {
       this.phase = "stop";
       wheel(0, 0, SOFT_BRAKE);
       return true;
@@ -385,47 +359,4 @@ function cornersClear(x: number, z: number, yaw: number, along: number): boolean
 function requiredRadius(d: number, alpha: number): number {
   const s = Math.abs(Math.sin(alpha));
   return s < 1e-4 ? Infinity : d / (2 * s);
-}
-
-/**
- * Where the line from (x, z) toward a plot crosses its path's stopping
- * circle, a metre short of the kerb face; null if it never does.
- */
-function kerbStop(x: number, z: number, plot: Plot): P2 | null {
-  const R = plot.side === "outer" ? BED.outer + 1 : BED.inner - 1;
-  const dx = plot.x - x;
-  const dz = plot.z - z;
-  const len = Math.hypot(dx, dz) || 1;
-  const ux = dx / len;
-  const uz = dz / len;
-  // |p + u t| = R, solved for the first crossing ahead.
-  const b = x * ux + z * uz;
-  const c = x * x + z * z - R * R;
-  const disc = b * b - c;
-  if (disc < 0) return null;
-  const root = Math.sqrt(disc);
-  const t = [-b - root, -b + root].filter((v) => v > 0.05).sort((p, q) => p - q)[0];
-  return t === undefined ? null : { x: x + ux * t, z: z + uz * t };
-}
-
-/**
- * Where to line up for a plot and where to stop. Plots in the outer row are
- * visited from the open lawn side, coming straight in; plots in the inner row
- * from the inner path, swinging in from the dais side so the nose ends up
- * pointing into the bed.
- */
-function plotApproach(plot: Plot, from: P2): { approach: P2; nose: P2 } {
-  const a = plot.a;
-  if (plot.side === "outer") {
-    const nose = polar(BED.outer + 1, a);
-    for (const r of [15.4, 14.8, 14.2]) {
-      const approach = polar(r, a);
-      if (pointClear(approach.x, approach.z, 0.55)) return { approach, nose };
-    }
-    return { approach: polar(BED.outer + 1.8, a), nose };
-  }
-  const nose = polar(BED.inner - 1, a);
-  const side = Math.sign(wrapAngle(Math.atan2(from.z, from.x) - a)) || 1;
-  const rA = DAIS.r + 1.3;
-  return { approach: polar(rA, a + (side * 1.9) / rA), nose };
 }

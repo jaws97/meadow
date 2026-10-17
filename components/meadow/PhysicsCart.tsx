@@ -11,10 +11,9 @@
 // RigidBody fresh props and it would re-apply its spawn transform.
 import { useFrame } from "@react-three/fiber";
 import { CuboidCollider, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRapier, type RapierRigidBody } from "@react-three/rapier";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { LanternCart } from "@/components/meadow/LanternCart";
-import { SPAWN } from "@/components/meadow/layout";
 import { createCommand, createMoverState, updateDerived, type Mover } from "@/components/meadow/mover";
 import { meadow, perf } from "@/components/meadow/runtime";
 import { CHASSIS, RIDE, SPAWN_HEIGHT, SUSPENSION, WHEELBASE } from "@/components/meadow/cart";
@@ -28,8 +27,6 @@ const MASS_PROPS = {
   principalAngularInertia: { x: CHASSIS.inertia, y: CHASSIS.inertia, z: CHASSIS.inertia },
   angularInertiaLocalFrame: { x: 0, y: 0, z: 0, w: 1 },
 };
-const SPAWN_POSITION: [number, number, number] = [SPAWN.x, SPAWN_HEIGHT, SPAWN.z];
-const SPAWN_ROTATION: [number, number, number] = [0, SPAWN.yaw, 0];
 
 class PhysicsMover implements Mover {
   readonly kind = "physics" as const;
@@ -71,6 +68,11 @@ class PhysicsMover implements Mover {
 
 export function PhysicsCart() {
   const { world, rapier } = useRapier();
+  // where it starts: handed over by a glider, or the Meadow's start pose (meadow.start), read once
+  const [spawn] = useState(() => {
+    const s = meadow.start;
+    return { position: [s.x, SPAWN_HEIGHT, s.z] as [number, number, number], rotation: [0, s.yaw, 0] as [number, number, number] };
+  });
   const bodyRef = useRef<RapierRigidBody>(null);
   const anchorRef = useRef<THREE.Group>(null);
   const wheels = useRef<Array<THREE.Group | null>>([null, null, null, null]);
@@ -123,7 +125,7 @@ export function PhysicsCart() {
   }, -4.9);
 
   return (
-    <RigidBody ref={bodyRef} colliders={false} canSleep={false} position={SPAWN_POSITION} rotation={SPAWN_ROTATION}>
+    <RigidBody ref={bodyRef} colliders={false} canSleep={false} position={spawn.position} rotation={spawn.rotation}>
       <CuboidCollider args={CHASSIS.half} friction={CHASSIS.friction} massProperties={MASS_PROPS} collisionGroups={CART_GROUPS} />
       <group ref={anchorRef}>
         <LanternCart wheels={wheels} />

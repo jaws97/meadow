@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { GLIDE_TOP_SPEED } from "@/components/meadow/autopilot";
 import { Lantern } from "@/components/meadow/LanternCart";
-import { SPAWN, wrapAngle, yawOf } from "@/components/meadow/layout";
+import { wrapAngle, yawOf } from "@/components/meadow/layout";
 import { createCommand, createMoverState, type Mover } from "@/components/meadow/mover";
 import { blobTexture } from "@/components/meadow/parts";
 import { meadow } from "@/components/meadow/runtime";
@@ -33,7 +33,7 @@ class Glider implements Mover {
   readonly state = createMoverState();
   command = createCommand();
   /** Ground position; the drawn lantern floats above it. */
-  readonly ground: P2 = { x: SPAWN.x, z: SPAWN.z };
+  readonly ground: P2 = { x: meadow.start.x, z: meadow.start.z };
   /** Hop lift, metres, and its velocity. */
   lift = 0;
   liftV = 0;
@@ -45,7 +45,7 @@ class Glider implements Mover {
     const from = meadow.handoff;
     meadow.handoff = null;
     if (from) this.respawn(from.x, from.z, from.yaw);
-    else this.respawn(SPAWN.x, SPAWN.z, SPAWN.yaw);
+    else this.respawn(meadow.start.x, meadow.start.z, meadow.start.yaw);
   }
 
   steerLock(): number {

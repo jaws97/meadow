@@ -2,7 +2,8 @@
 // Gentle guides on the lawn: a dotted trail along the autopilot's route that
 // is eaten up as the cart drives it, a slowly breathing ring where a tap sent
 // it, and a small ring under a driving finger that widens with the pull.
-// They tell the player what the cart is about to do without a word of UI.
+// They tell the player what the cart is about to do without a word of UI. A
+// find-a-friend journey has its fireflies instead, so the dots stand aside.
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
@@ -89,7 +90,8 @@ export function GuideMarkers() {
       if (bestD < 0.9) t.eaten = best + 1;
     }
     let shown = 0;
-    for (let i = t.eaten; i < t.count; i++) {
+    // a find-a-friend journey is lit by the fireflies instead (Fireflies.tsx)
+    if (!meadow.journey) for (let i = t.eaten; i < t.count; i++) {
       mtx.makeTranslation(t.xs[i], DOT_Y, t.zs[i]);
       mesh.setMatrixAt(shown++, mtx);
     }
@@ -99,7 +101,7 @@ export function GuideMarkers() {
     const time = state.clock.elapsedTime;
     const g = goal.current;
     if (g) {
-      g.visible = meadow.goal.active;
+      g.visible = meadow.goal.active && !meadow.journey;
       g.position.set(meadow.goal.x, DOT_Y + 0.005, meadow.goal.z);
       const s = 1 + 0.08 * Math.sin(time * 2.2);
       g.scale.set(s, 1, s);

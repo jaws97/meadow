@@ -1,7 +1,7 @@
 // The seam between "what the player wants" and "how the body moves". Input,
 // the autopilot and the camera only ever talk to a Mover, so the physics cart
-// and the physics-free GlideMover are interchangeable, and a spike that fails
-// on some phones can fall back to gliding without touching anything else.
+// and the physics-free GlideMover are interchangeable, and a Meadow whose cart
+// fails on some phones can fall back to gliding without touching anything else.
 //
 // A Command comes in one of two shapes. "wheel" is car-like (throttle, steer,
 // brake), which is what the keyboard and the cart autopilot produce. "wish" is

@@ -4,8 +4,14 @@
 // always agree.
 //
 // Pure constants with no server imports: safe to import from client components. The Meadow owns the geometry: radii and
-// the angle rule may change freely (the first two rings match the spike's PLOT_ROWS), but plot order must stay inner
-// rings first, because a stored plot_index never moves.
+// the angle rule may change freely, but plot order must stay inner rings first, because a stored plot_index never moves.
+//
+// The angle rule. Rings come in pairs, the two rows of one raised bed, and avenues cut across the beds from the rose
+// dais outward: four through the inner bed (on the diagonals, so one runs straight toward the Meadow's camera) and
+// eight through every bed beyond it. A ring's plots are shared evenly among the arcs between its avenues, with
+// AVENUE_GAP metres kept clear round each avenue, and a ring fills evenly all the way round: the first plant of a
+// ring goes in the middle of one arc, the next in the middle of the opposite arc, and so on, so a ring that is a
+// quarter planted looks evenly sown rather than a crescent.
 //
 // Capacity is elastic. The six planned rings (PLOT_CAPACITY, 360 plots) seat about 300 colleagues; past them the
 // Meadow keeps growing outward with rings that continue the same rhythm (ringAt), up to MAX_RINGS as a backstop
@@ -55,13 +61,63 @@ export function ringAt(r: number): PlotRing | null {
   return Number.isInteger(r) && r >= 0 && r < ALL_RINGS.length ? ALL_RINGS[r] : null;
 }
 
+/** Metres of arc kept clear of plants round each avenue, at the plant row: the avenue itself and a margin each side. */
+export const AVENUE_GAP = 3.5;
+
+const QUARTER = Math.PI / 4;
+const INNER_AVENUES: readonly number[] = Object.freeze([1, 3, 5, 7].map((k) => k * QUARTER));
+const OUTER_AVENUES: readonly number[] = Object.freeze([0, 1, 2, 3, 4, 5, 6, 7].map((k) => k * QUARTER));
+
+/** The bed (0 = innermost) that ring r belongs to: two rings to a bed. */
+export const bedOfRing = (ring: number): number => Math.floor(ring / 2);
+
+/** The polar angles (radians, ascending in [0, 2pi)) of the avenues that cross bed b. */
+export function avenueAngles(bed: number): readonly number[] {
+  return bed === 0 ? INNER_AVENUES : OUTER_AVENUES;
+}
+
+/** The order the arcs of a ring are sown in: each next arc as far as can be from those already begun. */
+const ARC_ORDER: Readonly<Record<number, readonly number[]>> = { 4: [0, 2, 1, 3], 8: [0, 4, 2, 6, 1, 5, 3, 7] };
+
+const spreadCache = new Map<number, readonly number[]>();
+/**
+ * The order the m places along one arc are filled in: each next place as far as can be from the places already
+ * taken and from the arc's two ends (ties go to the lower place), so the first lands in the middle.
+ */
+function spreadOrder(m: number): readonly number[] {
+  const known = spreadCache.get(m);
+  if (known) return known;
+  const taken: number[] = [];
+  const free = new Set(Array.from({ length: m }, (_, i) => i));
+  while (free.size > 0) {
+    let best = -1;
+    let bestD = -1;
+    for (const p of free) {
+      let d = Math.min(p + 1, m - p);
+      for (const t of taken) d = Math.min(d, Math.abs(p - t));
+      if (d > bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+    taken.push(best);
+    free.delete(best);
+  }
+  const order = Object.freeze(taken);
+  spreadCache.set(m, order);
+  return order;
+}
+
 export interface PlotPlace {
   index: number;
   ring: number;
   slot: number;
   radius: number;
-  /** polar angle in radians, slots evenly spaced and offset by half a slot on alternate rings so rows interleave */
+  /** polar angle in radians, in [0, 2pi): never inside an avenue (see the header) */
   angle: number;
+  /** which arc between two avenues the plot is in (0 starts at the ring's first avenue), and its place along it */
+  arc: number;
+  place: number;
 }
 
 /** Where plot `index` sits, or null outside 0 .. PLOT_LIMIT - 1. */
@@ -72,12 +128,34 @@ export function plotRing(index: number): PlotPlace | null {
     const { radius, count } = ALL_RINGS[ring];
     if (index < first + count) {
       const slot = index - first;
-      const angle = ((slot + (ring % 2 ? 0.5 : 0)) / count) * Math.PI * 2;
-      return { index, ring, slot, radius, angle };
+      const avenues = avenueAngles(bedOfRing(ring));
+      const arcs = avenues.length;
+      const perArc = count / arcs;
+      const arc = ARC_ORDER[arcs][slot % arcs];
+      const place = spreadOrder(perArc)[Math.floor(slot / arcs)];
+      const from = avenues[arc];
+      const to = arc + 1 < arcs ? avenues[arc + 1] : avenues[0] + Math.PI * 2;
+      const clear = AVENUE_GAP / 2 / radius;
+      const angle = (from + clear + ((place + 0.5) / perArc) * (to - from - 2 * clear)) % (Math.PI * 2);
+      return { index, ring, slot, radius, angle, arc, place };
     }
     first += count;
   }
   return null;
+}
+
+/** How many rings the Meadow should draw for plots up to `highestIndex`: the planned six at least, then whole beds. */
+export function ringsToDraw(highestIndex: number): number {
+  const p = highestIndex >= 0 ? plotRing(highestIndex) : null;
+  const used = p ? p.ring + 1 : 0;
+  return Math.min(MAX_RINGS, Math.max(PLOT_RINGS.length, used + (used % 2)));
+}
+
+/** The first plot index of ring r (the sum of the counts of the rings inside it). */
+export function firstPlotOfRing(ring: number): number {
+  let first = 0;
+  for (let r = 0; r < ring && r < ALL_RINGS.length; r++) first += ALL_RINGS[r].count;
+  return first;
 }
 
 export interface AssignOptions {

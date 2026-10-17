@@ -1,0 +1,476 @@
+/*
+ * The Meadow's overlay: the top bar, the visit card, the find panel, the firefly journey's pill, the hint line and
+ * the opening veil. The same warm glass as the gift flow (dark glass, cream ink, a little gold), so the app reads as
+ * one place. A plain stylesheet with prefixed class names: the project's Turbopack rule runs every .css file through
+ * Tailwind as global CSS.
+ *
+ * Backdrop blur over a live canvas re-blurs every frame, so it is kept to wide screens; phones get a more opaque
+ * backing instead. Motion is transform and opacity only, and none when the person asks for reduced motion.
+ */
+
+.meadow-root {
+  --m-ink: #f6ead6;
+  --m-ink-2: rgba(246, 234, 214, 0.8);
+  --m-ink-3: rgba(246, 234, 214, 0.58);
+  --m-gold: #f2cd8e;
+  --m-line: rgba(255, 236, 200, 0.13);
+  --m-glass: rgba(17, 21, 33, 0.9);
+  --m-glass-2: rgba(10, 13, 21, 0.94);
+  --m-display: var(--font-display, "Iowan Old Style"), "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --m-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  color: var(--m-ink);
+}
+
+@media (min-width: 768px) {
+  .meadow-root {
+    --m-glass: rgba(17, 21, 33, 0.72);
+    --m-glass-2: rgba(10, 13, 21, 0.82);
+  }
+}
+
+.meadow-root :focus-visible {
+  outline: 2px solid #ffd99a;
+  outline-offset: 3px;
+}
+
+.meadow-glass {
+  background: linear-gradient(180deg, var(--m-glass), var(--m-glass-2));
+  border: 1px solid var(--m-line);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+}
+
+@media (min-width: 768px) {
+  .meadow-glass {
+    backdrop-filter: blur(14px) saturate(1.1);
+    -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  }
+}
+
+/* ---- top bar ------------------------------------------------------------------------------------------------- */
+
+.meadow-top {
+  position: fixed;
+  z-index: 20;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.meadow-title {
+  pointer-events: none;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.45);
+}
+
+.meadow-title h1 {
+  font-family: var(--m-display);
+  font-size: clamp(20px, 2.2vw, 30px);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+}
+
+.meadow-title p {
+  margin-top: 2px;
+  font-size: clamp(12px, 1vw, 15px);
+  color: var(--m-ink-2);
+}
+
+.meadow-actions {
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.meadow-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 15px;
+  border-radius: 999px;
+  font-size: 14px;
+  color: var(--m-ink);
+  white-space: nowrap;
+  transition: transform 0.2s var(--m-ease), background-color 0.2s;
+}
+
+.meadow-pill:active {
+  transform: scale(0.97);
+}
+
+.meadow-pill-gold {
+  background: linear-gradient(180deg, #f6d9a0, #e6b86c);
+  color: #3a2814;
+  border: none;
+  box-shadow: 0 8px 24px rgba(230, 180, 100, 0.25);
+}
+
+/* ---- the visit card -------------------------------------------------------------------------------------------- */
+
+.meadow-card-dock {
+  position: fixed;
+  z-index: 25;
+  left: max(10px, env(safe-area-inset-left));
+  right: max(10px, env(safe-area-inset-right));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+@media (min-width: 768px) and (min-aspect-ratio: 1/1) {
+  /* a landscape screen keeps the card to the side, so the plant stays in the middle of the view */
+  .meadow-card-dock {
+    left: auto;
+    right: max(18px, env(safe-area-inset-right));
+    top: 88px;
+    bottom: auto;
+    width: 360px;
+  }
+}
+
+.meadow-card {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  padding: 18px 18px 16px;
+  border-radius: 22px;
+  pointer-events: auto;
+  animation: meadow-rise 0.45s var(--m-ease) both;
+}
+
+@keyframes meadow-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.meadow-card h2 {
+  font-family: var(--m-display);
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.15;
+  padding-right: 36px;
+  overflow-wrap: anywhere;
+}
+
+.meadow-card .meadow-sub {
+  margin-top: 3px;
+  font-size: 14px;
+  color: var(--m-gold);
+}
+
+.meadow-card .meadow-mood {
+  margin-top: 10px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--m-ink-2);
+}
+
+.meadow-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--m-ink-3);
+}
+
+.meadow-close:hover {
+  color: var(--m-ink);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.meadow-row {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.meadow-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-size: 15px;
+  transition: transform 0.2s var(--m-ease), opacity 0.2s;
+}
+
+.meadow-button:active {
+  transform: scale(0.97);
+}
+
+.meadow-button[disabled] {
+  opacity: 0.55;
+}
+
+.meadow-button-primary {
+  background: linear-gradient(180deg, #f6d9a0, #e6b86c);
+  color: #3a2814;
+  box-shadow: 0 8px 24px rgba(230, 180, 100, 0.22);
+}
+
+.meadow-button-quiet {
+  border: 1px solid var(--m-line);
+  color: var(--m-ink);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.meadow-note {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--m-ink-3);
+}
+
+.meadow-note-warm {
+  color: var(--m-ink-2);
+}
+
+/* ---- find a friend ------------------------------------------------------------------------------------------- */
+
+.meadow-find-dock {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(70px, calc(env(safe-area-inset-top) + 62px)) max(12px, env(safe-area-inset-right)) 12px max(12px, env(safe-area-inset-left));
+  background: rgba(6, 8, 15, 0.28);
+  animation: meadow-fade 0.3s ease both;
+}
+
+@keyframes meadow-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.meadow-find {
+  width: 100%;
+  max-width: 440px;
+  max-height: min(560px, calc(100dvh - 90px));
+  display: flex;
+  flex-direction: column;
+  border-radius: 22px;
+  overflow: hidden;
+  animation: meadow-rise 0.35s var(--m-ease) both;
+}
+
+.meadow-find header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 10px 18px;
+}
+
+.meadow-find h2 {
+  flex: 1;
+  font-family: var(--m-display);
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.meadow-search {
+  margin: 0 14px 10px;
+  height: 46px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 1px solid var(--m-line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--m-ink);
+  font-size: 16px;
+}
+
+.meadow-search::placeholder {
+  color: var(--m-ink-3);
+}
+
+.meadow-results {
+  overflow-y: auto;
+  padding: 0 8px 10px;
+}
+
+.meadow-result {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px;
+  border-radius: 14px;
+  text-align: left;
+}
+
+.meadow-result:hover,
+.meadow-result:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.meadow-swatch {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.meadow-result strong {
+  display: block;
+  font-weight: 500;
+  font-size: 16px;
+}
+
+.meadow-result span {
+  display: block;
+  font-size: 13px;
+  color: var(--m-ink-3);
+}
+
+.meadow-empty {
+  padding: 8px 18px 18px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--m-ink-3);
+}
+
+/* ---- the journey's pill ------------------------------------------------------------------------------------------ */
+
+.meadow-journey {
+  position: fixed;
+  z-index: 22;
+  left: 50%;
+  top: calc(max(12px, env(safe-area-inset-top)) + 56px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100vw - 24px);
+  padding: 6px 6px 6px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  animation: meadow-fade 0.4s ease both;
+}
+
+.meadow-journey > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meadow-journey .meadow-pill {
+  min-height: 34px;
+  padding: 0 13px;
+}
+
+/* ---- the hint line --------------------------------------------------------------------------------------------- */
+
+.meadow-hint {
+  position: fixed;
+  z-index: 10;
+  left: 0;
+  right: 0;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  padding: 0 16px;
+  text-align: center;
+  font-size: clamp(12px, 0.85vw, 16px);
+  color: rgba(255, 255, 255, 0.78);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  transition: opacity 1s ease;
+}
+
+/* ---- the opening veil ---------------------------------------------------------------------------------------- */
+
+.meadow-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(120% 60% at 50% 112%, rgba(255, 168, 88, 0.22), rgba(255, 168, 88, 0) 62%),
+    radial-gradient(80% 55% at 50% 38%, rgba(64, 86, 150, 0.22), rgba(64, 86, 150, 0) 72%),
+    linear-gradient(180deg, #060912 0%, #0a0f1f 55%, #131a29 100%);
+  transition: opacity 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.meadow-veil-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.meadow-veil-art {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin: 0 auto;
+}
+
+.meadow-veil-halo {
+  position: absolute;
+  inset: -20px;
+  background: radial-gradient(circle closest-side, rgba(255, 214, 140, 0.4), rgba(255, 178, 92, 0.12) 50%, rgba(255, 160, 80, 0) 100%);
+  animation: meadow-breathe 5.2s ease-in-out infinite;
+}
+
+@keyframes meadow-breathe {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.07);
+    opacity: 1;
+  }
+}
+
+.meadow-veil-title {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 300;
+  letter-spacing: 0.06em;
+  color: rgba(246, 234, 214, 0.88);
+}
+
+.meadow-veil-line {
+  margin-top: 6px;
+  min-height: 18px;
+  text-align: center;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: rgba(246, 234, 214, 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meadow-card,
+  .meadow-find,
+  .meadow-find-dock,
+  .meadow-journey {
+    animation: none;
+  }
+  .meadow-veil-halo {
+    animation-duration: 9s;
+  }
+}

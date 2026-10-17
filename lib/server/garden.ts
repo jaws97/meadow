@@ -387,7 +387,7 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
   requirePartyCode(input.partyCode, partyCodes(), isProduction());
   const window = plantingWindow(h, rehearsalAllowed(h));
   if (window === "early") {
-    throw new ApiError(409, "not_yet", `Seeds are handed out at the party on ${plantingOpensText()}. See you there!`);
+    throw new ApiError(409, "not_yet", `Seeds are handed out at the party on ${plantingOpensText()}. See you there.`);
   }
   if (window === "closed") {
     throw new ApiError(409, "planting_closed", "Planting closed on 10 Dec. You can still wander the Meadow and enjoy everyone's flowers.");
@@ -414,7 +414,7 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
       const [recent] = await tx<{ n: number }[]>`
         select count(*)::int as n from meadow.plants where created_at > now() - interval '1 minute'`;
       if (recent.n >= PLANTINGS_PER_MINUTE) {
-        throw new ApiError(429, "busy_planting", "So many seeds are going in at once! Yours is next in a few seconds.", { retryAfterS: plantingRetryAfterS() });
+        throw new ApiError(429, "busy_planting", "Lots of seeds are going in at once. Yours will follow in a moment.", { retryAfterS: plantingRetryAfterS() });
       }
       const taken = await tx<{ plot_index: number }[]>`select plot_index from meadow.plants`;
       const plot = assignPlot(taken.map((r) => r.plot_index), { from: rehearsal ? "outer" : "inner" });

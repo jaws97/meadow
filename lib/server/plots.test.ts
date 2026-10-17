@@ -1,8 +1,21 @@
 // Plot assignment: inner rings fill first in planting order, freed plots are reused, rehearsal plants keep to the outer
 // edge of the planned rings, the Meadow grows outward past them instead of turning anyone away, and the ring table maps
-// every index to exactly one ring slot.
+// every index to exactly one ring slot, clear of the avenues, sown evenly round each ring.
 import { describe, expect, it } from "vitest";
-import { MAX_RINGS, PLOT_CAPACITY, PLOT_LIMIT, PLOT_RINGS, assignPlot, plotRing, ringAt } from "./plots";
+import {
+  AVENUE_GAP,
+  MAX_RINGS,
+  PLOT_CAPACITY,
+  PLOT_LIMIT,
+  PLOT_RINGS,
+  assignPlot,
+  avenueAngles,
+  bedOfRing,
+  firstPlotOfRing,
+  plotRing,
+  ringAt,
+  ringsToDraw,
+} from "./plots";
 
 const range = (n: number) => Array.from({ length: n }, (_, i) => i);
 
@@ -84,5 +97,55 @@ describe("the ring table", () => {
     expect(plotRing(-1)).toBeNull();
     expect(plotRing(PLOT_LIMIT)).toBeNull();
     expect(plotRing(1.5)).toBeNull();
+  });
+});
+
+describe("the angle rule", () => {
+  const wrap = (a: number) => {
+    let d = a % (Math.PI * 2);
+    if (d > Math.PI) d -= Math.PI * 2;
+    if (d <= -Math.PI) d += Math.PI * 2;
+    return d;
+  };
+
+  it("keeps every plot clear of the avenues that cross its bed", () => {
+    for (let i = 0; i < PLOT_LIMIT; i++) {
+      const p = plotRing(i)!;
+      expect(p.angle).toBeGreaterThanOrEqual(0);
+      expect(p.angle).toBeLessThan(Math.PI * 2);
+      for (const a of avenueAngles(bedOfRing(p.ring))) {
+        // arc distance at the plant row from the avenue's centreline
+        expect(Math.abs(wrap(p.angle - a)) * p.radius).toBeGreaterThan(AVENUE_GAP / 2);
+      }
+    }
+  });
+
+  it("never puts two plots of a ring in the same place", () => {
+    for (let r = 0; r < MAX_RINGS; r++) {
+      const ring = ringAt(r)!;
+      const first = firstPlotOfRing(r);
+      const angles = Array.from({ length: ring.count }, (_, s) => plotRing(first + s)!.angle).sort((x, y) => x - y);
+      for (let k = 1; k < angles.length; k++) expect((angles[k] - angles[k - 1]) * ring.radius).toBeGreaterThan(1.1);
+    }
+  });
+
+  it("sows a ring evenly: the first plants of a ring land in different arcs, each in the middle of its arc", () => {
+    const arcs = avenueAngles(0).length;
+    const firsts = Array.from({ length: arcs }, (_, s) => plotRing(s)!);
+    expect(new Set(firsts.map((p) => p.arc)).size).toBe(arcs);
+    const perArc = PLOT_RINGS[0].count / arcs;
+    for (const p of firsts) expect(Math.abs(p.place - (perArc - 1) / 2)).toBeLessThanOrEqual(0.5);
+    // the second plant of the ring goes opposite the first
+    expect(Math.abs(Math.abs(wrap(plotRing(1)!.angle - plotRing(0)!.angle)) - Math.PI)).toBeLessThan(0.01);
+  });
+
+  it("draws the planned rings at least, and whole beds as the Meadow grows", () => {
+    expect(ringsToDraw(-1)).toBe(PLOT_RINGS.length);
+    expect(ringsToDraw(0)).toBe(PLOT_RINGS.length);
+    expect(ringsToDraw(PLOT_CAPACITY - 1)).toBe(PLOT_RINGS.length);
+    expect(ringsToDraw(PLOT_CAPACITY)).toBe(PLOT_RINGS.length + 2);
+    expect(ringsToDraw(PLOT_LIMIT - 1)).toBe(MAX_RINGS);
+    expect(firstPlotOfRing(1)).toBe(PLOT_RINGS[0].count);
+    expect(firstPlotOfRing(PLOT_RINGS.length)).toBe(PLOT_CAPACITY);
   });
 });
