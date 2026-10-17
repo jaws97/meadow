@@ -14,17 +14,31 @@
 //
 // Pixels. The canvas's pixel ratio spends a budget per device class (lib/garden/device), so a high-density laptop
 // does not draw four million pixels and a phone keeps its battery; and if the frame rate still sags for a while
-// (with the glider, or with the cart pinned) the ratio steps down calmly, never below the class's floor. The party
-// screen (the "bigscreen" class) opens a little further back, so the room sees more of the Meadow.
+// (with the glider, or with the cart pinned) the ratio steps down calmly, never below the class's floor, at a still
+// moment and behind a held copy of the last frame, so the picture never blinks or turns soft in front of anyone.
+// The party screen (the "bigscreen" class) opens a little further back, so the room sees more of the Meadow.
 //
 // The plan. The ground plan follows the rings in use (layout.ts): six planned rings, and whole beds more only if
 // the Meadow outgrows them, rebuilt under a new key when that happens.
 //
 // Frame order, by useFrame priority: perf probe (-10), controller (-6), Rapier's stepper and its timer
 // (-5.01..-4.99), cart and glider sync (-5..-4.9), camera (-1), guides, sky and sun (-0.5), then R3F renders.
-import { Canvas, useFrame, useThree, type CanvasProps } from "@react-three/fiber";
-import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { addAfterEffect, Canvas, useFrame, useThree, type CanvasProps } from "@react-three/fiber";
+import {
+  Component,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import * as THREE from "three";
+import { holdFrame, releaseFrame, RESIZE_HOLD } from "@/components/garden/frameHold";
 import { Bursts } from "@/components/meadow/Bursts";
 import { CameraRig } from "@/components/meadow/CameraRig";
 import { MeadowController } from "@/components/meadow/controller";
@@ -86,6 +100,15 @@ const SETTLE_WINDOWS = 6;
 const SAG_FPS = 40;
 const SAG_WINDOWS = 16;
 const DPR_STEPS = [1, 0.85, 0.72] as const;
+/**
+ * A step waits for the camera to rest this long (moving under STILL_MOVE metres and STILL_TURN radians a frame), or
+ * at most STEP_WAIT_MAX_MS for a visitor who never stops; and never comes within STEP_GAP_MS of the last (ms).
+ */
+const STEP_CALM_MS = 600;
+const STILL_MOVE = 0.002;
+const STILL_TURN = 0.0005;
+const STEP_WAIT_MAX_MS = 45000;
+const STEP_GAP_MS = 30000;
 /** A physics world that has not produced a cart in this long is treated as failed. */
 const START_TIMEOUT_MS = 12000;
 /** The warm fade round the cart-to-glider swap: out, then back in once the glider is live (ms). */
@@ -159,7 +182,8 @@ function Controls({ controller }: { controller: MeadowController }) {
 
 /**
  * Frame timing, published twice a second for the HUD; the watch on the physics cart (a reading under 30 fps for
- * four seconds running hands the Meadow to the glider); and, with no cart to drop, the calm pixel step-down.
+ * four seconds running hands the Meadow to the glider); and, with no cart to drop, the ask for a calm pixel
+ * step-down (PixelStep carries it out).
  */
 function PerfProbe({ watch, onSlow, onSag }: { watch: boolean; onSlow: () => void; onSag: () => void }) {
   const accRef = useRef({ frames: 0, time: 0, max: 0, first: true, slow: 0, sag: 0, settle: SETTLE_WINDOWS });
@@ -223,6 +247,65 @@ function PerfProbe({ watch, onSlow, onSag }: { watch: boolean; onSlow: () => voi
 }
 
 /**
+ * The pixel step-down, out of sight. A new pixel ratio resizes the canvas, which clears its drawing buffer, and
+ * drawn in the open it softens the whole picture at once; so a step asked for (`askRef`) waits for the camera to rest,
+ * copies the frame just drawn over the canvas (components/garden/frameHold), steps underneath, and dissolves the
+ * copy once a few frames are drawn at the new ratio. An ask that would change nothing (the class's floor already
+ * reached) or comes within the gap of the last step is dropped; PerfProbe asks again if the sag goes on.
+ */
+function PixelStep({ askRef, dpr, next, onStep }: { askRef: RefObject<boolean>; dpr: number; next: number; onStep: () => void }) {
+  const ref = useRef({
+    pos: new THREE.Vector3(),
+    quat: new THREE.Quaternion(),
+    restFrom: -1,
+    askedAt: -1,
+    stepAt: -Infinity,
+    /** The step being drawn behind the still: the ratio it waits for, since when, and frames drawn at it. */
+    hold: null as { dpr: number; at: number; frames: number } | null,
+  });
+  useFrame(({ gl, camera }) => {
+    const s = ref.current;
+    const now = performance.now();
+    const moved = s.pos.distanceTo(camera.position) > STILL_MOVE || s.quat.angleTo(camera.quaternion) > STILL_TURN;
+    s.pos.copy(camera.position);
+    s.quat.copy(camera.quaternion);
+    if (moved) s.restFrom = -1;
+    else if (s.restFrom < 0) s.restFrom = now;
+
+    const h = s.hold;
+    if (h) {
+      if (Math.abs(gl.getPixelRatio() - h.dpr) < 1e-6) h.frames++;
+      if (h.frames >= RESIZE_HOLD.frames || now - h.at > RESIZE_HOLD.maxMs) {
+        s.hold = null;
+        releaseFrame(RESIZE_HOLD.dissolveMs);
+      }
+      return;
+    }
+    if (!askRef.current) {
+      s.askedAt = -1;
+      return;
+    }
+    if (next >= dpr || now - s.stepAt < STEP_GAP_MS) {
+      askRef.current = false;
+      return;
+    }
+    if (s.askedAt < 0) s.askedAt = now;
+    const resting = s.restFrom >= 0 && now - s.restFrom >= STEP_CALM_MS;
+    if (!resting && now - s.askedAt < STEP_WAIT_MAX_MS) return;
+    askRef.current = false;
+    s.stepAt = now;
+    // Once this frame is drawn (the still is copied in the task that drew it), React applies the new ratio before
+    // the next frame.
+    const off = addAfterEffect(() => {
+      off();
+      if (holdFrame(gl.domElement)) ref.current.hold = { dpr: next, at: performance.now(), frames: 0 };
+      onStep();
+    });
+  }, -10);
+  return null;
+}
+
+/**
  * Runs the warm veil (meadow.fade, drawn by DevHud's FadeVeil) round a swap: a quick fade out, the swap, then a
  * fade back in once the new mover is live (or after a short wait, whatever happens).
  */
@@ -250,19 +333,22 @@ function fadeAround(swap: () => void) {
   requestAnimationFrame(tick);
 }
 
-/** The pixel ratio that spends this device's budget on the window, kept current through resizes and rotation. */
-function useBudgetDpr(step: number): { dpr: number; kind: DeviceKind } {
+/**
+ * The pixel ratio that spends this device's budget on the window at step `step`, and the one the next step down
+ * would give, kept current through resizes and rotation.
+ */
+function useBudgetDpr(step: number): { dpr: number; next: number; kind: DeviceKind } {
   const device = useMemo(() => readDevice(), []);
   const read = useCallback(
-    () =>
+    (s: number) =>
       dprForBudget(
-        BUDGET[device.kind] * DPR_STEPS[step] ** 2,
+        BUDGET[device.kind] * DPR_STEPS[Math.min(DPR_STEPS.length - 1, s)] ** 2,
         window.innerWidth,
         window.innerHeight,
         window.devicePixelRatio || 1,
         MIN_DPR[device.kind],
       ),
-    [device, step],
+    [device],
   );
   const [resized, setResized] = useState(0);
   useEffect(() => {
@@ -271,8 +357,9 @@ function useBudgetDpr(step: number): { dpr: number; kind: DeviceKind } {
     return () => window.removeEventListener("resize", onResize);
   }, []);
   // re-read on every resize (and rotation) and every step down
-  const dpr = useMemo(() => (resized >= 0 ? read() : 1), [read, resized]);
-  return { dpr, kind: device.kind };
+  const dpr = useMemo(() => (resized >= 0 ? read(step) : 1), [read, resized, step]);
+  const next = useMemo(() => (resized >= 0 ? read(step + 1) : 1), [read, resized, step]);
+  return { dpr, next, kind: device.kind };
 }
 
 /** Grows the plan when the snapshot reaches past the rings drawn; returns the plan's version for keys. */
@@ -293,7 +380,8 @@ export default function MeadowCanvas() {
   const [kind, setKind] = useState<MoverKind>(param === "glide" ? "glide" : "physics");
   const kindRef = useRef(kind);
   const [dprStep, setDprStep] = useState(0);
-  const { dpr, kind: deviceKind } = useBudgetDpr(dprStep);
+  const { dpr, next: nextDpr, kind: deviceKind } = useBudgetDpr(dprStep);
+  const stepAsk = useRef(false);
   const phone = deviceKind === "phone";
   const layoutKey = useLayoutVersion();
   const layout = meadowLayout();
@@ -327,7 +415,10 @@ export default function MeadowCanvas() {
   );
   const onFail = useCallback(() => fallBack("failed"), [fallBack]);
   const onSlow = useCallback(() => fallBack("slow"), [fallBack]);
-  const onSag = useCallback(() => setDprStep((s) => Math.min(DPR_STEPS.length - 1, s + 1)), []);
+  const onSag = useCallback(() => {
+    stepAsk.current = true;
+  }, []);
+  const onStep = useCallback(() => setDprStep((s) => Math.min(DPR_STEPS.length - 1, s + 1)), []);
   const auto = param === "physics";
 
   // Rapier that never finishes starting (a stalled WASM fetch) counts as failed.
@@ -343,6 +434,7 @@ export default function MeadowCanvas() {
   return (
     <Canvas shadows={SHADOWS} dpr={dpr} gl={GL} camera={CAMERA} style={STYLE}>
       <PerfProbe watch={kind === "physics" && auto} onSlow={onSlow} onSag={onSag} />
+      <PixelStep askRef={stepAsk} dpr={dpr} next={nextDpr} onStep={onStep} />
       <Controls controller={controller} />
       <MeadowEnvironment shadowSize={phone ? 1024 : 2048} />
       <group key={layoutKey}>

@@ -38,7 +38,6 @@ import {
 } from "@/components/garden/lightSets";
 import { compileShadowCasters, compileTransmissionBackfaces, type Compile } from "@/components/garden/warmup";
 import { env } from "@/lib/garden/env";
-import { quality as budget } from "@/lib/garden/quality";
 import { useGarden, type Quality } from "@/lib/garden/store";
 import { clamp01, lerp } from "@/lib/plant/prng";
 
@@ -200,7 +199,6 @@ export function Lights() {
   const fillRef = useRef<THREE.DirectionalLight>(null);
   const rimRef = useRef<THREE.SpotLight>(null);
   const rimTarget = useMemo(() => new THREE.Object3D(), []);
-  const frame = useRef(0);
 
   const shadowSize = SHADOW_SIZE[quality];
 
@@ -221,11 +219,10 @@ export function Lights() {
       // changes the directional-light count, and three releases the unused
       // program variant, so every material would recompile at each dusk and
       // dawn. Skipping the light's own shadow pass saves the work instead.
-      // Under load the governor (lib/garden/quality) may refresh the map every
-      // other frame: the sun crawls and the foliage's dappled sway reads the
-      // same at half rate, so it is the cheapest rung before a tier change.
-      const every = budget.get().shadowEvery;
-      sun.shadow.autoUpdate = env.sky.sunIntensity > 0.01 && (every === 1 || frame.current++ % every === 0);
+      // The map is redrawn every frame the sun is up: a map refreshed every
+      // other frame lags the swaying leaves and petals, and their shadows
+      // flicker against them.
+      sun.shadow.autoUpdate = env.sky.sunIntensity > 0.01;
       // A quality change resizes mapSize but the allocated map keeps its old
       // size; dropping it makes the next pass allocate at the new one.
       const map = sun.shadow.map;

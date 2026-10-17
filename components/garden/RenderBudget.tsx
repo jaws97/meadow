@@ -26,18 +26,22 @@
 // change after that (the governor's, only after a sustained drop while nobody
 // is touching the screen, or one picked in the development panel) holds a
 // still of the last frame over the canvas (frameHold.ts), runs the same
-// opening behind it, and dissolves the still into the new tier.
+// opening behind it, and dissolves the still into the new tier. A change of
+// pixel budget does the same in miniature: resizing the canvas clears its
+// drawing buffer and reallocates the effect composer's, which on screen is a
+// blink of the whole picture, so the still covers the canvas while it
+// resizes and draws a few frames at its new size, then dissolves into them.
 //
 // Governor. Times every frame (and the GPU's share of it, where a timer is
 // offered), feeds lib/garden/quality's Governor, and applies its decisions:
-// the pixel budget (through the store, which the Canvas reads for its dpr),
-// the shadow cadence, and tier changes. A tier picked by hand (development
-// panel, ?quality=) pins the tier; the budget still adapts. A few seconds
-// into a settled visit it also keeps a small still for next time (poster.ts).
+// the pixel budget (through the store, which the Canvas reads for its dpr)
+// and tier changes. A tier picked by hand (development panel, ?quality=)
+// pins the tier; the budget still adapts. A few seconds into a settled visit
+// it also keeps a small still for next time (poster.ts).
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 import { composerHandle } from "@/components/garden/Effects";
-import { holdFrame, isHolding, releaseFrame } from "@/components/garden/frameHold";
+import { holdFrame, isHolding, releaseFrame, RESIZE_HOLD } from "@/components/garden/frameHold";
 import { GpuTimer } from "@/components/garden/gpuTimer";
 import {
   applySet,
@@ -82,7 +86,7 @@ const GRACE_MS = 6000;
 /** The veil's fade-out, and a held still's dissolve, after which the garden is simply live. */
 const REVEAL_MS = 1500;
 const HELD_REVEAL_MS = 600;
-/** A tier changes on a live garden only once nobody has touched it for this long (ms). */
+/** Nothing changes on a live garden until nobody has touched it for this long (ms). */
 const INPUT_QUIET_MS = 3000;
 /** The opening never takes longer than this to give up waiting on a part and draw anyway. */
 const COMPOSER_WAIT_MS = 4000;
@@ -219,8 +223,8 @@ function changeTier(next: Quality, canvas: HTMLCanvasElement, governor: Governor
   ownTier.current = next;
   quality.adoptTier(next);
   const after = quality.get();
-  governor.reset(after.range, after.budget);
-  quality.set({ phase: "compiling", shadowEvery: 1, tierChanges: q.tierChanges + 1 });
+  governor.reset(after.range, after.budget, q.veiled ? undefined : performance.now());
+  quality.set({ phase: "compiling", tierChanges: q.tierChanges + 1 });
   garden.set({ quality: next });
 }
 
@@ -261,7 +265,16 @@ export function RenderGovernor() {
   }, []);
   /** The tier the governor itself last set, so a change made by hand can be told apart. */
   const ownTier = useRef<Quality>(garden.get().quality);
-  const clock = useRef({ phase: "boot" as Phase, since: 0, statsAt: 0, range: quality.get().range, liveAt: -1, posterAt: -1 });
+  const clock = useRef({
+    phase: "boot" as Phase,
+    since: 0,
+    statsAt: 0,
+    range: quality.get().range,
+    liveAt: -1,
+    posterAt: -1,
+    /** A budget change being drawn behind the still: the pixel ratio it waits for, since when, and frames drawn at it. */
+    resize: null as { dpr: number; at: number; frames: number } | null,
+  });
   const lastInput = useLastInput(gl.domElement.parentElement);
 
   useEffect(() => () => timer?.dispose(), [timer]);
@@ -293,9 +306,9 @@ export function RenderGovernor() {
         quality.set({ pinned: true });
         quality.adoptTier(tier);
         const q = quality.get();
-        governor.reset(q.range, q.budget);
+        governor.reset(q.range, q.budget, before.veiled ? undefined : performance.now());
         // The new tier's shaders compile behind the veil or the still instead of freezing the frame.
-        if (q.phase !== "boot" && q.phase !== "compiling") quality.set({ phase: "compiling", shadowEvery: 1 });
+        if (q.phase !== "boot" && q.phase !== "compiling") quality.set({ phase: "compiling" });
       }),
     [governor, gl],
   );
@@ -319,7 +332,6 @@ export function RenderGovernor() {
         range: q.range,
         dpr: q.dpr,
         pinned: q.pinned,
-        shadowEvery: q.shadowEvery,
         tierChanges: q.tierChanges,
         timer: Boolean(timer),
         last: governor.last,
@@ -349,6 +361,22 @@ export function RenderGovernor() {
       governor.setRange(q.range, q.budget);
     }
     const phaseS = (now - c.since) / 1000;
+    const showing = q.phase === "revealing" || q.phase === "live";
+
+    // A budget change behind the still: once a few frames are drawn at the new
+    // size, the still dissolves into them. A tier change that started
+    // meanwhile owns the still now and releases it itself.
+    const r = c.resize;
+    if (r) {
+      if (!showing) c.resize = null;
+      else {
+        if (Math.abs(gl.getPixelRatio() - r.dpr) < 1e-6) r.frames++;
+        if (r.frames >= RESIZE_HOLD.frames || now - r.at > RESIZE_HOLD.maxMs) {
+          c.resize = null;
+          releaseFrame(RESIZE_HOLD.dissolveMs);
+        }
+      }
+    }
 
     if (q.phase === "warming") {
       // The first frame has been drawn (and its leftover shaders compiled).
@@ -362,8 +390,10 @@ export function RenderGovernor() {
     const tier = garden.get().quality;
     const canStep = !q.pinned && q.tierChanges < MAX_TIER_CHANGES && q.plan !== null;
     const lowest = !canStep || stepTier(tier, -1, q.plan?.maxTier ?? tier) === null;
+    const highest = !canStep || stepTier(tier, 1, q.plan?.maxTier ?? tier) === null;
+    const interacting = now - lastInput.current < INPUT_QUIET_MS;
     // Sampled even when frozen (?governor=off), so the readout still reports the frame.
-    const sampled = governor.sample(delta * 1000, gpuMs, now, { calibrating, lowest });
+    const sampled = governor.sample(delta * 1000, gpuMs, now, { calibrating, lowest, highest, interacting });
     const decision = q.auto ? sampled : { kind: "none" as const };
     if (!q.auto && sampled.kind === "budget") governor.hold(q.budget);
     if (now - c.statsAt > 1000) {
@@ -372,11 +402,19 @@ export function RenderGovernor() {
       quality.set({ stats: { fps: l.fps, frameMs: l.frameMs, gpuMs: l.gpuMs, timer: Boolean(timer) } });
     }
 
-    if (decision.kind === "budget") quality.set({ budget: decision.budget });
-    else if (decision.kind === "shadows") quality.set({ shadowEvery: decision.every });
-    else if (decision.kind === "tier" && canStep && q.plan) {
+    if (decision.kind === "budget") {
+      quality.set({ budget: decision.budget });
+      // On a showing garden the canvas resizes behind a still of the frame just
+      // drawn (React applies the new pixel ratio after this frame, before the
+      // browser paints). Under the veil, or a still already held for a tier
+      // change, nobody can see it.
+      const dpr = quality.get().dpr;
+      if (showing && dpr !== q.dpr && (c.resize || !isHolding()) && (c.resize || holdFrame(gl.domElement))) {
+        c.resize = { dpr, at: now, frames: 0 };
+      }
+    } else if (decision.kind === "tier" && canStep && q.plan) {
       // Out in the open, only while nobody is touching the garden; the governor asks again next window.
-      const quiet = calibrating || now - lastInput.current > INPUT_QUIET_MS;
+      const quiet = calibrating || !interacting;
       const next = stepTier(tier, decision.dir, q.plan.maxTier);
       if (next && quiet) {
         if (decision.dir < 0) governor.slowTierUp();
@@ -401,14 +439,18 @@ export function RenderGovernor() {
       c.liveAt = now;
       quality.set({ phase: "live", veiled: false });
     } else if (q.phase === "live") {
-      // Keep a still for the next visit's veil, once the garden has settled (and only for the real clock).
+      // Once the garden has settled, keep a still for the next visit's veil and
+      // the tier this device settled on, so the next visit opens on it. Both
+      // only on the real clock: a friend's garden and the party screen hold the
+      // clock by hand, and must not decide how the viewer's own garden opens.
       const due = c.posterAt < 0 ? now - c.liveAt > POSTER_AFTER_MS : now - c.posterAt > POSTER_EVERY_MS;
       const g = garden.get();
       if (due && c.liveAt >= 0 && !document.hidden) {
         c.posterAt = now;
-        if (g.autoClock) savePoster(gl.domElement, lookOf(g));
-        // and the tier this device settled on, so the next visit opens on it
-        if (!q.pinned && q.device) rememberTier(q.device, g.quality);
+        if (g.autoClock) {
+          savePoster(gl.domElement, lookOf(g));
+          if (!q.pinned && q.device) rememberTier(q.device, g.quality);
+        }
       }
     }
   }, 2);

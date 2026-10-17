@@ -68,7 +68,9 @@ function useFriendInStore(look: Partial<GardenState> | null): boolean {
 export function FriendGardenView() {
   const which = useSyncExternalStore(subscribeNever, readWhich, serverWhich);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const phase = useQuality((s) => s.phase);
+  // The veil belongs to the opening only, as on /garden: once the garden has been seen, a later tier change runs
+  // behind a held still of the last frame (components/garden/frameHold), never this veil again.
+  const opened = useQuality((s) => !s.veiled || s.phase === "revealing" || s.phase === "live");
 
   useEffect(() => {
     if (which.kind !== "plot") return;
@@ -102,7 +104,7 @@ export function FriendGardenView() {
   const line = which.kind === "rose" ? `The rose at the heart of the Meadow, a gift from ${OWNER_NAME}.` : friend ? moodLine(friend) : "";
   const opening = which.kind === "rose" || friend ? `Opening ${title}` : "Opening a friend's garden";
   const failed = which.kind === "none" ? "That garden could not be found. It may have moved to a new plot." : loaded && !loaded.ok ? loaded.message : null;
-  const showing = ready && (phase === "revealing" || phase === "live");
+  const showing = ready && opened;
 
   return (
     <main className="meadow-root fixed inset-0 overflow-hidden bg-[#06080f]">

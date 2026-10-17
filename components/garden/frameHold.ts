@@ -3,7 +3,10 @@
 // garden has been revealed it never goes back behind the loading veil: a
 // change of tier (the governor's, after a sustained drop, or one picked in
 // the development panel) holds the last frame instead, so the garden simply
-// pauses for a moment and eases into its new look.
+// pauses for a moment and eases into its new look. A change of pixel ratio
+// on a showing canvas (the garden's budget, the Meadow's calm step-down) is
+// held the same way, briefly: resizing clears the drawing buffer, which on
+// screen is a blink of the whole picture.
 //
 // The still must be copied in the same task that drew the frame: the canvas
 // is created without preserveDrawingBuffer, so once the browser has
@@ -11,6 +14,12 @@
 // copies it from the frame loop, straight after the composer has drawn.
 let still: HTMLCanvasElement | null = null;
 let fadeTimer = 0;
+
+/**
+ * A resize behind the still: it stays until this many frames have been drawn
+ * at the new size (or this long has passed), then dissolves over the last.
+ */
+export const RESIZE_HOLD = { frames: 3, maxMs: 1500, dissolveMs: 450 } as const;
 
 /** Copies the frame just drawn onto a canvas over the live one. False when there is nothing to hold it in. */
 export function holdFrame(source: HTMLCanvasElement): boolean {
