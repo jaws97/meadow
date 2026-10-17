@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Analytics } from "@vercel/analytics/next";
+import { SafeAnalytics } from "./analytics";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -34,7 +34,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full">
         {children}
-        <Analytics />
+        {/* scrubs the garden link's key and the party code from every address it reports (app/analytics.tsx) */}
+        <SafeAnalytics />
       </body>
     </html>
   );
