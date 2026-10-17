@@ -1,11 +1,13 @@
 // Model invariants beyond the golden file: the water book closes, the state stays finite and JSON-safe (also on broken
 // weather rows), inputs are never mutated, untrusted event payloads are tamed, petals open only in their own part of the
-// day, the plant asks for water before thirst, and the bloom forecast never runs off the climate table.
+// day, the plant asks for water before thirst, roots that have started to rot never read calm, the rain cover is asked for
+// as soon as a rain-soaked bed flushes hard enough to build a dose, the cans' share of the flush never counts more water
+// than the cans supplied, and the bloom forecast never runs off the climate table.
 import { describe, expect, it } from "vitest";
 import { CLIM_T } from "./climate";
-import { BED, Bideal, PLANT_CLOSE_H, SIM_SPECIES, WX_FALLBACK, cleanWx, createPlant, expectBloom, fOf, hodOf, openWindow, step, toVisual } from "./model";
+import { BED, Bideal, PLANT_CLOSE_H, SIM_SPECIES, WX_FALLBACK, cleanWx, createPlant, expectBloom, fOf, hodOf, openWindow, step, thetaOf, toVisual } from "./model";
 import type { HourWeather, LooseWeather, PlantState, SimEvent } from "./model";
-import { IDS, PARTY, YEARS, inOwnPart, mulberry32, randomPolicy, rowsFor, simulate } from "./__fixtures__/harness";
+import { IDS, PARTY, W, YEARS, at, goodCare, inOwnPart, mulberry32, randomPolicy, rowsFor, simulate } from "./__fixtures__/harness";
 
 const WX: HourWeather = { T: 25, RH: 60, P: 0, SW: 500, ET0: 0.3, U: 5, Ts: 25, isDay: 1 };
 const NIGHT: HourWeather = { ...WX, SW: 0, ET0: 0, isDay: 0 };
@@ -235,18 +237,83 @@ describe("advice and mood", () => {
     expect(readyAm).toBeGreaterThan(10);
   });
 
-  it("thirst outranks the blooming mood, and a plant whose roots are rotting reads unwell", () => {
-    let blooming = 0, unwell = 0;
+  // the lines that read calm or reassuring (the prototype's CALM_SAYS)
+  const CALM = /^(happy|in bloom|my petals|my bud will open|growing slowly|a second-chance sprout|the rain soaked the soil; it will drain soon|the rain has stopped; my roots are slowly drying out|the rain cover is on; my roots will slowly dry out|recovering; new leaves|roots recovering)/;
+
+  it("thirst and a soaked bed outrank the blooming mood, and roots past the infection lag read unwell and never calm", () => {
+    let blooming = 0, rotting = 0, early = 0;
     for (let k = 0; k < 60; k++) {
       const r = simulate({ spId: IDS[k % 6], year: YEARS[k % 3], policy: randomPolicy(mulberry32(7000 + k)), endH: 983 });
       for (const x of r.rec) {
         if (!x.s.alive) continue;
-        const f = fOf(x.s), thirsty = f > 0.4 || (x.s.turgor < 0.85 && f > 0.3);
-        if (x.v.mood === "blooming") { blooming++; expect(thirsty).toBe(false); }
-        if (x.s.O > BED.Olag && x.s.R > 0.05) { unwell++; expect(x.v.mood).toBe("unwell"); }
+        const f = fOf(x.s), thirsty = f > 0.4 || (x.s.turgor < 0.85 && f > 0.3), th = thetaOf(x.s);
+        const soaked = th >= BED.tfc && (x.s.O > 0.5 * BED.Olag || x.s.Qd >= BED.Qt || th > BED.tanox);
+        if (x.v.mood === "blooming") { blooming++; expect(thirsty).toBe(false); expect(soaked).toBe(false); }
+        if (x.s.O > BED.Olag) {
+          rotting++;
+          if (x.s.R <= 0.05) early++;                                   // rotting before any damage shows
+          expect(x.v.mood).toBe("unwell");
+          expect(CALM.test(x.v.says), x.v.says).toBe(false);
+        }
       }
     }
     expect(blooming).toBeGreaterThan(0);
-    expect(unwell).toBeGreaterThan(0);
+    expect(rotting).toBeGreaterThan(0);
+    expect(early).toBeGreaterThan(0);
+  });
+
+  it("asks for the rain cover as soon as a rain-soaked bed flushes hard enough to build a dose, before the dose is up", () => {
+    const base = simulate({ spId: "rose", policy: goodCare(), endH: PARTY + 24 * 5 }).s;
+    const wet: PlantState = { ...base, W: 1000 * BED.thFresh * base.Zr * 1.02, wR: 6, wC: 1, O: 2, dryH: 0, cover: false };
+    expect(toVisual({ ...wet, Qd: BED.Qt + 0.5 })).toMatchObject({ says: "the rain keeps my roots wet; a rain cover would help", mood: "soggy" });
+    expect(toVisual({ ...wet, Qd: BED.Qt - 0.5 }).says).toBe("the rain soaked the soil; it will drain soon");
+    expect(toVisual({ ...wet, Qd: BED.Qt + 0.5, cover: true }).says).toBe("the rain cover is on; my roots will slowly dry out");
+    expect(toVisual({ ...wet, Qd: BED.Qt + 0.5, dryH: BED.coverH }).says).toBe("the rain has stopped, but my roots are still soaked");
+    // a 2 mm/h drizzle with a daily can at 09:00: the first cover prompt comes while the dose is still low
+    const a = W(4, 0), b = rowsFor(2025);
+    const wxAt = (h: number) => (h >= a && h < a + 72 ? { ...b[h], P: 2, SW: b[h].SW * 0.3, ET0: b[h].ET0 * 0.3, RH: 97 } : b[h]);
+    for (const id of IDS) {
+      const r = simulate({ spId: id, wxAt, policy: at((h, hod) => h >= a && hod === 9) });
+      const first = r.rec.find((x) => /rain cover would help/.test(x.v.says));
+      expect(first, id).toBeDefined();
+      expect(first?.s.O, id).toBeLessThanOrEqual(0.5 * BED.Olag);
+    }
+  });
+});
+
+describe("the flush that feeds the rot", () => {
+  // Qc and Qr are 24 h memories of the care and rain shares of the drainage (mm/day): Q' = Q + (q - Q) kq, so the hour's
+  // drainage can be read back exactly from two states in a row
+  const kq = 1 - Math.exp(-1 / BED.tauQ);
+  const drained = (q0: number, q1: number) => (q0 + (q1 - q0) / kq) / 24;   // mm in that hour
+
+  it("never counts more care water than the cans supplied, even when a long rain follows an evening can", () => {
+    const a = W(8, 0), b = rowsFor(2024), can = a - 6;
+    const wxAt = (h: number) => (h >= a && h < a + 96 ? { ...b[h], P: 3, SW: b[h].SW * 0.3, ET0: b[h].ET0 * 0.3, RH: 97 } : b[h]);
+    for (const id of IDS) {
+      const r = simulate({ spId: id, year: 2024, wxAt, policy: goodCare({ force: [can], pause: [can + 1, a + 168], cover: false }), endH: a + 168 });
+      const i0 = r.rec.findIndex((x) => x.h === can + 1), before = r.rec[i0 - 1].s;
+      let care = 0, rain = 0;
+      for (let i = i0; i < r.rec.length; i++) {
+        const p = r.rec[i - 1].s, q = r.rec[i].s;
+        care += drained(p.Qc, q.Qc);
+        rain += drained(p.Qr, q.Qr);
+      }
+      expect(care, id).toBeLessThanOrEqual(BED.can + before.wCx + 1e-6);   // the evening can, and what was still free to drain
+      expect(rain, id).toBeGreaterThan(100);                                // the rain flushed on as rain
+      expect(Math.max(...r.rec.map((x) => x.s.O)), id).toBeLessThan(BED.Olag);
+      expect(r.s.alive, id).toBe(true);
+    }
+  });
+
+  it("keeps the care water free to drain at or above zero and near the bed's water above field capacity", () => {
+    for (let k = 0; k < 30; k++) {
+      const r = simulate({ spId: IDS[k % 6], year: YEARS[k % 3], policy: randomPolicy(mulberry32(300 + k)), endH: 983 });
+      for (const x of r.rec) {
+        expect(x.s.wCx).toBeGreaterThanOrEqual(0);
+        // clipped to the water above field capacity before the hour's root growth, which can move the line a little
+        expect(x.s.wCx).toBeLessThanOrEqual(Math.max(0, x.s.W - 1000 * BED.tfc * x.s.Zr) + 1.5);
+      }
+    }
   });
 });

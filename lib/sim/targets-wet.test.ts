@@ -1,11 +1,14 @@
-// Agreed targets, part 3: over-watering and rain (SIM_VERSION 5). Three cans a day show rot about day 1 and kill
+// Agreed targets, part 3: over-watering and rain (SIM_VERSION 6). Three cans a day show rot about day 1 and kill
 // 4.5-5.5 days after the first can; a daily can through a wet week kills 4.5-5.5 days after its first heavy shower,
 // whatever the hour of the can; rain alone never rots a plant, and a rain-only week with rain on 3 or more days survives
-// (when it brings at least 15 mm: lighter showers count as abandonment); a crowd of friends' sprinkles cannot drown a bed.
-// Measured on recorded weather exactly as the prototype's run.mjs measures it (targets-v5.json), with the 3-10 Nov 2023
+// (when it brings at least 15 mm: lighter showers count as abandonment); an evening can before a long drizzle does not
+// rot the roots either, because the cans' share of the flush never counts more water than the cans supplied, and the app's
+// heavy-rain hint (rainSoon) keeps the dose far lower still; a crowd of friends' sprinkles cannot drown a bed.
+// Measured on recorded weather exactly as the prototype's run.mjs measures it (targets-v6.json), with the 3-10 Nov 2023
 // wet week (85 mm) grafted onto the game window, which has no week as wet. Rows marked "awaiting sign-off" are restated
 // wording the user has not yet accepted; each has an it.fails twin holding the original wording.
 import { beforeAll, describe, expect, it } from "vitest";
+import { BED } from "./model";
 import {
   IDS, PARTY, ROT_SIGN, WK23_MM, YEARS, at, deathOf, drizzleSweep, firstCan, goodCare, graft, rainLight, rainWindows, range,
   simulate, soakTimes, spam, wetAfterCare,
@@ -66,7 +69,7 @@ describe("targets: over-watering", () => {
     });
 
     // KNOWN FAILURE (awaiting sign-off): a well-kept plant starts from a drier bed with deeper roots and rots more slowly;
-    // 162 of 5184 die 5.5-6.0 days after the shower.
+    // 94 of 5184 die 5.5-6.0 days after the shower.
     it.fails("original wording: within 4.5-5.5 days", () => {
       expect(inWindow(deaths)).toBe(true);
     });
@@ -117,11 +120,24 @@ describe("targets: rain with nobody watering", () => {
       expect(dz.maxR).toBeLessThan(0.01);
     });
 
-    // OPEN DECISION (the engineer recommends a forecast "heavy rain tonight, skip the can" hint, option b): a can the
-    // plant asked for at 18:00, 6 h before a long heavy drizzle, counts as care water on a rain-soaked bed; 50 of 1116
-    // plants die of rot, all in steady 2-3 mm/h drizzles of 48-120 h. Real 2023-25 weather gives none.
-    it.fails("a can 6 h before the rain never leads to rot", () => {
-      expect(drizzleSweep(0).rot).toBe(0);
+    // SIM_VERSION 5 lost 50 of these plants (steady 2-3 mm/h drizzles of 48-120 h): the 12 h memories kept most of the
+    // rain's flush on the care side after an evening can. The care share is now capped by the can's own water.
+    it("with the last visit at 18:00, 6 h before the rain (a can when the plant asks): no rot death, the dose stays below the infection lag", () => {
+      const dz = drizzleSweep(0);
+      expect(dz.n).toBe(1116);
+      expect(dz.cans).toBeGreaterThan(300);                                 // the plant asked for that drink in a third of the runs
+      expect(dz.rot).toBe(0);
+      expect(dz.maxO).toBeLessThan(BED.Olag);
+      expect(dz.maxR).toBeLessThan(0.01);
+    });
+
+    it("following the heavy-rain hint at that visit (rainSoon: no can, the cover on through the week away): no death; where it shows, the dose stays far below the lag", () => {
+      const dz = drizzleSweep(0, "cover");
+      expect(dz.flagged).toBeGreaterThan(50);
+      expect(dz.rot).toBe(0);
+      expect(dz.deaths).toBe(0);
+      expect(dz.maxO).toBeLessThan(BED.Olag);                               // lighter rains are not flagged: a can, no cover
+      expect(dz.maxOHeavy).toBeLessThan(BED.Olag / 4);
     });
   });
 });

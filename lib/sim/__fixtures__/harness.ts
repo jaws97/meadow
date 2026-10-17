@@ -1,5 +1,5 @@
 // Test harness for the target suites: a TypeScript copy of the prototype's sim/harness.mjs and the policies, sweeps and
-// metrics of sim/run.mjs (SIM_VERSION 5), run on the recorded weather fixtures in this folder. Keep it in step with the
+// metrics of sim/run.mjs (SIM_VERSION 6), run on the recorded weather fixtures in this folder. Keep it in step with the
 // prototype: the targets are only meaningful if they are measured exactly the way the model was tuned.
 //
 // Weather: Open-Meteo best_match archive for Bangalore, 2023-25, cut to the game window (10 Nov 00:00 - 20 Dec 24:00
@@ -8,8 +8,8 @@
 // as written; 2023 and 2024 use the same scaled-integer format, and the 3-10 Nov 2023 wet week has its own file.
 import fs from "node:fs";
 import type { SpeciesId } from "@/lib/plant/species";
-import { PLANT_OPEN_H, SIM_SPECIES, createPlant, fOf, opensInMorning, step, toVisual } from "../model";
-import type { HourWeather, PlantState, SimEvent, SimSpecies, Visual } from "../model";
+import { BED, PLANT_OPEN_H, SIM_SPECIES, createPlant, fOf, opensInMorning, rainSoon, step, toVisual } from "../model";
+import type { ForecastRow, HourWeather, PlantState, SimEvent, SimSpecies, Visual } from "../model";
 
 // ---- weather fixtures ------------------------------------------------------------------------------------------------
 
@@ -119,16 +119,22 @@ export interface GoodCareOpts {
   tend?: boolean;
   cover?: boolean;
   forecast?: boolean;
+  hint?: boolean;
 }
+/** the forecast rows of the next n hours from h, as the app would hand them to rainSoon() (a perfect forecast here) */
+export const ahead = (ctx: Pick<Ctx, "wx">, h: number, n: number = BED.soonH): ForecastRow[] =>
+  Array.from({ length: n }, (_, k) => ({ h: h + k, wx: ctx.wx(h + k) }));
 /**
  * Good care: visits at 08:00 and 18:00 and acts only on what the app shows. It waters when the can asks for it
  * (canAdvice "ready" or "thirsty") unless the player can see it is raining or has just rained (1 mm in the last 6 h, or
  * 2 mm since midnight); tends pests when they show (visual pest level above 0.3); puts the rain cover on when the plant asks
  * for it and takes it off once 12 h have passed without rain and the plant no longer names the rain. It never reads the
- * hidden soil depletion. forecast: true adds a "heavy rain tonight" hint the app does not have yet (no can when 2 mm or
- * more is due in the next 12 h; the cover on when 10 mm or more is due).
+ * hidden soil depletion. forecast: true adds an older, cruder hint (no can when 2 mm or more is due in the next 12 h; the
+ * cover on when 10 mm or more is due), kept for comparison. hint: true follows the app's "heavy rain tonight; skip the
+ * can" hint as rainSoon() gives it: when heavy rain is due the player skips the can and puts the cover on (if cover is
+ * allowed), and leaves it on while it is due.
  */
-export function goodCare({ pause = null, force = [], extra = null, tend = true, cover = true, forecast = false }: GoodCareOpts = {}): Policy {
+export function goodCare({ pause = null, force = [], extra = null, tend = true, cover = true, forecast = false, hint = false }: GoodCareOpts = {}): Policy {
   return (h, hod, s, ctx) => {
     const ev = extra ? extra(h, hod, s, ctx) : [];
     if (force.includes(h)) { ev.push({ kind: "water" }); return ev; }
@@ -136,10 +142,11 @@ export function goodCare({ pause = null, force = [], extra = null, tend = true, 
     if (!s.alive || (hod !== 8 && hod !== 18)) return ev;
     const v = toVisual(s), asks = v.canAdvice === "ready" || v.canAdvice === "thirsty";
     const rained = sumP(ctx, h - 6, h) >= 1 || sumP(ctx, h - hod, h) >= 2, due = forecast && sumP(ctx, h, h + 12) >= 2;
-    if (asks && !rained && !due) ev.push({ kind: "water" });
+    const heavy = hint && rainSoon(ahead(ctx, h), h).heavy;
+    if (asks && !rained && !due && !heavy) ev.push({ kind: "water" });
     if (tend && v.pests > 0.3) ev.push({ kind: "tend" });
-    if (cover && !s.cover && (/rain cover would help/.test(v.says) || (forecast && sumP(ctx, h, h + 12) >= 10))) ev.push({ kind: "cover", amount: 1 });
-    if (cover && s.cover && sumP(ctx, h - 12, h) < 0.5 && !/^the rain/.test(v.says)) ev.push({ kind: "cover", amount: 0 });
+    if (cover && !s.cover && (/rain cover would help/.test(v.says) || (forecast && sumP(ctx, h, h + 12) >= 10) || heavy)) ev.push({ kind: "cover", amount: 1 });
+    if (cover && s.cover && !heavy && sumP(ctx, h - 12, h) < 0.5 && !/^the rain/.test(v.says)) ev.push({ kind: "cover", amount: 0 });
     return ev;
   };
 }
@@ -489,19 +496,30 @@ export function rainLight() {
 /**
  * Rain only beyond the 2023-25 record: steady synthetic drizzles (cloud and ET0 cut to 30%, RH 97) of 0.5-3 mm/h for
  * 48-120 h starting on game day 1, 4 or 8, and the real rain of cyclone Fengal (1-3 Dec 2024) and of 13-16 Nov 2024 scaled
- * x1.5, x2 and x3. Nobody waters from pre hours before the rain (12: the last can is the 08:00 visit the day before) for 7
- * days after its start, no rain cover; good care before and after; planted at the party.
+ * x1.5, x2 and x3. Nobody waters from pre hours before the rain (12: the last can is the 08:00 visit the day before; 0: the
+ * last visit is at 18:00, 6 h before the rain, and good care waters if the plant asks) for 7 days after its start; good
+ * care before and after; planted at the party. No rain cover, unless hint is "cover": the player follows the app's
+ * heavy-rain hint (rainSoon) at the last visit, skipping the can and putting the cover on; "skip" skips the can only.
  */
-export function drizzleSweep(pre = 12) {
-  const res = { n: 0, rot: 0, deaths: 0, spread: { n: 0, deaths: 0 }, maxR: 0, maxO: 0 };
+export function drizzleSweep(pre = 12, hint: "cover" | "skip" | null = null) {
+  // flagged: rains the hint would flag at the last visit; maxOHeavy: the highest dose in those rains
+  const res = { n: 0, rot: 0, deaths: 0, spread: { n: 0, deaths: 0 }, maxR: 0, maxO: 0, maxOHeavy: 0, cans: 0, flagged: 0 };
   const one = (y: Year, a: number, wxAt: WxAt) => {
     let rainDays = 0;
     for (let d = 0; d < 7; d++) { let t = 0; for (let k = 0; k < 24; k++) t += (wxAt(a + 24 * d + k) as HourWeather).P; if (t >= 1) rainDays++; }
+    const last = a - pre - (pre === 0 ? 6 : 4);                          // the last visit: 18:00 (pre 0) or 08:00 the day before
+    const heavy = rainSoon(ahead({ wx: wxAt }, last), last).heavy;
+    if (heavy) res.flagged++;
     for (const id of IDS) {
-      const r = simulate({ spId: id, year: y, plantH: PARTY, wxAt, policy: goodCare({ pause: [a - pre, a + 168], cover: false }), endH: Math.min(NH, a + 168 + 72) });
+      const pol = goodCare({ pause: [a - pre, a + 168], cover: hint === "cover", hint: hint !== null });
+      const r = simulate({ spId: id, year: y, plantH: PARTY, wxAt, policy: pol, endH: Math.min(NH, a + 168 + 72) });
+      if (r.rec.some((x) => x.h === last + 1 && x.s.lastCanH === last)) res.cans++;
       res.n++;
       if (rainDays >= 3) res.spread.n++;
-      for (const x of r.rec) if (x.h > a) { res.maxR = Math.max(res.maxR, x.s.R); res.maxO = Math.max(res.maxO, x.s.O); }
+      for (const x of r.rec) if (x.h > a) {
+        res.maxR = Math.max(res.maxR, x.s.R); res.maxO = Math.max(res.maxO, x.s.O);
+        if (heavy) res.maxOHeavy = Math.max(res.maxOHeavy, x.s.O);
+      }
       const d = deathOf(r);
       if (d.dead) { res.deaths++; if (rainDays >= 3) res.spread.deaths++; if (d.rot) res.rot++; }
     }

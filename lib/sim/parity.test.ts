@@ -1,17 +1,19 @@
-// Parity with the locked prototype: replays every scenario of golden-v5.json (written by the prototype's run.mjs from
-// model.js, SIM_VERSION 5) through the TypeScript port and compares every recorded state and visual field, every bloom
-// forecast, the constants block and the planting-window table. The golden file stores non-integer numbers rounded to
+// Parity with the locked prototype: replays every scenario of golden-v6.json (written by the prototype's run.mjs from
+// model.js, SIM_VERSION 6) through the TypeScript port and compares every recorded state and visual field, every bloom
+// forecast, the constants block, the planting-window table and the heavy-rain hint (rainSoon) cases. The golden file stores non-integer numbers rounded to
 // 1e-9, so a field passes when the port's value, rounded the same way, is within 1e-9; strings, booleans and integers must
 // be exact, and the constants must be identical. The prototype's golden-check.mjs runs the same comparison on model.js.
 // Snapshots come every 6 h of the game clock, every hour inside a scenario's hourly window (around a bloom moment), at
 // planting and after the last step. One scenario (rose-weather-gaps-2025) has null weather fields in six hours, as a
 // broken live row would: they go into step() as recorded, and its cleanWx must replace them exactly as the prototype does.
+// Another (sundrop-evening-can-before-drizzle-2024) gives a can 6 h before a long drizzle, so the cap on the care share of
+// the flush (wCx) is exercised hour by hour.
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { SpeciesId } from "@/lib/plant/species";
 import { CLIM_T } from "./climate";
-import { BED, GAME_START, PLANT_CLOSE_H, PLANT_OPEN_H, SIM_SPECIES, SIM_VERSION, TWIN, canPlant, createPlant, expectBloom, step, toVisual } from "./model";
-import type { HourWeather, PlantState, SimEvent } from "./model";
+import { BED, GAME_START, PLANT_CLOSE_H, PLANT_OPEN_H, SIM_SPECIES, SIM_VERSION, TWIN, canPlant, createPlant, expectBloom, rainSoon, step, toVisual } from "./model";
+import type { ForecastRow, HourWeather, PlantState, SimEvent } from "./model";
 import { catchUp, type TimedEvent } from "./replay";
 
 // weather arrays may hold null (the weather-gaps scenario)
@@ -29,6 +31,14 @@ interface GoldenScenario {
   snapshots: { h: number; state: Record<string, unknown>; visual: Record<string, unknown> }[];
   expectBloom: { h: number; e: Record<string, unknown> | null }[];
 }
+/** rainSoon(rows, fromH, hours): rows from a weather column ({ h, wx: { P } } for every hour) or the case's own rows */
+interface GoldenRainSoon {
+  weatherKey?: string;
+  rows?: (ForecastRow | null)[];
+  fromH: number;
+  hours?: number;
+  out: Record<string, unknown>;
+}
 interface Golden {
   simVersion: number;
   gameStart: string;
@@ -38,9 +48,10 @@ interface Golden {
   climT: number[];
   weather: Record<string, GoldenWeather>;
   scenarios: GoldenScenario[];
+  rainSoon: GoldenRainSoon[];
 }
 
-const G = JSON.parse(fs.readFileSync(new URL("./__fixtures__/golden-v5.json", import.meta.url), "utf8")) as Golden;
+const G = JSON.parse(fs.readFileSync(new URL("./__fixtures__/golden-v6.json", import.meta.url), "utf8")) as Golden;
 
 const R = 1e9;
 const rnd = (x: number) => (Number.isFinite(x) && !Number.isInteger(x) ? Math.round(x * R) / R : x);
@@ -78,11 +89,11 @@ function compareSnapshot(sc: GoldenScenario, want: GoldenScenario["snapshots"][n
   return n;
 }
 
-describe("golden-v5 parity with the prototype", () => {
+describe("golden-v6 parity with the prototype", () => {
   it("is the file this port targets", () => {
     expect(G.simVersion).toBe(SIM_VERSION);
     expect(G.gameStart).toBe(GAME_START);
-    expect(G.scenarios).toHaveLength(19);
+    expect(G.scenarios).toHaveLength(20);
     expect(new Set(G.scenarios.map((s) => s.sp))).toEqual(new Set(Object.keys(SIM_SPECIES)));
   });
 
@@ -100,6 +111,18 @@ describe("golden-v5 parity with the prototype", () => {
 
   it("agrees on the planting window", () => {
     for (const [h, ok] of G.canPlant) expect(canPlant(h), `canPlant(${h})`).toBe(ok);
+  });
+
+  it("agrees on every heavy-rain hint case (rainSoon), junk rows included", () => {
+    expect(G.rainSoon.length).toBeGreaterThan(300);
+    expect(G.rainSoon.some((c) => c.out.heavy === true)).toBe(true);
+    const bad: string[] = [];
+    for (const c of G.rainSoon) {
+      const rows = c.rows ?? G.weather[c.weatherKey as string].P.map((P, h) => ({ h, wx: { P } }));
+      const got = rainSoon(rows, c.fromH, c.hours);
+      if (!same(got, c.out, true)) bad.push(`${c.weatherKey ?? "own rows"} from h ${c.fromH}, ${c.hours} h: got ${JSON.stringify(got)}, want ${JSON.stringify(c.out)}`);
+    }
+    expect(bad.slice(0, 10)).toEqual([]);
   });
 
   for (const sc of G.scenarios) {

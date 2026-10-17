@@ -1,7 +1,7 @@
-// Agreed targets, part 2: the drought clock and good care (SIM_VERSION 5). An abandoned young plant droops about day 2,
+// Agreed targets, part 2: the drought clock and good care (SIM_VERSION 6). An abandoned young plant droops about day 2,
 // yellows about day 3 and dies 5.5-6.5 days after its last can; older plants, with deeper roots and a fuller lower bed,
 // last up to about 7.5 days; a weekend away survives, costing about half a day to a day of bud development; good care
-// keeps a plant healthy. Measured on recorded weather exactly as the prototype's run.mjs measures it (targets-v5.json).
+// keeps a plant healthy. Measured on recorded weather exactly as the prototype's run.mjs measures it (targets-v6.json).
 // Rows marked "awaiting sign-off" are the model engineer's restated wording that the user has not yet accepted; each has
 // an it.fails twin holding the original wording, so a fix (or the sign-off) is noticed.
 import { beforeAll, describe, expect, it } from "vitest";

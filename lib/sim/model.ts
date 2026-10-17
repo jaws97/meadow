@@ -1,4 +1,4 @@
-// The Disney Garden plant model, SIM_VERSION 5: a line-for-line TypeScript port of the locked scratch prototype
+// The Disney Garden plant model, SIM_VERSION 6: a line-for-line TypeScript port of the locked scratch prototype
 // (sim/model.js). One step() is one real hour of a seedling-scale plant (grams, not a shrub) in a raised bed in
 // Bangalore. Water, weather, damage, pests, nitrogen and biomass run in real time.
 //
@@ -17,11 +17,18 @@
 // asked, twice a day at any hours, gets the 13-15 day bloom. After the one Fairy Dust revival is used, a plant that dies
 // again can be replanted as a sprout whose flower is capped at 0.7. Damping-off runs on the water the bed has to shed each
 // day; rain's share of that flush is capped just below the infection threshold, so rain alone never builds a rot dose
-// while cans on a rain-soaked bed do.
+// while cans on a rain-soaked bed do, and the cans' share never counts more water than the cans supplied.
+//
+// SIM_VERSION 6 (after 5; the database keeps sim_version as a smallint, so versions stay integers): a plant whose roots
+// have started to rot (the dose past the infection lag) never reads calm, and a soaked bed outranks the blooming mood;
+// while it rains the plant asks for the rain cover as soon as the bed flushes hard enough to build a dose; the care
+// share of the flush is capped by the care water still free to drain (wCx), and the damping-off rate kR is 4% higher so
+// the over-watering clocks stay on their agreed days; rainSoon() reads a forecast for the app's "heavy rain tonight;
+// skip the can" hint.
 //
 // Pure and deterministic: no Date, no Math.random, no module state, and inputs are never mutated, so a state can be
 // stored as JSON and stepped on any server. The equations, their order and every constant match the prototype; the parity
-// test replays the prototype's golden file (golden-v5.json) to 1e-9. Change a number here only together with a new
+// test replays the prototype's golden file (golden-v6.json) to 1e-9. Change a number here only together with a new
 // SIM_VERSION and a regenerated golden file.
 //
 // Hour index h counts whole hours from GAME_START (10 Nov 2026 00:00 IST), so the IST clock hour is h % 24. step() for
@@ -32,7 +39,7 @@ import { TWIN } from "./twin";
 export { TWIN };
 export type { TwinEntry } from "./twin";
 
-export const SIM_VERSION = 5;
+export const SIM_VERSION = 6;
 /** h = 0: 10 Nov 2026 00:00 IST, the day of the party. */
 export const GAME_START = "2026-11-10T00:00+05:30";
 /** 10 Nov 15:00 IST: the party starts and the seeds are handed out. */
@@ -55,7 +62,10 @@ export const BED = Object.freeze({
                                                  // the further mm/day for the full rate of 1 dose hour per hour
   Qrmax: 13,                                     // rain's share of the daily flush counts in full only up to this (mm/day, < Qt)
   Olag: 12, Ocap: 36, tauO: 8,                   // infection lag and cap (dose hours); dose decay once the flush stops (h)
-  kR: 0.0076, Q10: 2,                            // damping-off /h at 24 dose hours and 25 degC soil (2 kR at the cap); Q10
+  kR: 0.0079, Q10: 2,                            // damping-off /h at 24 dose hours and 25 degC soil (2 kR at the cap); Q10.
+                                                 // 0.0076 until SIM_VERSION 5: raised 4% with the cap on the cans' share of
+                                                 // the flush, which no longer over-counts care water on rainy days, so the
+                                                 // over-watering clocks stay on their agreed days (it acts only past Olag)
   kDes: 0.06,                                    // desiccation (leaf-edge) scorch per sunny dry hour
   tauMem: 12,                                    // memory of recent rain vs care water (h), so the plant blames the right one
   dampF: 0.15, Nrich: 10, richH: 4,              // can advice "damp" below this depletion; feed advice "rich" at root-zone
@@ -76,6 +86,8 @@ export const BED = Object.freeze({
   readyAmFrom: 5, readyAmTo: 12,                 // the morning (readyAmFrom to readyAmTo h) above readyAmF, as soon as it is not damp
   dawnH: 6, duskH: 17,                           // petals open only in their part of the day: morning flowers openHod..duskH,
                                                  // Night Jasmine openHod..dawnH (across midnight)
+  soonH: 12, soakMM: 10,                         // rainSoon(): the hours it looks ahead, and the rain in them that soaks the bed
+                                                 // by itself (as much as a can) and so counts as heavy
 });
 export type Bed = typeof BED;
 
@@ -280,6 +292,8 @@ export interface PlantState {
   /** rain and care water that reached the bed (mm, 12 h memory) */
   wR: number;
   wC: number;
+  /** care water still free to drain (mm): the cans' water above field capacity, less what has drained */
+  wCx: number;
   /** cumulative water book (mm): rain in, care in, ET, deep drainage, runoff, magic */
   cP: number;
   cI: number;
@@ -338,7 +352,10 @@ export const PLANT_LINES = [
   "happy",
 ] as const;
 export type PlantLine = (typeof PLANT_LINES)[number];
-/** "unwell" while the roots are rotting, or health is very low for any reason but thirst. */
+/**
+ * "unwell" from the hour the roots start to rot (the dose past the infection lag), or while health is very low for any
+ * reason but thirst; then "soggy" (a soaked bed), "thirsty" and "blooming", in that order.
+ */
 export type PlantMood = "resting" | "unwell" | "blooming" | "soggy" | "thirsty" | "content";
 /**
  * "damp": the UI asks "the soil is still damp, water anyway?" before a can. "ready": a gentle "ready for a drink" cue;
@@ -504,6 +521,7 @@ export function createPlant(speciesId: SpeciesId, plantedAtIndex: number, owner?
     cap: 1,
     dryH: 99,
     wR: 0, wC: 0,
+    wCx: 0,
     cP: 0, cI: 0, cET: 0, cDP: 0, cRO: 0, cMag: 0,
     f: 0, Kse: 1, NNI: 1, EC: 0, Tleaf: 0,
   };
@@ -553,14 +571,14 @@ export function step(state: PlantState, hour: HourInput, events?: readonly SimEv
     if (e.id != null) { const key = String(e.id); if (seen.has(key)) continue; seen.add(key); }   // idempotent retries
     if (k === "revive" && !s.alive && !s.fairyUsed) {
       s.cMag += Wfc - s.W; s.W = Wfc;                                        // Fairy Dust water is logged as magic
-      s.alive = true; s.fairyUsed = true; s.Dw = s.Ds = s.R = s.O = s.Qd = s.Qc = s.Qr = s.Dsalt = s.BS = 0;
+      s.alive = true; s.fairyUsed = true; s.Dw = s.Ds = s.R = s.O = s.Qd = s.Qc = s.Qr = s.wCx = s.Dsalt = s.BS = 0;
       s.Ps = s.Pa = s.Pm = s.Dpest = 0; s.Sc *= 0.5; s.Sf = 0; s.turgor = 0.5; s.aba = 0;
       s.B = Math.max(s.B, 0.6 * Bideal(sp, s.D));
     } else if (k === "replant" && !s.alive && s.fairyUsed && canPlant(h)) {
       const dz = s.Zr - BED.Zr0;
       const keep = { fairyUsed: true, gen: s.gen + 1, owner: s.owner, W: s.W * BED.Zr0 / s.Zr,
         L: s.L + s.W * dz / s.Zr, cP: s.cP, cI: s.cI, cET: s.cET, cDP: s.cDP, cRO: s.cRO, cMag: s.cMag, lastFeedH: s.lastFeedH,
-        wR: s.wR, wC: s.wC, Qd: s.Qd, Qc: s.Qc, Qr: s.Qr }; // the bed remembers its water; the dose restarts with the new roots
+        wR: s.wR, wC: s.wC, wCx: s.wCx, Qd: s.Qd, Qc: s.Qc, Qr: s.Qr }; // the bed remembers its water; the dose restarts with the new roots
       s = { ...createPlant(sp.id, h, s.owner), ...keep };                    // shed root-zone soil returns to the lower bed
       // a second chance, gentle but not free: a sprout (past germination, about a day ahead of a seed) watered in, whose
       // flower will be smaller
@@ -634,10 +652,17 @@ export function step(state: PlantState, hour: HourInput, events?: readonly SimEv
   // rain. Rain counts in full only up to Qrmax, just below Qt: damping-off strikes at the stem collar, where a can is
   // poured, while rain falls on the whole bed and, once the bed is at its drained limit, passes through or runs off the
   // crowned surface. That is also the agreed game rule: rain alone never builds a rot dose; cans on a rain-soaked bed do.
+  // The care share never counts more water than the cans supplied: it is capped by wCx, the care water still free to drain
+  // (a can's water above field capacity, less what has drained already); care water the soil has soaked up can no longer
+  // drain, so wCx never exceeds the bed's water above field capacity. Without the cap, a can at 18:00 followed by a night
+  // of heavy rain kept most of the rain's flush on the care side (the 12 h memories still favoured the can) and counted
+  // several cans' worth of care water; now the rain that follows flushes on as rain.
   // Soil temperature acts once, on the infection rate.
   const fT = Math.pow(BED.Q10, (w.Ts - 25) / 10);
   const qn = 24 * Math.max(0, q - up), kq = 1 - Math.exp(-1 / BED.tauQ), wm = s.wR + s.wC, cs = wm > 1e-9 ? s.wC / wm : 1;
-  s.Qc += (qn * cs - s.Qc) * kq; s.Qr += (qn * (1 - cs) - s.Qr) * kq;
+  const qc = Math.min(qn * cs, 24 * (s.wCx + I));
+  s.wCx = Math.max(0, Math.min(s.wCx + I - qc / 24, W - Wfc));
+  s.Qc += (qc - s.Qc) * kq; s.Qr += (qn - qc - s.Qr) * kq;
   s.Qd = s.Qc + Math.min(s.Qr, BED.Qrmax);
   s.O = s.Qd >= BED.Qt ? Math.min(BED.Ocap, s.O + Math.min(1, (s.Qd - BED.Qt) / BED.Qs))
     : s.O * Math.exp(-(BED.Qt - s.Qd) / BED.Qt / BED.tauO);
@@ -754,6 +779,48 @@ export function expectBloom(s: PlantState, sp: SimSpecies | null | undefined, ho
   return { ripeH: ripe, bloomH: bloom, days: bloom < 0 ? null : (bloom - s.plantedH) / 24 };
 }
 
+// ---- forecast hint ----------------------------------------------------------------------------------------------------
+
+/** A forecast row as weather.ts's parseHourly() returns it ({ h, wx }); rainSoon() reads only wx.P. */
+export interface ForecastRow {
+  readonly h: number;
+  readonly wx?: { readonly P?: unknown } | null;
+}
+
+/** rainSoon(): is rain heavy enough to soak the bed due soon? */
+export interface RainSoon {
+  /** at least BED.soakMM (as much as a can) in the hours looked at: say "heavy rain tonight; skip the can", offer the cover */
+  heavy: boolean;
+  /** the rain due in those hours, mm, to 0.1 mm */
+  mm: number;
+  /** hours from fromH to the first hour with rain falling (P >= 0.1 mm, as dryH counts it), or null */
+  startsInH: number | null;
+}
+
+/**
+ * A forecast helper for the app; the model itself never reads a forecast. Is rain heavy enough to soak the bed by itself
+ * (BED.soakMM) due in the next `hours` (BED.soonH) from game hour fromH? rows are forecast rows by game hour, in any order;
+ * an hour with no row, or no usable P, counts as dry, and a repeated hour counts once (the last row). When heavy is true
+ * the app says "heavy rain tonight; skip the can" and offers the rain cover: a can on a bed the rain is about to soak
+ * counts as care water in the flush, and a long rain on top of it can rot the roots.
+ */
+export function rainSoon(rows: readonly (ForecastRow | null | undefined)[] | null | undefined, fromH: number, hours?: number | null): RainSoon {
+  const n = isNum(hours) && hours >= 1 ? Math.floor(hours) : BED.soonH;
+  const byK = new Map<number, number>();
+  for (const r of rows ?? []) {
+    const k = r && isNum(r.h) && isNum(fromH) ? r.h - fromH : -1;
+    if (r && k >= 0 && k < n && k % 1 === 0) byK.set(k, r.wx && isNum(r.wx.P) ? Math.max(0, r.wx.P) : 0);
+  }
+  let mm = 0, first: number | null = null;
+  for (const k of [...byK.keys()].sort((a, b) => a - b)) {
+    const p = byK.get(k) as number;
+    mm += p;
+    if (first === null && p >= 0.1) first = k;
+  }
+  mm = Math.round(mm * 10) / 10;
+  return { heavy: mm >= BED.soakMM, mm, startsInH: first };
+}
+
 // ---- renderer mapping -------------------------------------------------------------------------------------------------
 
 function jasmineRhythm(t: number): number { // t = IST clock hour; opens at dusk (sunset ~17:50), drops at dawn
@@ -788,8 +855,9 @@ export function toVisual(s: PlantState, sp?: SimSpecies | null, clock?: number):
   const rot = clamp01(Math.max(2 * s.R, (s.O - 2) / BED.Olag));   // a dark, water-soaked stem base from 5 dose hours
   const size = clamp(Math.cbrt(s.B / Bideal(sp, D)), 0.5, 1.1);
   const night = t >= 18 || t < 6, bloomNow = bloom > 0.5, dosing = s.O > 0.5 * BED.Olag;
+  const building = s.Qd >= BED.Qt;                 // the bed is flushing hard enough to build a rot dose right now
   // soggy only while the bed is at field capacity or wetter: a bed drying below it no longer reads "soaked"
-  const soggy = theta >= BED.tfc && (dosing || theta > BED.tanox), thirsty = f > 0.4 || (s.turgor < 0.85 && f > 0.3);
+  const soggy = theta >= BED.tfc && (dosing || building || theta > BED.tanox), thirsty = f > 0.4 || (s.turgor < 0.85 && f > 0.3);
   const salty = s.EC > 3 || s.Dsalt > 0.15, byRain = s.wR > s.wC && s.wR >= 1;  // recent rain outweighs recent cans (12 h memory)
   const freshRain = byRain && !dosing && theta >= BED.thFresh;                    // a heavy shower that has not built a dose yet
   // a mature bud waits for its opening hour; once it starts, the petals open over openDur hours (slower when wilted)
@@ -798,27 +866,29 @@ export function toVisual(s: PlantState, sp?: SimSpecies | null, clock?: number):
   // seedling's small root zone by a quarter to a third of its available water, so asking only at real thirst (0.4) would
   // leave a player who waits for the cue with dry afternoons that slow the bud. In the morning the whole day's drying is
   // still ahead, so it asks as soon as the soil is no longer damp. Never while the can warns that the soil is still damp
-  // (a bed still draining a rot dose counts as damp up to 0.3).
-  const damp = f < BED.dampF || (dosing && f < 0.3);
+  // (a bed still draining a rot dose, or still flushing hard enough to build one, counts as damp up to 0.3).
+  const damp = f < BED.dampF || ((dosing || building) && f < 0.3);
   const ready = !damp && f > (t >= BED.readyAmFrom && t < BED.readyAmTo ? BED.readyAmF : BED.readyF);
-  // the roots are rotting right now (R rises only while the dose is above the infection lag): never calm
-  const rotting = s.alive && s.O > BED.Olag && s.R > 0.05;
+  // the roots have started to rot: R rises from the hour the dose passes the infection lag, so the plant says so from that
+  // hour on, before any damage shows. A plant whose roots are rotting never reads calm.
+  const rotting = s.alive && s.O > BED.Olag;
   const danger = s.alive && (rotting || (health < 0.3 && !thirsty));
-  // real thirst outranks the blooming mood: a flower drying out must not look serene
-  const mood: PlantMood = !s.alive ? "resting" : danger ? "unwell" : thirsty && !soggy ? "thirsty" : bloomNow ? "blooming" : soggy || freshRain ? "soggy"
+  // rotting roots, then a soaked bed, then real thirst outrank the blooming mood: a flower drowning or drying out must not
+  // look serene
+  const mood: PlantMood = !s.alive ? "resting" : danger ? "unwell" : soggy ? "soggy" : thirsty ? "thirsty" : bloomNow ? "blooming" : freshRain ? "soggy"
     : (Dd > 0.15 || night || salty) ? "resting" : "content";
-  // Rain-soaked: reassure only while the rot dose is low; once it builds, suggest the cover while it rains, or in the
-  // first coverH hours after the rain only while the bed is still flushing (the dose rising: Qd >= Qt); a cover cannot take
-  // back water already in the bed. After that the plant says the rain has stopped: still soaked while the bed keeps
-  // flushing, drying once the dose falls. Roots that are rotting or damaged (R > 0.12) are named in every wet line, so a
-  // plant dying of rot never reads calm.
+  // Rain-soaked: reassure only while no rot dose builds; once the bed flushes hard enough to build one (Qd >= Qt), or the
+  // dose is already up, suggest the cover while it rains, or in the first coverH hours after the rain only while the bed
+  // is still flushing (the dose rising); a cover cannot take back water already in the bed. After that the plant says the
+  // rain has stopped: still soaked while the bed keeps flushing, drying once the dose falls. Roots that are rotting or
+  // damaged (R > 0.12) are named in every wet line, so a plant dying of rot never reads calm.
   const sickRoots = rotting || s.R > 0.12;
   const wet: PlantLine = !byRain ? (sickRoots ? "the soil is soaked and my roots are sick" : "the soil is soaked, let it breathe")
-    : !dosing ? (sickRoots ? "the rain soaked the soil; my roots are still mending" : "the rain soaked the soil; it will drain soon")
+    : !dosing && !building ? (sickRoots ? "the rain soaked the soil; my roots are still mending" : "the rain soaked the soil; it will drain soon")
     : s.cover ? (sickRoots ? "the rain cover is on, but my roots are sick" : "the rain cover is on; my roots will slowly dry out")
-    : s.dryH === 0 || (s.dryH < BED.coverH && s.Qd >= BED.Qt)
+    : s.dryH === 0 || (s.dryH < BED.coverH && building)
       ? (sickRoots ? "the rain keeps my sick roots wet; a rain cover would help" : "the rain keeps my roots wet; a rain cover would help")
-    : s.Qd >= BED.Qt ? (sickRoots ? "the rain has stopped, but my roots are soaked and sick" : "the rain has stopped, but my roots are still soaked")
+    : building ? (sickRoots ? "the rain has stopped, but my roots are soaked and sick" : "the rain has stopped, but my roots are still soaked")
     : sickRoots ? "the rain has stopped, but my roots are sick" : "the rain has stopped; my roots are slowly drying out";
   const bud: PlantLine = opensInMorning(sp)
     ? (second ? "my bud will open with the morning light; a smaller flower this time" : "my bud will open with the morning light")
@@ -829,7 +899,7 @@ export function toVisual(s: PlantState, sp?: SimSpecies | null, clock?: number):
   const says: PlantLine = !s.alive ? "gone to sleep" : soggy || freshRain ? wet
     : Dd > 0.5 && f > 0.4 ? "very tired, would love water today"
     : rotting ? (f > 0.4 ? "a little thirsty, but my roots are sick" : "my roots are sick from too much water; let the soil dry")
-    : dosing && f < BED.dampF ? "the soil is draining; let it dry a little"
+    : (dosing || building) && f < BED.dampF ? "the soil is draining; let it dry a little"
     : s.R > 0.12 ? (f > 0.4 ? "a little thirsty; my roots are still mending" : "roots recovering; may look worse before better")
     : salty ? "too much food; a deep drink will flush it"
     : s.richH > 0 ? "my bed is already rich"

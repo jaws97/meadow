@@ -1,9 +1,9 @@
-// Agreed targets, part 1: bloom timing (SIM_VERSION 5). Care decides the bloom, not the weather or the planting day:
+// Agreed targets, part 1: bloom timing (SIM_VERSION 6). Care decides the bloom, not the weather or the planting day:
 // good care brings the bud to maturity about 13.25 days after its own planting and it opens at the flower's natural hour
 // (half open at 08:00, magnolia 09:00, Night Jasmine at dusk, 18:00), so it blooms 13-15 days after planting at any
 // planting hour; neglect blooms later and smaller, or never; a second-chance replant blooms smaller and says so. There is
 // no shared bloom. Measured on recorded Bangalore weather (2023-25, game window) exactly as the prototype's run.mjs
-// measures it (targets-v5.json), so future tuning cannot quietly break the agreed behaviour.
+// measures it (targets-v6.json), so future tuning cannot quietly break the agreed behaviour.
 import { beforeAll, describe, expect, it } from "vitest";
 import { CLIM_T } from "./climate";
 import { BED, expectBloom, hodOf } from "./model";

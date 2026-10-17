@@ -8,8 +8,8 @@
 // ideal care: a can whenever depletion passes 0.2, one feed on day 5, pests tended at once. Its biomass B (g) is read where
 // development crosses D = 0.05, 0.10 .. 1 (interpolated within the crossing hour, rounded to 0.1 mg, tab[0] pinned to the
 // seed mass BED.B0, made non-decreasing); B_pot is its mass when the bud matures (D = 1).
-// The numbers are copied verbatim from the locked model.js (SIM_VERSION 5) and are checked against golden-v5.json, so the
-// port reproduces the prototype exactly. Refitting means a new SIM_VERSION and a regenerated golden file.
+// The numbers are copied verbatim from the locked model.js (fitted for SIM_VERSION 5 and unchanged in 6, whose changes do
+// not touch development) and are checked against golden-v6.json, so the port reproduces the prototype exactly. Refitting means a new SIM_VERSION and a regenerated golden file.
 import type { SpeciesId } from "@/lib/plant/species";
 
 export interface TwinEntry {
