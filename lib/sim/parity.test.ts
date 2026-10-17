@@ -1,8 +1,11 @@
-// Parity with the locked prototype: replays every scenario of golden-v4.json (written by the prototype's run.mjs from
-// model.js) through the TypeScript port and compares every recorded state and visual field, every bloom forecast, the
-// constants block and the planting-window table. The golden file stores non-integer numbers rounded to 1e-9, so a field
-// passes when the port's value, rounded the same way, is within 1e-9; strings, booleans and integers must be exact, and
-// the constants must be identical. The prototype's golden-check.mjs runs the same comparison against model.js.
+// Parity with the locked prototype: replays every scenario of golden-v5.json (written by the prototype's run.mjs from
+// model.js, SIM_VERSION 5) through the TypeScript port and compares every recorded state and visual field, every bloom
+// forecast, the constants block and the planting-window table. The golden file stores non-integer numbers rounded to
+// 1e-9, so a field passes when the port's value, rounded the same way, is within 1e-9; strings, booleans and integers must
+// be exact, and the constants must be identical. The prototype's golden-check.mjs runs the same comparison on model.js.
+// Snapshots come every 6 h of the game clock, every hour inside a scenario's hourly window (around a bloom moment), at
+// planting and after the last step. One scenario (rose-weather-gaps-2025) has null weather fields in six hours, as a
+// broken live row would: they go into step() as recorded, and its cleanWx must replace them exactly as the prototype does.
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { SpeciesId } from "@/lib/plant/species";
@@ -11,13 +14,17 @@ import { BED, GAME_START, PLANT_CLOSE_H, PLANT_OPEN_H, SIM_SPECIES, SIM_VERSION,
 import type { HourWeather, PlantState, SimEvent } from "./model";
 import { catchUp, type TimedEvent } from "./replay";
 
-interface GoldenWeather { T: number[]; RH: number[]; P: number[]; SW: number[]; ET0: number[]; U: number[]; Ts: number[]; isDay: number[] }
+// weather arrays may hold null (the weather-gaps scenario)
+type Col = (number | null)[];
+interface GoldenWeather { T: Col; RH: Col; P: Col; SW: Col; ET0: Col; U: Col; Ts: Col; isDay: Col }
 interface GoldenScenario {
   id: string;
   sp: SpeciesId;
   weatherKey: string;
   plantH: number;
   endH: number;
+  /** [from, to] state hours with a snapshot every hour (around a bloom moment), or null */
+  hourly: [number, number] | null;
   events: Record<string, Record<string, unknown>[]>;
   snapshots: { h: number; state: Record<string, unknown>; visual: Record<string, unknown> }[];
   expectBloom: { h: number; e: Record<string, unknown> | null }[];
@@ -33,7 +40,7 @@ interface Golden {
   scenarios: GoldenScenario[];
 }
 
-const G = JSON.parse(fs.readFileSync(new URL("./__fixtures__/golden-v4.json", import.meta.url), "utf8")) as Golden;
+const G = JSON.parse(fs.readFileSync(new URL("./__fixtures__/golden-v5.json", import.meta.url), "utf8")) as Golden;
 
 const R = 1e9;
 const rnd = (x: number) => (Number.isFinite(x) && !Number.isInteger(x) ? Math.round(x * R) / R : x);
@@ -49,8 +56,9 @@ function same(a: unknown, b: unknown, exact = false): boolean {
   return a === b;
 }
 
+// exactly the row golden-check.mjs builds, nulls included (step() cleans it; a null isDay must reach cleanWx as null)
 function wxAt(w: GoldenWeather, h: number): HourWeather {
-  return { T: w.T[h], RH: w.RH[h], P: w.P[h], SW: w.SW[h], ET0: w.ET0[h], U: w.U[h], Ts: w.Ts[h], isDay: w.isDay[h] ? 1 : 0 };
+  return { T: w.T[h], RH: w.RH[h], P: w.P[h], SW: w.SW[h], ET0: w.ET0[h], U: w.U[h], Ts: w.Ts[h], isDay: w.isDay[h] } as unknown as HourWeather;
 }
 // the golden events include deliberate junk (a can with amount -5, sprinkles without an actor, kind "nuke"): step() must
 // validate them itself, so they go in exactly as recorded
@@ -70,11 +78,11 @@ function compareSnapshot(sc: GoldenScenario, want: GoldenScenario["snapshots"][n
   return n;
 }
 
-describe("golden-v4 parity with the prototype", () => {
+describe("golden-v5 parity with the prototype", () => {
   it("is the file this port targets", () => {
     expect(G.simVersion).toBe(SIM_VERSION);
     expect(G.gameStart).toBe(GAME_START);
-    expect(G.scenarios).toHaveLength(14);
+    expect(G.scenarios).toHaveLength(19);
     expect(new Set(G.scenarios.map((s) => s.sp))).toEqual(new Set(Object.keys(SIM_SPECIES)));
   });
 
@@ -109,7 +117,8 @@ describe("golden-v4 parity with the prototype", () => {
       checkExp(s);
       for (let h = sc.plantH; h < sc.endH; h++) {
         s = step(s, { h, wx: wxAt(w, h) }, eventsAt(sc, h), sp);
-        if (s.h % 6 === 0 || h === sc.endH - 1) fields += compareSnapshot(sc, sc.snapshots[k++], s, bad);
+        const hr = sc.hourly;
+        if (s.h % 6 === 0 || h === sc.endH - 1 || (hr && s.h >= hr[0] && s.h <= hr[1])) fields += compareSnapshot(sc, sc.snapshots[k++], s, bad);
         if ((s.h - sc.plantH) % 24 === 0) checkExp(s);
       }
       expect(k, "snapshots reached").toBe(sc.snapshots.length);

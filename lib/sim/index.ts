@@ -1,4 +1,4 @@
-// The plant simulation's public API: the locked model (SIM_VERSION 4), game time, Bangalore weather from Open-Meteo,
+// The plant simulation's public API: the locked model (SIM_VERSION 5), game time, Bangalore weather from Open-Meteo,
 // the climate normal behind the bloom forecast, and the replay the server runs to bring a stored plant up to date.
 // Framework-free and pure apart from weather.ts's fetch helpers, so the same code runs on the server, in tests and in
 // the browser.
@@ -14,6 +14,10 @@ export {
   toVisual,
   expectBloom,
   canPlant,
+  opensInMorning,
+  openWindow,
+  cleanWx,
+  WX_FALLBACK,
   climAt,
   ttHour,
   devFactor,
@@ -33,6 +37,7 @@ export type {
   FeedAdvice,
   HourInput,
   HourWeather,
+  LooseWeather,
   OnOff,
   PlantLine,
   PlantMood,

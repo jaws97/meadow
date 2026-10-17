@@ -1,10 +1,11 @@
-// Model invariants beyond the golden file: the water book closes, the state stays finite and JSON-safe, inputs are never
-// mutated, untrusted event payloads are tamed, and the bloom forecast never runs off the climate table.
+// Model invariants beyond the golden file: the water book closes, the state stays finite and JSON-safe (also on broken
+// weather rows), inputs are never mutated, untrusted event payloads are tamed, petals open only in their own part of the
+// day, the plant asks for water before thirst, and the bloom forecast never runs off the climate table.
 import { describe, expect, it } from "vitest";
 import { CLIM_T } from "./climate";
-import { BED, PLANT_CLOSE_H, SIM_SPECIES, createPlant, expectBloom, step, toVisual } from "./model";
-import type { HourWeather, PlantState, SimEvent } from "./model";
-import { IDS, PARTY, YEARS, mulberry32, randomPolicy, simulate } from "./__fixtures__/harness";
+import { BED, Bideal, PLANT_CLOSE_H, SIM_SPECIES, WX_FALLBACK, cleanWx, createPlant, expectBloom, fOf, hodOf, openWindow, step, toVisual } from "./model";
+import type { HourWeather, LooseWeather, PlantState, SimEvent } from "./model";
+import { IDS, PARTY, YEARS, inOwnPart, mulberry32, randomPolicy, rowsFor, simulate } from "./__fixtures__/harness";
 
 const WX: HourWeather = { T: 25, RH: 60, P: 0, SW: 500, ET0: 0.3, U: 5, Ts: 25, isDay: 1 };
 const NIGHT: HourWeather = { ...WX, SW: 0, ET0: 0, isDay: 0 };
@@ -62,7 +63,7 @@ describe("state and visual invariants", () => {
           const hi = key === "size" ? 1.1 : key === "headYaw" ? 360 : key === "mushrooms" ? 5 : key === "snails" ? 3 : 1;
           if (!Number.isFinite(val) || val < 0 || val > hi) bad.push(`${x.h} ${key} ${val}`);
         }
-        for (const key of ["W", "L", "B", "D", "Dw", "Ds", "R", "O", "Qd", "Ns", "Np", "turgor", "aba", "op", "fDev"] as const)
+        for (const key of ["W", "L", "B", "D", "Dw", "Ds", "R", "O", "Qd", "Qc", "Qr", "Ns", "Np", "turgor", "aba", "op", "fDev"] as const)
           if (!Number.isFinite(x.s[key]) || x.s[key] < 0) bad.push(`${x.h} state.${key} ${x.s[key]}`);
         if (x.s.alive && x.v.health <= 0) bad.push(`${x.h} health 0 while alive`);
         if (!x.s.alive && (x.v.health > 0 || x.v.flower > 0 || x.v.bloom > 0)) bad.push(`${x.h} shows life when gone`);
@@ -122,10 +123,14 @@ describe("untrusted events", () => {
     expect(st(Array.from({ length: 30 }, () => ({ kind: "feed" }))).Sf).toBeCloseTo(BED.feedSalt * (1 - 0.1 / 24), 12);
   });
 
-  it("replants only inside the planting window, as a fresh watered seed of the next generation", () => {
+  it("replants only inside the planting window, as a watered sprout of the next generation whose flower is capped", () => {
     const gone = { ...a, alive: false, fairyUsed: true };
     const re = st([{ kind: "replant" }], gone, PLANT_CLOSE_H - 1);
-    expect(re).toMatchObject({ gen: 2, alive: true, plantedH: PLANT_CLOSE_H - 1, lastCanH: PLANT_CLOSE_H - 1, fairyUsed: true });
+    expect(re).toMatchObject({ gen: 2, alive: true, plantedH: PLANT_CLOSE_H - 1, lastCanH: PLANT_CLOSE_H - 1, fairyUsed: true, cap: BED.replantCap });
+    expect(re.D).toBeGreaterThanOrEqual(BED.sproutD);
+    expect(re.D).toBeLessThan(BED.sproutD + 0.01);
+    expect(re.B).toBeGreaterThanOrEqual(Bideal(SIM_SPECIES.rose, BED.sproutD));
+    expect(toVisual(re).says).toBe("a second-chance sprout; my flower will be smaller");
     expect(st([{ kind: "replant" }], gone, PLANT_CLOSE_H).gen).toBe(1);
   });
 });
@@ -141,5 +146,107 @@ describe("the bloom forecast", () => {
 
   it("is null for a plant that is gone", () => {
     expect(expectBloom({ ...createPlant("rose", PARTY), alive: false }, null, { h: PARTY, climT: CLIM_T })).toBeNull();
+  });
+});
+
+describe("broken weather rows (cleanWx)", () => {
+  const KEYS = ["T", "RH", "P", "SW", "ET0", "U", "Ts", "isDay"] as const;
+  const BROKEN: unknown[] = [undefined, null, NaN, Infinity, -Infinity, "x"];
+
+  it("replaces every field that is not a finite number, from the previous hour first, then calm defaults", () => {
+    for (const bad of BROKEN) {
+      const all = Object.fromEntries(KEYS.map((k) => [k, bad])) as LooseWeather;
+      expect(cleanWx(all), String(bad)).toEqual({ ...WX_FALLBACK, Ts: WX_FALLBACK.T, isDay: 0 });
+      const prev = rowsFor(2025)[40];
+      expect(cleanWx(all, prev), String(bad)).toEqual({ T: prev.T, RH: prev.RH, P: 0, SW: prev.SW, ET0: prev.ET0, U: prev.U, Ts: prev.T, isDay: prev.SW > 0 ? 1 : 0 });
+    }
+    expect(cleanWx(null)).toEqual(cleanWx({}));
+    expect(cleanWx(WX)).toEqual(WX);
+    expect(cleanWx({ ...WX, RH: 140, P: -2, SW: -5, ET0: -1, U: -3 })).toMatchObject({ RH: 100, P: 0, SW: 0, ET0: 0, U: 0 });
+    expect(cleanWx({ ...WX, isDay: true }).isDay).toBe(1);
+  });
+
+  it("keeps the state finite and the water book closed when 3% of hours carry broken fields", () => {
+    let bad = 0, worst = 0, broken = 0;
+    for (let k = 0; k < 40; k++) {
+      const rnd = mulberry32(555 + 31 * k), id = IDS[k % 6], y = YEARS[k % 3], rows = rowsFor(y);
+      const wxAt = (h: number) => {
+        const w: Record<string, unknown> = { ...rows[h] };
+        if (rnd() < 0.03) { broken++; for (let j = 0, m = 1 + Math.floor(rnd() * 3); j < m; j++) w[KEYS[Math.floor(rnd() * KEYS.length)]] = BROKEN[Math.floor(rnd() * BROKEN.length)]; }
+        return w as unknown as HourWeather;
+      };
+      const r = simulate({ spId: id, year: y, policy: randomPolicy(mulberry32(99 + k)), wxAt, endH: 983 });
+      const s0 = createPlant(id, PARTY), b0 = s0.W + s0.L;
+      for (const x of r.rec) {
+        for (const key of ["W", "L", "B", "D", "Dw", "Ds", "R", "O", "Qd", "Qc", "Qr", "Ns", "Np", "turgor", "aba", "op", "fDev", "Sc", "Tleaf"] as const)
+          if (!Number.isFinite(x.s[key])) bad++;
+        for (const val of Object.values(x.v)) if (typeof val === "number" && !Number.isFinite(val)) bad++;
+        const s = x.s;
+        worst = Math.max(worst, Math.abs((s.W + s.L) - b0 - (s.cP + s.cI + s.cMag - s.cET - s.cDP - s.cRO)));
+      }
+    }
+    expect(broken).toBeGreaterThan(500);
+    expect(bad).toBe(0);
+    expect(worst).toBeLessThanOrEqual(1e-9);
+  });
+});
+
+describe("opening in the flower's own part of the day", () => {
+  it("morning flowers open from first light to 17:00, Night Jasmine from dusk to 06:00", () => {
+    const hours = (id: keyof typeof SIM_SPECIES) => Array.from({ length: 24 }, (_, h) => h).filter((h) => openWindow(SIM_SPECIES[id], h));
+    for (const id of ["rose", "sundrop", "magnolia", "marigold", "tefiti"] as const) expect(hours(id), id).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    expect(hours("jasmine")).toEqual([0, 1, 2, 3, 4, 5, 17, 18, 19, 20, 21, 22, 23]);
+  });
+
+  it("a wilted bud still opening when its window closes pauses, says so, and finishes in the next window", () => {
+    const sp = SIM_SPECIES.rose, h = 24 * 5 + 17;
+    const ripe: PlantState = { ...createPlant("rose", PARTY, "me"), D: 1, ripeH: 100, op: 0.3, turgor: 0.5, h, hod: 17 };
+    const next = step(ripe, { h, wx: WX }, []);
+    expect(next.op).toBe(ripe.op);                                   // no opening outside the window
+    expect(toVisual(next, sp, 18).says).toBe("my petals will finish opening with the morning light");
+    expect(toVisual(next, sp, 8).says).toBe("my petals are opening");
+    const morning = step({ ...next, h: h + 15, hod: 8 }, { h: h + 15, wx: WX }, []);
+    expect(morning.op).toBeGreaterThan(next.op);
+  });
+
+  it("the bloom forecast also lands in the flower's own part of the day", () => {
+    for (const id of IDS) for (const p of [PARTY, PARTY + 7, PARTY + 24 * 9 + 4, PLANT_CLOSE_H - 1]) {
+      const e = expectBloom(createPlant(id, p, "me"), SIM_SPECIES[id], { h: p, climT: CLIM_T });
+      expect(e !== null && inOwnPart(id, hodOf(e.bloomH)), `${id} planted h ${p}`).toBe(true);
+    }
+  });
+});
+
+describe("advice and mood", () => {
+  it("the can asks for a drink well before thirst, and never while it warns that the soil is damp", () => {
+    let ready = 0, readyAm = 0;
+    for (let k = 0; k < 24; k++) {
+      const r = simulate({ spId: IDS[k % 6], year: YEARS[k % 3], policy: randomPolicy(mulberry32(31 + k)), endH: 983 });
+      for (const x of r.rec) {
+        if (x.v.canAdvice !== "ready") continue;
+        ready++;
+        const f = fOf(x.s), am = x.s.hod >= BED.readyAmFrom && x.s.hod < BED.readyAmTo;
+        if (am) readyAm++;
+        expect(f).toBeGreaterThan(am ? BED.readyAmF : BED.readyF);
+        expect(f).toBeGreaterThanOrEqual(BED.dampF);
+      }
+    }
+    expect(ready).toBeGreaterThan(100);
+    expect(readyAm).toBeGreaterThan(10);
+  });
+
+  it("thirst outranks the blooming mood, and a plant whose roots are rotting reads unwell", () => {
+    let blooming = 0, unwell = 0;
+    for (let k = 0; k < 60; k++) {
+      const r = simulate({ spId: IDS[k % 6], year: YEARS[k % 3], policy: randomPolicy(mulberry32(7000 + k)), endH: 983 });
+      for (const x of r.rec) {
+        if (!x.s.alive) continue;
+        const f = fOf(x.s), thirsty = f > 0.4 || (x.s.turgor < 0.85 && f > 0.3);
+        if (x.v.mood === "blooming") { blooming++; expect(thirsty).toBe(false); }
+        if (x.s.O > BED.Olag && x.s.R > 0.05) { unwell++; expect(x.v.mood).toBe("unwell"); }
+      }
+    }
+    expect(blooming).toBeGreaterThan(0);
+    expect(unwell).toBeGreaterThan(0);
   });
 });

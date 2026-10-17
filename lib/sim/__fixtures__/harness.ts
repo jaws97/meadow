@@ -1,6 +1,6 @@
 // Test harness for the target suites: a TypeScript copy of the prototype's sim/harness.mjs and the policies, sweeps and
-// metrics of sim/run.mjs, run on the recorded weather fixtures in this folder. Keep it in step with the prototype: the
-// targets are only meaningful if they are measured exactly the way the model was tuned.
+// metrics of sim/run.mjs (SIM_VERSION 5), run on the recorded weather fixtures in this folder. Keep it in step with the
+// prototype: the targets are only meaningful if they are measured exactly the way the model was tuned.
 //
 // Weather: Open-Meteo best_match archive for Bangalore, 2023-25, cut to the game window (10 Nov 00:00 - 20 Dec 24:00
 // IST; Weather data by Open-Meteo.com, CC BY 4.0). Year y's calendar hours stand in for 2026: h = 0 is 10 Nov 00:00 IST
@@ -8,7 +8,7 @@
 // as written; 2023 and 2024 use the same scaled-integer format, and the 3-10 Nov 2023 wet week has its own file.
 import fs from "node:fs";
 import type { SpeciesId } from "@/lib/plant/species";
-import { PLANT_OPEN_H, SIM_SPECIES, createPlant, fOf, step, toVisual } from "../model";
+import { PLANT_OPEN_H, SIM_SPECIES, createPlant, fOf, opensInMorning, step, toVisual } from "../model";
 import type { HourWeather, PlantState, SimEvent, SimSpecies, Visual } from "../model";
 
 // ---- weather fixtures ------------------------------------------------------------------------------------------------
@@ -60,7 +60,7 @@ export const MEAN: HourWeather[] = Array.from({ length: NH }, (_, h) => {
 
 export const IDS = Object.keys(SIM_SPECIES) as SpeciesId[];
 export const OWNER = "me";
-/** 10 Nov 17:00 IST, seeds handed out */
+/** 10 Nov 15:00 IST: the party starts and the seeds are handed out */
 export const PARTY = PLANT_OPEN_H;
 /** game hour of day d (10 Nov = day 0) at clock hour hh */
 export const W = (d: number, hh: number) => 24 * d + hh;
@@ -112,23 +112,34 @@ export function sumP(ctx: Ctx, a: number, b: number): number {
 
 // ---- policies --------------------------------------------------------------------------------------------------------
 
-export interface GoodCareOpts { pause?: [number, number] | null; force?: number[]; extra?: Policy | null; tend?: boolean; cover?: boolean }
+export interface GoodCareOpts {
+  pause?: [number, number] | null;
+  force?: number[];
+  extra?: Policy | null;
+  tend?: boolean;
+  cover?: boolean;
+  forecast?: boolean;
+}
 /**
- * Good care: visits at 08:00 and 18:00; waters when the soil is getting dry, never when it is raining or rain is due;
- * tends pests; puts the rain cover on when the plant asks for it and takes it off once the rain has passed.
+ * Good care: visits at 08:00 and 18:00 and acts only on what the app shows. It waters when the can asks for it
+ * (canAdvice "ready" or "thirsty") unless the player can see it is raining or has just rained (1 mm in the last 6 h, or
+ * 2 mm since midnight); tends pests when they show (visual pest level above 0.3); puts the rain cover on when the plant asks
+ * for it and takes it off once 12 h have passed without rain and the plant no longer names the rain. It never reads the
+ * hidden soil depletion. forecast: true adds a "heavy rain tonight" hint the app does not have yet (no can when 2 mm or
+ * more is due in the next 12 h; the cover on when 10 mm or more is due).
  */
-export function goodCare({ pause = null, force = [], extra = null, tend = true, cover = true }: GoodCareOpts = {}): Policy {
+export function goodCare({ pause = null, force = [], extra = null, tend = true, cover = true, forecast = false }: GoodCareOpts = {}): Policy {
   return (h, hod, s, ctx) => {
     const ev = extra ? extra(h, hod, s, ctx) : [];
     if (force.includes(h)) { ev.push({ kind: "water" }); return ev; }
     if (pause && h >= pause[0] && h < pause[1]) return ev;
     if (!s.alive || (hod !== 8 && hod !== 18)) return ev;
-    const f = fOf(s), says = toVisual(s).says;
-    const rainy = sumP(ctx, h - 6, h) >= 1 || sumP(ctx, h, h + 12) >= 2 || sumP(ctx, h - hod, h) >= 2;
-    if (f > (hod === 8 ? 0.2 : 0.35) && !rainy) ev.push({ kind: "water" });
-    if (tend && Math.max(s.Ps, s.Pa, s.Pm) > 0.3) ev.push({ kind: "tend" });
-    if (cover && !s.cover && /rain cover would help/.test(says)) ev.push({ kind: "cover", amount: 1 });
-    if (cover && s.cover && sumP(ctx, h - 12, h) < 0.5 && !/^the rain/.test(says)) ev.push({ kind: "cover", amount: 0 });
+    const v = toVisual(s), asks = v.canAdvice === "ready" || v.canAdvice === "thirsty";
+    const rained = sumP(ctx, h - 6, h) >= 1 || sumP(ctx, h - hod, h) >= 2, due = forecast && sumP(ctx, h, h + 12) >= 2;
+    if (asks && !rained && !due) ev.push({ kind: "water" });
+    if (tend && v.pests > 0.3) ev.push({ kind: "tend" });
+    if (cover && !s.cover && (/rain cover would help/.test(v.says) || (forecast && sumP(ctx, h, h + 12) >= 10))) ev.push({ kind: "cover", amount: 1 });
+    if (cover && s.cover && sumP(ctx, h - 12, h) < 0.5 && !/^the rain/.test(v.says)) ev.push({ kind: "cover", amount: 0 });
     return ev;
   };
 }
@@ -147,6 +158,42 @@ export const at = (pred: (h: number, hod: number) => boolean, kind: PlainKind = 
 export const everyN = (n: number, hh = 9, p0 = PARTY): Policy =>
   at((h, hod) => hod === hh && Math.floor((h - (p0 - (p0 % 24))) / 24) % n === 0);
 export const firstCan = (set: number[], p0 = PARTY): number => { for (let h = p0; ; h++) if (set.includes(h % 24)) return h; };
+/** 30 friends a day (3 an hour, 09:00-18:00); only the first two a day count, as 0.12 L each */
+export const spam: Policy = (h, hod) =>
+  (hod >= 9 && hod <= 18 ? [0, 1, 2].map((k) => ({ kind: "sprinkle" as const, actor: "c" + ((hod - 9) * 3 + k) })) : []);
+/**
+ * The second chance: abandoned until gone, Fairy Dust (and a can) 12 h later, abandoned again until gone, replanted as a
+ * sprout 6 h after, then good care. A fresh closure per run.
+ */
+export function secondChance(after: () => Policy = () => goodCare()): Policy {
+  let died1: number | null = null, died2: number | null = null;
+  const care = after();
+  return (h, hod, s, ctx) => {
+    if (!s.alive && died1 === null) died1 = h;
+    if (!s.alive && s.fairyUsed && died2 === null) died2 = h;
+    if (died1 !== null && h === died1 + 12) return [{ kind: "revive" }, { kind: "water" }];
+    if (died2 !== null && h === died2 + 6) return [{ kind: "replant" }];
+    return died2 !== null && h > died2 + 6 ? care(h, hod, s, ctx) : [];
+  };
+}
+/** the can asks for water: "ready for a drink" or thirsty */
+export const asksCan = (v: Visual) => v.canAdvice === "ready" || v.canAdvice === "thirsty";
+/** the plant's line asks for water */
+export const asksLine = (v: Visual) => /drink|thirsty|water today|drooping/.test(v.says);
+/**
+ * A player who waters only when the plant asks (want), at the given visit hours: pests tended when they show, the cover as
+ * the plant asks.
+ */
+export const cueLed = (hrs: number[], want: (v: Visual) => boolean): Policy => (h, hod, s, ctx) => {
+  const ev: SimEvent[] = [];
+  if (!s.alive || !hrs.includes(hod)) return ev;
+  const v = toVisual(s);
+  if (want(v)) ev.push({ kind: "water" });
+  if (v.pests > 0.3) ev.push({ kind: "tend" });
+  if (!s.cover && /rain cover would help/.test(v.says)) ev.push({ kind: "cover", amount: 1 });
+  if (s.cover && sumP(ctx, h - 12, h) < 0.5 && !/^the rain/.test(v.says)) ev.push({ kind: "cover", amount: 0 });
+  return ev;
+};
 
 /** Integer PRNG (mulberry32), for random players in tests; the model itself has no randomness. */
 export function mulberry32(a: number): () => number {
@@ -185,6 +232,11 @@ export function bloomOf(r: Run): Bloom | null {
   const pl = b.s.plantedH;
   return { days: (b.s.bloomH - pl) / 24, ripe: (b.s.ripeH - pl) / 24, flower: b.v.flower, size: b.v.size, health: b.v.health, at: b.s.bloomH, Q: 1 - 2 * b.s.budS };
 }
+/** the bloom moment (the end of the hour op reached 0.5) of an unstressed bud: 08:00, magnolia 09:00, Night Jasmine 18:00 */
+export const HOD_OK = (id: SpeciesId) => (SIM_SPECIES[id].openHod + Math.ceil(SIM_SPECIES[id].openDur / 2)) % 24;
+/** a bloom moment lies in the flower's own part of the day: a morning flower 07:00-17:00, Night Jasmine 18:00-06:00 */
+export const inOwnPart = (id: SpeciesId, hod: number) =>
+  (opensInMorning(SIM_SPECIES[id]) ? hod >= 7 && hod <= 17 : hod >= 18 || hod <= 6);
 
 /**
  * The fatal soak of a run that died of rot (null if it lived or died of drought), counted from anchorH: the first can of
@@ -197,6 +249,13 @@ export function soakTimes(r: Run, anchorH: number): { death: number; rot: number
   if (pre.R < pre.Dw + pre.Ds) return null;
   const fr = r.rec.find((x) => x.h > anchorH && x.s.alive && x.v.rot >= ROT_SIGN);
   return { death: (r.rec[i].h - anchorH) / 24, rot: fr ? (fr.h - anchorH) / 24 : null };
+}
+/** did the run die, and of rot (R above the drought injury in its last living hour)? */
+export function deathOf(r: Run): { dead: boolean; rot: boolean } {
+  const i = r.rec.findIndex((x) => !x.s.alive);
+  if (i < 0) return { dead: false, rot: false };
+  const p = i > 0 ? r.rec[i - 1].s : r.rec[i].s;
+  return { dead: true, rot: p.R > p.Dw + p.Ds };
 }
 
 // ---- weather scenarios -----------------------------------------------------------------------------------------------
@@ -239,9 +298,9 @@ export type DryKey = "syn" | "hot" | "r2024" | "r2025" | "r2023";
 export const DRY: Record<DryKey, { label: string; y: Year; plant: number; lastDay: number; syn?: keyof typeof SYN }> = {
   syn: { label: "stitched dry days, 2025 then 2024", y: 2025, plant: PARTY, lastDay: 2, syn: "typ" },
   hot: { label: "stitched dry days, 2023 first (highest demand)", y: 2025, plant: PARTY, lastDay: 2, syn: "hot" },
-  r2024: { label: "real 2024 spell (last can 17 Nov; dry to 28 Nov)", y: 2024, plant: W(5, 17), lastDay: 7 },
-  r2025: { label: "real 2025 spell (last can 6 Dec; dry to 19 Dec)", y: 2025, plant: W(24, 17), lastDay: 26 },
-  r2023: { label: "real 2023 spell (last can 10 Dec; dry to 20 Dec)", y: 2023, plant: W(28, 17), lastDay: 30 },
+  r2024: { label: "real 2024 spell (last can 17 Nov; dry to 28 Nov)", y: 2024, plant: W(5, 15), lastDay: 7 },
+  r2025: { label: "real 2025 spell (last can 6 Dec; dry to 19 Dec)", y: 2025, plant: W(24, 15), lastDay: 26 },
+  r2023: { label: "real 2023 spell (last can 10 Dec; dry to 20 Dec)", y: 2023, plant: W(28, 15), lastDay: 30 },
 };
 export interface Drydown { hod: number; droop: number | null; yellow: number | null; death: number | null }
 /** good care until a last can at hod on the spell's last day, then nobody: elapsed days to droop, yellowing, death */
@@ -257,6 +316,28 @@ export function dryAll(key: DryKey) {
   const all = IDS.flatMap((id) => Array.from({ length: 24 }, (_, hod) => drydown(id, hod, key)));
   const col = (k: "droop" | "yellow" | "death") => all.map((x) => x[k]).filter((x): x is number => x !== null);
   return { droop: col("droop"), yellow: col("yellow"), death: col("death"), alive: all.filter((x) => x.death === null).length, n: all.length };
+}
+
+/**
+ * Older plants abandoned: planted at the party (2025), good care, a last can at every hour of day lastDay (2, 5, 8 or 11),
+ * then nobody, on stitched typical or hottest dry days. Elapsed days to droop, yellowing and death, and the calendar day
+ * (the day of the last can is day 0) for daytime cans (07-20 h), as the game verifier counts it.
+ */
+export function abandonAge(key: "typ" | "hot", lastDay: number) {
+  const out = { dr: [] as number[], ye: [] as number[], de: [] as number[], cdr: [] as number[], cye: [] as number[], cde: [] as number[], alive: 0, n: 0 };
+  const rows = rowsFor(2025), a = W(lastDay + 1, 0), syn = SYN[key].flat();
+  const wxAt: WxAt = (h) => (h < a ? rows[h] : syn[(h - a) % syn.length]);
+  for (const id of IDS) for (let hod = 0; hod < 24; hod++) {
+    const lw = W(lastDay, hod);
+    const r = simulate({ spId: id, year: 2025, plantH: PARTY, wxAt, policy: goodCare({ force: [lw], pause: [lw + 1, 1e9] }), endH: Math.min(NH, lw + 24 * 12) });
+    const t0 = lw + 1, firstH = (fn: (q: Rec) => boolean) => { const x = r.rec.find((q) => q.h > t0 && fn(q)); return x ? x.h : null; };
+    const hs = [firstH(isDroop), firstH((q) => q.s.alive && q.s.Ds >= YELLOW_DS), firstH((q) => !q.s.alive)];
+    out.n++;
+    [out.dr, out.ye, out.de].forEach((c, j) => { const Hh = hs[j]; if (Hh !== null) c.push((Hh - t0) / 24); });
+    if (hs[2] === null) out.alive++;
+    if (hod >= 7 && hod <= 20) [out.cdr, out.cye, out.cde].forEach((c, j) => { const Hh = hs[j]; if (Hh !== null) c.push(Math.floor((Hh - 1) / 24) - lastDay); });
+  }
+  return out;
 }
 
 /** every 63 h gap (Fri 18:00 to Mon 09:00) starting on days 1-20, planted at the party with good care otherwise */
@@ -276,6 +357,67 @@ export function weekendStats() {
     }
   }
   return res;
+}
+
+/**
+ * Good care at every planting hour of days 0-22 (from the party at 15:00 on day 0), 2023-25, six species (9936 runs): the
+ * bloom day, the bud day, the bloom's clock hour and the error of expectBloom() made at planting (days). Each run is
+ * stepped to 17 days after planting.
+ */
+export interface HourRun { id: SpeciesId; y: Year; p: number; days: number | null; ripe: number | null; hod: number | null; flower: number | null; err: number | null }
+export function hourSweep(forecast: (s: PlantState, sp: SimSpecies, h: number) => number, plantHours?: (p: number) => boolean): HourRun[] {
+  const runs: HourRun[] = [];
+  for (const y of YEARS) for (let p = PARTY; p < PARTY + 24 * 23; p++) {
+    if (plantHours && !plantHours(p)) continue;
+    for (const id of IDS) {
+      const r = simulate({ spId: id, year: y, plantH: p, policy: goodCare(), endH: p + 24 * 17 }), b = bloomOf(r);
+      const eH = forecast(createPlant(id, p, OWNER), SIM_SPECIES[id], p);
+      runs.push({ id, y, p, days: b ? b.days : null, ripe: b ? b.ripe : null, hod: b ? b.at % 24 : null, flower: b ? b.flower : null, err: b ? (eH - b.at) / 24 : null });
+    }
+  }
+  return runs;
+}
+
+/**
+ * Stressed players, for the bloom moment's part of the day: 600 random under-waterers (random cans, revive or replant when
+ * gone), 300 casual players (1-3 visits a day at random hours, a can at 80% of visits) and a can every day at 21:00 through
+ * the 2023 wet week grafted on day 1, 5 or 10. Returns every bloom moment as species and clock hour.
+ */
+export function openingStressed() {
+  const moments: { id: SpeciesId; hod: number; what: string }[] = [];
+  const tally = (r: Run, id: SpeciesId, what: string) => { for (const x of r.rec) if (x.s.bloomH === x.h) moments.push({ id, hod: x.h % 24, what }); };
+  for (let k = 0; k < 600; k++) {
+    const R = mulberry32(777 + 31 * k), id = IDS[k % 6], y = YEARS[k % 3], p = PARTY + Math.floor(R() * 400), pw = 0.01 + R() * 0.12;
+    tally(simulate({ spId: id, year: y, plantH: p, endH: NH, policy: (h, hh, s) => { const ev: SimEvent[] = []; if (R() < pw) ev.push({ kind: "water" }); if (!s.alive && R() < 0.1) ev.push({ kind: s.fairyUsed ? "replant" : "revive" }); return ev; } }), id, `random ${k}`);
+  }
+  for (let k = 0; k < 300; k++) {
+    const R = mulberry32(9100 + 17 * k), id = IDS[k % 6], y = YEARS[k % 3], p = PARTY + 24 * Math.floor(R() * 8);
+    const hrs = new Set(Array.from({ length: 1 + Math.floor(R() * 3) }, () => 7 + Math.floor(R() * 15)));
+    tally(simulate({ spId: id, year: y, plantH: p, endH: Math.min(NH, p + 24 * 24), policy: (h, hh, s) => (s.alive && hrs.has(hh) && R() < 0.8 ? [{ kind: "water" }] : []) }), id, `casual ${k}`);
+  }
+  for (const gd of [1, 5, 10]) for (const y of YEARS) for (const id of IDS) {
+    const g = graft(y, gd);
+    tally(simulate({ spId: id, year: y, wxAt: g.wx, policy: at((h, hh) => hh === 21), endH: Math.min(NH, PARTY + 24 * 26) }), id, `21:00 can, wet week d${gd} ${y}`);
+  }
+  return { moments, n: 600 + 300 + 54 };
+}
+
+/**
+ * The second chance, every species and year: abandoned until gone, Fairy Dust 12 h later, abandoned again until gone,
+ * replanted 6 h after (a sprout), then good care to bloom. Compared with a seed planted the same hour under good care.
+ */
+export function replantSweep() {
+  const rows: { y: Year; id: SpeciesId; replantH: number | null; D0: number | null; days: number | null; flower: number | null; maxFlower: number | null; firstDays: number | null; first: number | null; says: string[] }[] = [];
+  for (const y of YEARS) for (const id of IDS) {
+    const r = simulate({ spId: id, year: y, plantH: PARTY, policy: secondChance(), endH: NH });
+    const ri = r.rec.findIndex((x) => x.s.gen === 2), b = bloomOf(r);
+    const g1 = ri >= 0 ? bloomOf(simulate({ spId: id, year: y, plantH: r.rec[ri].s.plantedH, policy: goodCare() })) : null;
+    const after = ri >= 0 ? r.rec.slice(ri) : [];
+    rows.push({ y, id, replantH: ri >= 0 ? r.rec[ri].s.plantedH : null, D0: ri >= 0 ? r.rec[ri].s.D : null, days: b ? b.days : null, flower: b ? b.flower : null,
+      maxFlower: after.length ? Math.max(...after.map((x) => x.v.flower)) : null, first: g1 ? g1.flower : null, firstDays: g1 ? g1.days : null,
+      says: [...new Set(after.map((x) => x.v.says as string))] });
+  }
+  return rows;
 }
 
 /**
@@ -312,6 +454,78 @@ export function rainWindows(minMM = 15) {
   }
   for (const y of YEARS) { const g = graft(y, 3); one(y, W(3, 0), `${y} + 2023 wet week on days 3-9`, g.wx); }
   return res;
+}
+
+/**
+ * Rain-only weeks by their total: every 7-day window starting every 12 h with rain (>= 1 mm) on 3 or more days, planted on
+ * day 0, 5 or 10 (before the window), nobody watering for the week, no cover, good care before and after. Deaths and runs
+ * by the week's rain: 15 mm or more, 10-15 mm, under 10 mm.
+ */
+export type RainBand = "15 mm or more" | "10-15 mm" | "under 10 mm";
+export function rainLight() {
+  const band = (mm: number): RainBand => (mm >= 15 ? "15 mm or more" : mm >= 10 ? "10-15 mm" : "under 10 mm");
+  const res = { n: { "15 mm or more": 0, "10-15 mm": 0, "under 10 mm": 0 } as Record<RainBand, number>, dead: { "15 mm or more": 0, "10-15 mm": 0, "under 10 mm": 0 } as Record<RainBand, number>, rot: 0 };
+  for (const y of YEARS) {
+    const rows = rowsFor(y);
+    for (let a = W(1, 0); a + 168 + 72 <= NH; a += 12) {
+      let rd = 0, mm = 0;
+      for (let k = 0; k < 7; k++) { const t = rows.slice(a + 24 * k, a + 24 * k + 24).reduce((q, r) => q + r.P, 0); mm += t; if (t >= 1) rd++; }
+      if (rd < 3) continue;
+      for (const d of [0, 5, 10]) {
+        const p = PARTY + 24 * d;
+        if (p >= a) continue;
+        for (const id of IDS) {
+          const r = simulate({ spId: id, year: y, plantH: p, policy: goodCare({ pause: [a, a + 168], cover: false }), endH: a + 168 + 72 });
+          const b = band(mm), x = deathOf(r);
+          res.n[b]++;
+          if (x.dead) { res.dead[b]++; if (x.rot) res.rot++; }
+        }
+      }
+    }
+  }
+  return res;
+}
+
+/**
+ * Rain only beyond the 2023-25 record: steady synthetic drizzles (cloud and ET0 cut to 30%, RH 97) of 0.5-3 mm/h for
+ * 48-120 h starting on game day 1, 4 or 8, and the real rain of cyclone Fengal (1-3 Dec 2024) and of 13-16 Nov 2024 scaled
+ * x1.5, x2 and x3. Nobody waters from pre hours before the rain (12: the last can is the 08:00 visit the day before) for 7
+ * days after its start, no rain cover; good care before and after; planted at the party.
+ */
+export function drizzleSweep(pre = 12) {
+  const res = { n: 0, rot: 0, deaths: 0, spread: { n: 0, deaths: 0 }, maxR: 0, maxO: 0 };
+  const one = (y: Year, a: number, wxAt: WxAt) => {
+    let rainDays = 0;
+    for (let d = 0; d < 7; d++) { let t = 0; for (let k = 0; k < 24; k++) t += (wxAt(a + 24 * d + k) as HourWeather).P; if (t >= 1) rainDays++; }
+    for (const id of IDS) {
+      const r = simulate({ spId: id, year: y, plantH: PARTY, wxAt, policy: goodCare({ pause: [a - pre, a + 168], cover: false }), endH: Math.min(NH, a + 168 + 72) });
+      res.n++;
+      if (rainDays >= 3) res.spread.n++;
+      for (const x of r.rec) if (x.h > a) { res.maxR = Math.max(res.maxR, x.s.R); res.maxO = Math.max(res.maxO, x.s.O); }
+      const d = deathOf(r);
+      if (d.dead) { res.deaths++; if (rainDays >= 3) res.spread.deaths++; if (d.rot) res.rot++; }
+    }
+  };
+  for (const i of [0.5, 1, 1.5, 2, 3]) for (const n of [48, 72, 96, 120]) for (const d0 of [1, 4, 8]) for (const y of YEARS) {
+    const b = rowsFor(y), a = W(d0, 0);
+    one(y, a, (h) => (h >= a && h < a + n ? { ...b[h], P: i, SW: b[h].SW * 0.3, ET0: b[h].ET0 * 0.3, RH: 97 } : b[h]));
+  }
+  for (const [y, d] of [[2024, 21], [2024, 3]] as const) for (const k of [1.5, 2, 3]) {
+    const b = rowsFor(y), a = W(d, 0);
+    one(y, a, (h) => (h >= a && h < a + 168 ? { ...b[h], P: b[h].P * k } : b[h]));
+  }
+  return res;
+}
+
+/**
+ * Good care until the grafted 2023 wet week begins (graft day gd), then one can a day at hh, rain or not, planted at the
+ * party: days from the first heavy shower to death, or null if it did not die of rot.
+ */
+export function wetAfterCare(y: Year, gd: number, hh: number, id: SpeciesId): number | null {
+  const g = graft(y, gd), a = W(gd, 0), care = goodCare();
+  const r = simulate({ spId: id, year: y, plantH: PARTY, wxAt: g.wx, policy: (h, hod, s, ctx) => (h < a ? care(h, hod, s, ctx) : hod === hh ? [{ kind: "water" }] : []), endH: Math.min(NH, a + 24 * 14) });
+  const t = soakTimes(r, g.anchor);
+  return t ? t.death : null;
 }
 
 export const range = (a: number[]) => (a.length ? [Math.min(...a), Math.max(...a)] : [NaN, NaN]);

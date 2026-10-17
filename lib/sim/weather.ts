@@ -10,7 +10,8 @@
 // Missing data is never invented for the water balance: an hour without temperature, humidity, precipitation, radiation
 // or ET0 is left out, and replay stops there until it is backfilled. Only the three inputs the prototype itself defaulted
 // get a fallback: wind 5 km/h, soil temperature = air temperature (the forecast's last hours carry no soil temperature),
-// and isDay from the sun (SW > 0).
+// and isDay from the sun (SW > 0). step() also runs every row through cleanWx (model.ts) as a last line of defence, so a
+// broken field can never turn a stored plant into NaN, but only complete rows belong in the store.
 //
 // Soil temperature is the 0-7 cm layer, the layer the model was calibrated on (ERA5-Land in the archive); the forecast API
 // serves the same variable. The 0 cm skin temperature runs several degrees hotter at noon and would quicken the rot clock,

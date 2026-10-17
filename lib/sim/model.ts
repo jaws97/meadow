@@ -1,15 +1,27 @@
-// The Disney Garden plant model, SIM_VERSION 4: a line-for-line TypeScript port of the locked scratch prototype
+// The Disney Garden plant model, SIM_VERSION 5: a line-for-line TypeScript port of the locked scratch prototype
 // (sim/model.js). One step() is one real hour of a seedling-scale plant (grams, not a shrub) in a raised bed in
-// Bangalore. Water, weather, damage, pests, nitrogen and biomass run in real time. Development runs in honest thermal time,
-// slowed by what the plant goes through (water stress, rotting roots, salt, pests, nitrogen, drought injury, a stunted
-// plant). Nothing aims a plant at a date and there is no shared bloom: every plant keeps its own clock from its own
-// planting hour. Good care in typical Bangalore November weather brings the bud to maturity on day 13 and it opens at dusk
-// on day 14 after planting; neglect blooms later and smaller, or never. A late planter has the same chance as one who
-// planted at the party: only care and the weather each plant meets decide its size and bloom day.
+// Bangalore. Water, weather, damage, pests, nitrogen and biomass run in real time.
+//
+// Development runs in thermal time with a broad optimum plateau (17 degC up to each species' Topt, as crop phenology
+// models use), so Bangalore's November barely moves it; what the plant goes through slows it: a sustained drought signal
+// (not a dry afternoon), rotting roots, salt, a heavy pest load (not a few nibbles), nitrogen, drought injury, a clearly
+// stunted plant. Care, not the weather, decides the bloom: good care brings the bud to maturity about 13.25 days after
+// planting whatever the planting day or hour; neglect blooms later and smaller, or never. There is no shared bloom: every
+// plant keeps its own clock from its own planting hour, and a late planter has the same chance as one who planted at the
+// party.
+//
+// A mature bud opens at its natural hour: rose, sundrop, marigold and Te Fiti's with the morning light (half open by
+// 08:00), magnolia over the morning (half open by 09:00), Night Jasmine at dusk (18:00). Petals open only in their own part
+// of the day (openWindow), so a wilted bud that has not finished pauses and finishes the next morning (or dusk). The plant
+// asks for water ("ready for a drink") well before the drought signal can slow its bud, so a player who waters only when
+// asked, twice a day at any hours, gets the 13-15 day bloom. After the one Fairy Dust revival is used, a plant that dies
+// again can be replanted as a sprout whose flower is capped at 0.7. Damping-off runs on the water the bed has to shed each
+// day; rain's share of that flush is capped just below the infection threshold, so rain alone never builds a rot dose
+// while cans on a rain-soaked bed do.
 //
 // Pure and deterministic: no Date, no Math.random, no module state, and inputs are never mutated, so a state can be
 // stored as JSON and stepped on any server. The equations, their order and every constant match the prototype; the parity
-// test replays the prototype's golden file (golden-v4.json) to 1e-9. Change a number here only together with a new
+// test replays the prototype's golden file (golden-v5.json) to 1e-9. Change a number here only together with a new
 // SIM_VERSION and a regenerated golden file.
 //
 // Hour index h counts whole hours from GAME_START (10 Nov 2026 00:00 IST), so the IST clock hour is h % 24. step() for
@@ -20,11 +32,11 @@ import { TWIN } from "./twin";
 export { TWIN };
 export type { TwinEntry } from "./twin";
 
-export const SIM_VERSION = 4;
+export const SIM_VERSION = 5;
 /** h = 0: 10 Nov 2026 00:00 IST, the day of the party. */
 export const GAME_START = "2026-11-10T00:00+05:30";
-/** 10 Nov 17:00 IST: the seeds are handed out at the party. */
-export const PLANT_OPEN_H = 17;
+/** 10 Nov 15:00 IST: the party starts and the seeds are handed out. */
+export const PLANT_OPEN_H = 15;
 /** 11 Dec 00:00 IST: the last planting hour is 10 Dec 23:00-23:59. */
 export const PLANT_CLOSE_H = 744;
 
@@ -41,6 +53,7 @@ export const BED = Object.freeze({
   thW: 0.32,                                     // wet-soil theta: a can or shower above it has "wetted" the root zone
   tauQ: 24, Qt: 14, Qs: 7.5,                      // flush memory (h); daily flush (mm/day) above which the rot dose builds, and
                                                  // the further mm/day for the full rate of 1 dose hour per hour
+  Qrmax: 13,                                     // rain's share of the daily flush counts in full only up to this (mm/day, < Qt)
   Olag: 12, Ocap: 36, tauO: 8,                   // infection lag and cap (dose hours); dose decay once the flush stops (h)
   kR: 0.0076, Q10: 2,                            // damping-off /h at 24 dose hours and 25 degC soil (2 kR at the cap); Q10
   kDes: 0.06,                                    // desiccation (leaf-edge) scorch per sunny dry hour
@@ -48,10 +61,21 @@ export const BED = Object.freeze({
   dampF: 0.15, Nrich: 10, richH: 4,              // can advice "damp" below this depletion; feed advice "rich" at root-zone
                                                  // N >= Nrich mg/kg with NNI >= 0.9, and hours the plant says so after a feed
   thFresh: 0.34,                                 // theta of a fresh heavy shower that earns a calm rain line before any dose
-  devA: 0.5, devInj: 0.2,                        // development lost at a full drought signal; slowing per unit drought injury
+  devA: 0.7, devInj: 0.2,                        // development lost at a full drought signal; slowing per unit drought injury
+  aba0: 0.3,                                     // the bud slows only once the drought signal passes this (a sustained deficit)
+  pest0: 0.1, pestDev: 0.3,                      // pest damage that does not hold the bud back; slowing at the 0.6 damage cap
   abaUp: 3, abaRec: 20,                          // drought signal rise and recovery times (h)
-  abaF0: 0.25, abaDp: 0.05, budK: 0.4,           // the signal starts at depletion abaF0 and is full at p + abaDp; its cost to the bud
-  expDev: 0.95,                                  // expectBloom assumes good care: development at this share of the stress-free rate
+  abaF0: 0.35, abaDp: 0.05, budK: 0.4,           // the signal starts at depletion abaF0 and is full at p + abaDp; its cost to the
+                                                 // flower's size while the bud forms (the whole signal, not only above aba0)
+  expDev: 0.985,                                 // expectBloom assumes good care: development at this share of the stress-free
+                                                 // rate (fitted by the prototype's run.mjs calib)
+  coverH: 3,                                     // cover advice: while it rains, then for up to this many hours while the bed
+                                                 // still flushes (Qd >= Qt); never once the dose falls
+  sproutD: 0.1, replantCap: 0.7,                 // a replant after Fairy Dust starts as a sprout (D 0.1); its flower is capped at 0.7
+  readyF: 0.2, readyAmF: 0.15,                   // "ready for a drink" (canAdvice 'ready') above this depletion (below abaF0); in
+  readyAmFrom: 5, readyAmTo: 12,                 // the morning (readyAmFrom to readyAmTo h) above readyAmF, as soon as it is not damp
+  dawnH: 6, duskH: 17,                           // petals open only in their part of the day: morning flowers openHod..duskH,
+                                                 // Night Jasmine openHod..dawnH (across midnight)
 });
 export type Bed = typeof BED;
 
@@ -69,11 +93,15 @@ export interface SimSpecies {
   /** drought and waterlogging tolerance (divide the damage rates) */
   readonly tolD: number;
   readonly tolW: number;
-  /** cardinal temperatures, degC */
+  /**
+   * cardinal temperatures, degC: development is zero at Tb, rises to the lower optimum Tlo, is flat from Tlo to Topt and
+   * falls to zero at Tmax; growth keeps its own response
+   */
   readonly Tb: number;
+  readonly Tlo: number;
   readonly Topt: number;
   readonly Tmax: number;
-  /** thermal time from seed to a mature bud, degC.d (game-tuned) */
+  /** thermal time from seed to a mature bud, degC.d (game-tuned); TT / (Tlo - Tb) optimal days */
   readonly TT: number;
   /** what the real plant would need, degC.d, where known (informational) */
   readonly TTreal: number | null;
@@ -99,20 +127,21 @@ export interface SimSpecies {
   readonly truth: string;
 }
 
-// * game-tuned or estimated. Tb/Topt/Tmax degC, TT degC.d (seed to a mature bud), RUE g/MJ PAR, SLA m2/g, dLeaf m.
-// Every flower opens at dusk (the agreed reveal moment); magnolia opens slowly from dawn and is open by dusk.
+// * game-tuned or estimated. Tb/Tlo/Topt/Tmax degC, TT degC.d (seed to a mature bud), RUE g/MJ PAR, SLA m2/g, dLeaf m.
+// Morning flowers start opening at 06:00 and are half open by 08:00 (magnolia, slower, by 09:00); Night Jasmine at 17:00,
+// half open by 18:00.
 export const SIM_SPECIES: Readonly<Record<SpeciesId, SimSpecies>> = Object.freeze({
-  rose: Object.freeze<SimSpecies>({ id: "rose", name: "Enchanted Rose", p: 0.40, wilt: 0.30, Zrmax: 0.085, tolD: 1.1, tolW: 1.0, Tb: 5.2, Topt: 27, Tmax: 42.7, TT: 209.2, TTreal: 1000, RUE: 2.2, SLA: 0.020, Tcrit: 43, dLeaf: 0.088, openHod: 17, openDur: 2, mites: 0.5, blackSpot: true,
+  rose: Object.freeze<SimSpecies>({ id: "rose", name: "Enchanted Rose", p: 0.40, wilt: 0.30, Zrmax: 0.085, tolD: 1.1, tolW: 1.0, Tb: 5.2, Tlo: 17, Topt: 27, Tmax: 42.7, TT: 155.8, TTreal: 1000, RUE: 2.2, SLA: 0.020, Tcrit: 43, dLeaf: 0.088, openHod: 6, openDur: 4, mites: 0.5, blackSpot: true,
     truth: "A germinated seedling of a repeat-flowering rose usually shows its first small flower after about 6-10 weeks; here it takes 2." }),
-  sundrop: Object.freeze<SimSpecies>({ id: "sundrop", name: "Sundrop", p: 0.45, wilt: 0.50, Zrmax: 0.10, tolD: 1.1, tolW: 0.96, Tb: 6, Topt: 28, Tmax: 40, TT: 205.4, TTreal: 900, RUE: 2.5, SLA: 0.025, Tcrit: 45, dLeaf: 0.04, openHod: 17, openDur: 2, mites: 0.3,
+  sundrop: Object.freeze<SimSpecies>({ id: "sundrop", name: "Sundrop", p: 0.45, wilt: 0.50, Zrmax: 0.10, tolD: 1.1, tolW: 0.96, Tb: 6, Tlo: 17, Topt: 28, Tmax: 40, TT: 145.5, TTreal: 900, RUE: 2.5, SLA: 0.025, Tcrit: 45, dLeaf: 0.04, openHod: 6, openDur: 4, mites: 0.3,
     truth: "A sunflower takes about two months from sowing to flower; here it takes 2 weeks." }),
-  magnolia: Object.freeze<SimSpecies>({ id: "magnolia", name: "Magnolia", p: 0.40, wilt: 0.08, Zrmax: 0.085, tolD: 1.05, tolW: 1.0, Tb: 5, Topt: 26, Tmax: 38, TT: 192.8, TTreal: null, RUE: 1.8, SLA: 0.012, Tcrit: 42, dLeaf: 0.10, openHod: 6, openDur: 24, mites: 0.3,
+  magnolia: Object.freeze<SimSpecies>({ id: "magnolia", name: "Magnolia", p: 0.40, wilt: 0.08, Zrmax: 0.085, tolD: 1.05, tolW: 1.0, Tb: 5, Tlo: 17, Topt: 26, Tmax: 38, TT: 156.8, TTreal: null, RUE: 1.8, SLA: 0.012, Tcrit: 42, dLeaf: 0.10, openHod: 6, openDur: 6, mites: 0.3,
     truth: "A magnolia grown from seed usually takes a decade or more to flower. This one is pure magic." }),
-  marigold: Object.freeze<SimSpecies>({ id: "marigold", name: "Marigold", p: 0.50, wilt: 0.45, Zrmax: 0.08, tolD: 1.2, tolW: 0.96, Tb: 6, Topt: 26, Tmax: 38, TT: 196.9, TTreal: 1000, RUE: 2.4, SLA: 0.030, Tcrit: 44, dLeaf: 0.025, openHod: 17, openDur: 2, mites: 1.0,
+  marigold: Object.freeze<SimSpecies>({ id: "marigold", name: "Marigold", p: 0.50, wilt: 0.45, Zrmax: 0.08, tolD: 1.2, tolW: 0.96, Tb: 6, Tlo: 17, Topt: 26, Tmax: 38, TT: 143.5, TTreal: 1000, RUE: 2.4, SLA: 0.030, Tcrit: 44, dLeaf: 0.025, openHod: 6, openDur: 4, mites: 1.0,
     truth: "An African marigold flowers about 6-8 weeks after sowing; here it takes 2." }),
-  tefiti: Object.freeze<SimSpecies>({ id: "tefiti", name: "Te Fiti's Bloom", p: 0.35, wilt: 0.50, Zrmax: 0.085, tolD: 1.1, tolW: 1.0, Tb: 11, Topt: 29, Tmax: 42, TT: 135.3, TTreal: null, RUE: 2.2, SLA: 0.022, Tcrit: 45, dLeaf: 0.18, openHod: 17, openDur: 2, mites: 0.3, budDrop: true,
+  tefiti: Object.freeze<SimSpecies>({ id: "tefiti", name: "Te Fiti's Bloom", p: 0.35, wilt: 0.50, Zrmax: 0.085, tolD: 1.1, tolW: 1.0, Tb: 9, Tlo: 17, Topt: 29, Tmax: 42, TT: 105.6, TTreal: null, RUE: 2.2, SLA: 0.022, Tcrit: 45, dLeaf: 0.18, openHod: 6, openDur: 4, mites: 0.3, budDrop: true,
     truth: "Hibiscus and tiare grown from seed take one to several years to flower. This one is magic." }),
-  jasmine: Object.freeze<SimSpecies>({ id: "jasmine", name: "Night Jasmine", p: 0.50, wilt: 0.35, Zrmax: 0.085, tolD: 1.15, tolW: 0.95, Tb: 10, Topt: 28, Tmax: 38, TT: 153.7, TTreal: null, RUE: 2.0, SLA: 0.020, Tcrit: 42, dLeaf: 0.07, openHod: 17, openDur: 2, mites: 0.3, nightBloom: true,
+  jasmine: Object.freeze<SimSpecies>({ id: "jasmine", name: "Night Jasmine", p: 0.50, wilt: 0.35, Zrmax: 0.085, tolD: 1.15, tolW: 0.95, Tb: 10, Tlo: 17, Topt: 28, Tmax: 38, TT: 92.6, TTreal: null, RUE: 2.0, SLA: 0.020, Tcrit: 42, dLeaf: 0.07, openHod: 17, openDur: 2, mites: 0.3, nightBloom: true,
     truth: "A parijat raised from seed or a cutting usually needs a year or more before it flowers. This one is magic." }),
 });
 
@@ -132,11 +161,14 @@ export interface HourWeather {
   ET0: number;
   /** wind speed at 10 m, km/h */
   U: number;
-  /** soil temperature 0-7 cm, degC (the model falls back to T when it is missing) */
+  /** soil temperature 0-7 cm, degC (cleanWx falls back to T when it is missing) */
   Ts: number;
   /** 1 while the sun is up */
   isDay: 0 | 1;
 }
+
+/** A weather row as it may arrive from a live API or storage: any field may be missing or not a number. */
+export type LooseWeather = { readonly [K in keyof HourWeather]?: unknown };
 
 /** The hour argument of step(): the hour index and its weather. The IST clock hour is always h % 24. */
 export interface HourInput {
@@ -193,8 +225,11 @@ export interface PlantState {
   Dw: number;
   Ds: number;
   Dd: number;
-  /** water drained through the root zone over about the last day (mm/day) */
+  /** the daily flush that drives the rot dose (mm/day): Qc + min(Qr, Qrmax) */
   Qd: number;
+  /** water drained through the root zone over about the last day (mm/day), the share from care water and from rain */
+  Qc: number;
+  Qr: number;
   /** damping-off dose (dose hours) and root rot 0..1 */
   O: number;
   R: number;
@@ -238,6 +273,10 @@ export interface PlantState {
   richH: number;
   lastCanH: number;
   lastFeedH: number;
+  /** flower cap: 1, or replantCap for a second-chance sprout */
+  cap: number;
+  /** hours since the last hour with rain falling (cover or not), at most 99 */
+  dryH: number;
   /** rain and care water that reached the bed (mm, 12 h memory) */
   wR: number;
   wC: number;
@@ -259,12 +298,23 @@ export interface PlantState {
 /** Every line a plant can say, in the order toVisual() checks them. */
 export const PLANT_LINES = [
   "gone to sleep",
+  // rain-soaked or soggy (the wet lines; the "sick" forms name rotting or damaged roots)
+  "the soil is soaked and my roots are sick",
   "the soil is soaked, let it breathe",
+  "the rain soaked the soil; my roots are still mending",
   "the rain soaked the soil; it will drain soon",
+  "the rain cover is on, but my roots are sick",
   "the rain cover is on; my roots will slowly dry out",
+  "the rain keeps my sick roots wet; a rain cover would help",
   "the rain keeps my roots wet; a rain cover would help",
-  "the soil is draining; let it dry a little",
+  "the rain has stopped, but my roots are soaked and sick",
+  "the rain has stopped, but my roots are still soaked",
+  "the rain has stopped, but my roots are sick",
+  "the rain has stopped; my roots are slowly drying out",
   "very tired, would love water today",
+  "a little thirsty, but my roots are sick",
+  "my roots are sick from too much water; let the soil dry",
+  "the soil is draining; let it dry a little",
   "a little thirsty; my roots are still mending",
   "roots recovering; may look worse before better",
   "too much food; a deep drink will flush it",
@@ -273,17 +323,29 @@ export const PLANT_LINES = [
   "recovering; new leaves will replace the yellow ones",
   "drooping in the afternoon heat",
   "a little thirsty",
+  "in bloom; a smaller second-chance flower",
   "in bloom",
   "my petals are opening",
+  "my petals will finish opening with the morning light",
+  "my petals will finish opening at dusk",
   "my bud will open with the morning light",
+  "my bud will open with the morning light; a smaller flower this time",
   "my bud will open at dusk",
+  "my bud will open at dusk; a smaller flower this time",
+  "ready for a drink",
   "growing slowly in the shade",
+  "a second-chance sprout; my flower will be smaller",
   "happy",
 ] as const;
 export type PlantLine = (typeof PLANT_LINES)[number];
-export type PlantMood = "resting" | "blooming" | "soggy" | "thirsty" | "content";
-/** "damp": the UI asks "the soil is still damp, water anyway?" before a can. */
-export type CanAdvice = "damp" | "ok" | "thirsty";
+/** "unwell" while the roots are rotting, or health is very low for any reason but thirst. */
+export type PlantMood = "resting" | "unwell" | "blooming" | "soggy" | "thirsty" | "content";
+/**
+ * "damp": the UI asks "the soil is still damp, water anyway?" before a can. "ready": a gentle "ready for a drink" cue;
+ * "thirsty": a stronger thirst cue. ready and thirsty are the plant asking for water, and a player who waters only then
+ * keeps the bud on time. ready never shows together with damp.
+ */
+export type CanAdvice = "damp" | "ok" | "ready" | "thirsty";
 /** "rich": the UI warns "my bed is already rich"; "ok" is no warning, not a promise of growth. */
 export type FeedAdvice = "rich" | "ok";
 
@@ -300,7 +362,7 @@ export interface Visual {
   pests: number;
   size: number;
   turgor: number;
-  /** flower head: 0 until buds form (D 0.64), full size by D 0.95, smaller after stress while budding */
+  /** flower head: 0 until buds form (D 0.64), full size by D 0.95, smaller after stress while budding, capped after a replant */
   flower: number;
   puddle: 0 | 1;
   /** 0..5 */
@@ -341,10 +403,14 @@ export function Bideal(sp: SimSpecies, D: number): number {
   const tab = TWIN[sp.id].tab, x = clamp(D, 0, 1) * 20, i = Math.min(19, Math.floor(x));
   return tab[i] + (tab[i + 1] - tab[i]) * (x - i);
 }
-/** Thermal time of one hour, degC.d (linear to Topt, linear decline to Tmax). */
+/**
+ * Thermal time of one hour, degC.d: linear from Tb to the lower optimum Tlo, a plateau to Topt, linear decline to Tmax.
+ * On the plateau a day is worth (Tlo - Tb) degC.d, so TT / (Tlo - Tb) is the number of optimal days to a mature bud.
+ */
 export function ttHour(sp: SimSpecies, T: number): number {
-  const r = T <= sp.Topt ? Math.max(0, T - sp.Tb) : (sp.Topt - sp.Tb) * Math.max(0, (sp.Tmax - T) / (sp.Tmax - sp.Topt));
-  return r / 24;
+  const r = T <= sp.Tb ? 0 : T < sp.Tlo ? (T - sp.Tb) / (sp.Tlo - sp.Tb) : T <= sp.Topt ? 1
+    : Math.max(0, (sp.Tmax - T) / (sp.Tmax - sp.Topt));
+  return r * (sp.Tlo - sp.Tb) / 24;
 }
 function fTg(sp: SimSpecies, T: number): number { // growth temperature trapezoid
   if (T <= sp.Tb || T >= sp.Tmax) return 0;
@@ -364,20 +430,61 @@ export function leafArea(s: PlantState, sp: SimSpecies): number {
 export function soilN(s: PlantState): number { return s.Ns / (BED.rho * BED.A * s.Zr); }
 /** A feed adds no growth once the plant is N-sufficient (fN = 1 at NNI >= 0.9) and the bed still holds plenty. */
 export function nRich(s: PlantState): boolean { return s.NNI >= 0.9 && soilN(s) >= BED.Nrich; }
-/** Planting (and replanting) is open from the party, 10 Nov 17:00, to 10 Dec 23:59 IST. */
+/** Planting (and replanting) is open from the party, 10 Nov 15:00, to 10 Dec 23:59 IST. */
 export function canPlant(h: number): boolean { return h >= PLANT_OPEN_H && h < PLANT_CLOSE_H; }
+/** Rose, sundrop, magnolia, marigold and Te Fiti's open with the morning light; Night Jasmine at dusk. */
+export function opensInMorning(sp: SimSpecies): boolean { return sp.openHod < 12; }
 /**
- * Development rate as a share of the stress-free rate. The drought signal (aba: an ABA-like stress hormone, 0..1) slows
- * it most; drought injury, pests, nitrogen shortage and a plant stunted below its ideal twin slow it further.
+ * The petals of a mature bud open only in their own part of the day: a morning flower from first light to duskH, Night
+ * Jasmine from dusk to dawnH. A wilted bud that is still opening when its window closes waits for the next one.
+ */
+export function openWindow(sp: SimSpecies, hod: number): boolean {
+  return opensInMorning(sp) ? hod >= sp.openHod && hod < BED.duskH : hod >= sp.openHod || hod < BED.dawnH;
+}
+
+/** cleanWx's last-resort values for a field with no usable value this hour or the previous one. */
+export const WX_FALLBACK = Object.freeze({ T: 22, RH: 75, P: 0, SW: 0, ET0: 0, U: 5 });
+function isNum(x: unknown): x is number { return typeof x === "number" && Number.isFinite(x); }
+/**
+ * Makes a weather row safe to step. Rows come from a live API and a catch-up replay, and a field that is not a finite
+ * number would poison the state for good (one NaN stays in W, D and B, and the plant then never blooms or dies). So a
+ * missing or non-finite T, RH, SW, ET0 or U falls back to prev (the previous hour, when the caller has it) and then to
+ * WX_FALLBACK; rain falls back to none; soil temperature to the air temperature; isDay to whether the sun is up (SW > 0).
+ * RH is clamped to 0..100 and P, SW, ET0 and U are floored at 0; nothing else is range-checked (an absurd but finite T or
+ * SW passes through), so weather.ts still validates rows before they are stored. step() runs every row through this
+ * with no prev, exactly as the prototype does.
+ */
+export function cleanWx(w?: LooseWeather | null, prev?: LooseWeather | null): HourWeather {
+  const a: LooseWeather = w || {}, b: LooseWeather = prev || {};
+  const T = isNum(a.T) ? a.T : isNum(b.T) ? b.T : WX_FALLBACK.T;
+  const RH = clamp(isNum(a.RH) ? a.RH : isNum(b.RH) ? b.RH : WX_FALLBACK.RH, 0, 100);
+  const P = isNum(a.P) ? Math.max(0, a.P) : 0;
+  const SW = Math.max(0, isNum(a.SW) ? a.SW : isNum(b.SW) ? b.SW : 0);
+  const ET0 = Math.max(0, isNum(a.ET0) ? a.ET0 : isNum(b.ET0) ? b.ET0 : 0);
+  const U = Math.max(0, isNum(a.U) ? a.U : isNum(b.U) ? b.U : WX_FALLBACK.U);
+  const Ts = isNum(a.Ts) ? a.Ts : T;
+  // the prototype keeps a boolean or numeric isDay as given; only its truthiness is ever read, so 0 | 1 is the same
+  const day = typeof a.isDay === "boolean" || isNum(a.isDay) ? !!a.isDay : SW > 0;
+  return { T, RH, P, SW, ET0, U, Ts, isDay: day ? 1 : 0 };
+}
+
+/**
+ * Development rate as a share of the stress-free rate. A sustained drought signal (aba: an ABA-like stress hormone, 0..1)
+ * slows it most, but only once it passes aba0: a meristem rides out a dry afternoon (the signal peaks and fades within the
+ * day) and is held back by a deficit that lasts, such as a dry weekend or a can every few days. Drought injury, a heavy
+ * pest load (light grazing below pest0 does not delay flowering), nitrogen shortage and a plant stunted below its ideal
+ * twin slow it further (the last only a little: a clearly stunted plant flowers later, a cloudy fortnight hardly delays it).
  */
 export function devFactor(s: PlantState, sp: SimSpecies, fN: number): number {
-  return (1 - BED.devA * s.aba) * (1 - BED.devInj * Math.min(1, s.Dw + s.Ds)) * (1 - 0.5 * s.Dpest)
-    * (0.7 + 0.3 * fN) * (0.8 + 0.2 * clamp01(s.B / Bideal(sp, s.D)));
+  return (1 - BED.devA * clamp01((s.aba - BED.aba0) / (1 - BED.aba0))) * (1 - BED.devInj * Math.min(1, s.Dw + s.Ds))
+    * (1 - BED.pestDev * clamp01((s.Dpest - BED.pest0) / (0.6 - BED.pest0)))
+    * (0.7 + 0.3 * fN) * (0.9 + 0.1 * clamp01(s.B / Bideal(sp, s.D)));
 }
 /**
- * The drought signal: roots in drying soil start it as depletion passes abaF0 (before the stomata close for most species)
- * and it is full just past p; sick or salted roots start it in wet soil. It builds within hours and fades over about a
- * day after a good drink, which is why a dry weekend costs most of a day of development, not just the hours spent dry.
+ * The drought signal: roots in drying soil start it as depletion passes abaF0 (0.35: at or before the point where the
+ * stomata start to close, p = 0.35-0.5) and it is full just past p; sick or salted roots start it in wet soil. It builds
+ * within hours and fades over about a day after a good drink. Only its part above aba0 slows the bud (devFactor), so a dry
+ * afternoon under good care costs almost nothing while a dry weekend costs about half a day to a day.
  */
 export function abaSignal(sp: SimSpecies, f: number, KsRoot: number, KsSalt: number): number {
   return Math.max(smooth(BED.abaF0, sp.p + BED.abaDp, f), 1 - KsRoot * KsSalt);
@@ -389,11 +496,13 @@ export function createPlant(speciesId: SpeciesId, plantedAtIndex: number, owner?
     v: SIM_VERSION, sp: speciesId, owner: owner == null ? null : owner, h: plantedAtIndex, plantedH: plantedAtIndex,
     hod: hodOf(plantedAtIndex), alive: true, gen: 1, fairyUsed: false, diedH: -1,
     W: Wx(BED.tfc, BED.Zr0), L: Wx(BED.tfc, BED.Zbed - BED.Zr0), Zr: BED.Zr0, turgor: 1,   // bed watered at planting
-    Dw: 0, Ds: 0, Dd: 0, Qd: 0, O: 0, R: 0, Sf: 0, Dsalt: 0, Ns: BED.N0 * BED.rho * BED.A * BED.Zr0, Np: 45 * BED.B0,
+    Dw: 0, Ds: 0, Dd: 0, Qd: 0, Qc: 0, Qr: 0, O: 0, R: 0, Sf: 0, Dsalt: 0, Ns: BED.N0 * BED.rho * BED.A * BED.Zr0, Np: 45 * BED.B0,
     B: BED.B0, D: 0, fDev: 1, aba: 0, Sc: 0, budS: 0, op: 0, ripeH: -1, bloomH: -1,
     shade: false, cover: false, shadeH: 0, naiveH: 0,
     Ps: 0, Pa: 0, Pm: 0, Dpest: 0, M: 0, Lw: 0, BS: 0,
     daySpr: 0, givers: [], budDropDay: -1, glowH: 0, richH: 0, lastCanH: -99, lastFeedH: -99,
+    cap: 1,
+    dryH: 99,
     wR: 0, wC: 0,
     cP: 0, cI: 0, cET: 0, cDP: 0, cRO: 0, cMag: 0,
     f: 0, Kse: 1, NNI: 1, EC: 0, Tleaf: 0,
@@ -416,14 +525,15 @@ function idDiff(a: LooseEvent, b: LooseEvent): number {
 function isOnOff(a: unknown): boolean { return a === 0 || a === 1 || a === true || a === false; }
 
 /**
- * Steps one hour. hour.h must equal state.h (replay.ts guarantees contiguous hours; step() does not check). Events are
- * validated here (the payload is never trusted): unknown kinds, a shade or cover without an explicit on/off, a sprinkle
- * without an actor or from the owner, and cans or feeds inside their rate limits are ignored. Returns a new state.
+ * Steps one hour. hour.h must equal state.h (replay.ts guarantees contiguous hours; step() does not check). The weather
+ * row goes through cleanWx first. Events are validated here (the payload is never trusted): unknown kinds, a shade or
+ * cover without an explicit on/off, a sprinkle without an actor or from the owner, and cans or feeds inside their rate
+ * limits are ignored. Returns a new state.
  */
 export function step(state: PlantState, hour: HourInput, events?: readonly SimEvent[] | null, sp?: SimSpecies | null): PlantState {
   sp = sp || SIM_SPECIES[state.sp];
   let s: PlantState = { ...state, givers: state.givers.slice() };
-  const w = hour.wx, h = hour.h, hod = hodOf(h);
+  const w = cleanWx(hour.wx, null), h = hour.h, hod = hodOf(h);
   if (h < s.plantedH) return s;
   let Zr = s.Zr, Wfc = Wx(BED.tfc, Zr), Wwp = Wx(BED.twp, Zr), Wsat = Wx(BED.ts, Zr), Wan = Wx(BED.tanox, Zr);
   let TAW = Wfc - Wwp;
@@ -443,16 +553,19 @@ export function step(state: PlantState, hour: HourInput, events?: readonly SimEv
     if (e.id != null) { const key = String(e.id); if (seen.has(key)) continue; seen.add(key); }   // idempotent retries
     if (k === "revive" && !s.alive && !s.fairyUsed) {
       s.cMag += Wfc - s.W; s.W = Wfc;                                        // Fairy Dust water is logged as magic
-      s.alive = true; s.fairyUsed = true; s.Dw = s.Ds = s.R = s.O = s.Qd = s.Dsalt = s.BS = 0;
+      s.alive = true; s.fairyUsed = true; s.Dw = s.Ds = s.R = s.O = s.Qd = s.Qc = s.Qr = s.Dsalt = s.BS = 0;
       s.Ps = s.Pa = s.Pm = s.Dpest = 0; s.Sc *= 0.5; s.Sf = 0; s.turgor = 0.5; s.aba = 0;
       s.B = Math.max(s.B, 0.6 * Bideal(sp, s.D));
     } else if (k === "replant" && !s.alive && s.fairyUsed && canPlant(h)) {
       const dz = s.Zr - BED.Zr0;
       const keep = { fairyUsed: true, gen: s.gen + 1, owner: s.owner, W: s.W * BED.Zr0 / s.Zr,
         L: s.L + s.W * dz / s.Zr, cP: s.cP, cI: s.cI, cET: s.cET, cDP: s.cDP, cRO: s.cRO, cMag: s.cMag, lastFeedH: s.lastFeedH,
-        wR: s.wR, wC: s.wC, Qd: s.Qd };              // the bed remembers its water; the dose restarts with the new roots
+        wR: s.wR, wC: s.wC, Qd: s.Qd, Qc: s.Qc, Qr: s.Qr }; // the bed remembers its water; the dose restarts with the new roots
       s = { ...createPlant(sp.id, h, s.owner), ...keep };                    // shed root-zone soil returns to the lower bed
-      I += BED.can; s.lastCanH = h;                                           // a fresh seed, watered in: the same rules as day one
+      // a second chance, gentle but not free: a sprout (past germination, about a day ahead of a seed) watered in, whose
+      // flower will be smaller
+      s.D = BED.sproutD; s.B = Bideal(sp, BED.sproutD); s.Np = 45 * s.B; s.cap = BED.replantCap;
+      I += BED.can; s.lastCanH = h;
       Zr = s.Zr; Wfc = Wx(BED.tfc, Zr); Wwp = Wx(BED.twp, Zr); Wsat = Wx(BED.ts, Zr); Wan = Wx(BED.tanox, Zr); TAW = Wfc - Wwp;
     } else if ((k === "shade" || k === "cover") && isOnOff(e.amount)) {
       const on = !!e.amount;
@@ -490,6 +603,7 @@ export function step(state: PlantState, hour: HourInput, events?: readonly SimEv
   W += Ikeep;
   s.cP += Pin; s.cI += I + Isp; s.cDP += DP; s.cRO += RO; s.cET += Isp - Ikeep;
   const km = Math.exp(-1 / BED.tauMem); s.wR = s.wR * km + Pin; s.wC = s.wC * km + I + Ikeep;
+  s.dryH = w.P >= 0.1 ? 0 : Math.min(99, s.dryH + 1);
 
   // 5. stress
   const f = Math.max(0, Wfc - W) / TAW;
@@ -511,14 +625,20 @@ export function step(state: PlantState, hour: HourInput, events?: readonly SimEv
   if (s.naiveH > 0) s.naiveH--;
   const theta = W / (1000 * Zr), wet = theta >= 0.33 || Pin > 0.2;
   s.M += ((wet ? 1 : 0) - s.M) / 24;                                          // mushrooms (harmless)
-  // Damping-off runs on the water the bed has to shed. Qd = the water drained through the root zone over about the last
-  // day (mm/day, 24 h memory). A free-draining bed only stays above field capacity, with free water in its pores for
+  // Damping-off runs on the water the bed has to shed. The flush = the water drained through the root zone over about the
+  // last day (mm/day, 24 h memory). A free-draining bed only stays above field capacity, with free water in its pores for
   // Pythium-type zoospores to swim and spread in, while more water arrives than the plant and the sun can use. The dose O
   // builds while Qd > Qt (more than about a can a day beyond what the bed loses) and decays once the flushing stops. A can
-  // at 09:00 or at 21:00 sheds the same water by the next day, so the clock does not depend on the hour of the can; a
-  // shower followed by sun sheds less than a can on top of a wet week. Soil temperature acts once, on the infection rate.
-  const fT = Math.pow(BED.Q10, ((w.Ts != null ? w.Ts : w.T) - 25) / 10);
-  s.Qd += (24 * Math.max(0, q - up) - s.Qd) * (1 - Math.exp(-1 / BED.tauQ));
+  // at 09:00 or at 21:00 sheds the same water by the next day, so the clock does not depend on the hour of the can.
+  // The flush is split by where the water came from (the 12 h rain and care memories): Qc from cans and sprinkles, Qr from
+  // rain. Rain counts in full only up to Qrmax, just below Qt: damping-off strikes at the stem collar, where a can is
+  // poured, while rain falls on the whole bed and, once the bed is at its drained limit, passes through or runs off the
+  // crowned surface. That is also the agreed game rule: rain alone never builds a rot dose; cans on a rain-soaked bed do.
+  // Soil temperature acts once, on the infection rate.
+  const fT = Math.pow(BED.Q10, (w.Ts - 25) / 10);
+  const qn = 24 * Math.max(0, q - up), kq = 1 - Math.exp(-1 / BED.tauQ), wm = s.wR + s.wC, cs = wm > 1e-9 ? s.wC / wm : 1;
+  s.Qc += (qn * cs - s.Qc) * kq; s.Qr += (qn * (1 - cs) - s.Qr) * kq;
+  s.Qd = s.Qc + Math.min(s.Qr, BED.Qrmax);
   s.O = s.Qd >= BED.Qt ? Math.min(BED.Ocap, s.O + Math.min(1, (s.Qd - BED.Qt) / BED.Qs))
     : s.O * Math.exp(-(BED.Qt - s.Qd) / BED.Qt / BED.tauO);
   if (!s.alive) { s.turgor += (0 - s.turgor) * 0.1; return s; }
@@ -581,7 +701,7 @@ export function step(state: PlantState, hour: HourInput, events?: readonly SimEv
     s.W += mv; s.L -= mv; s.Ns += BED.N0 * BED.rho * BED.A * dzr; s.Zr = Zn;
   }
 
-  // 12. development in honest thermal time, slowed by stress; germination needs moist soil
+  // 12. development in thermal time (flat across the optimum plateau), slowed by stress; germination needs moist soil
   const sig = abaSignal(sp, f, KsRoot, KsSalt);
   s.aba += (sig - s.aba) * (1 - Math.exp(-1 / (sig > s.aba ? BED.abaUp : BED.abaRec)));
   s.fDev = devFactor(s, sp, fN);
@@ -589,9 +709,9 @@ export function step(state: PlantState, hour: HourInput, events?: readonly SimEv
   if (s.D >= 0.64 && s.D < 0.85) s.budS += BED.budK * s.aba * dD / 0.21;    // the drought signal while the bud forms costs flower size
   s.D = Math.min(1, s.D + dD);
   if (sp.budDrop && f > 0.7 && s.D >= 0.64 && s.D < 0.85 && s.budDropDay !== day) { s.D -= 0.04; s.budDropDay = day; }
-  if (s.D >= 1) {                         // a mature bud opens at the species' opening hour; petals need turgor to expand
+  if (s.D >= 1) {          // a mature bud opens at its natural hour (first light, or dusk); petals need turgor to expand
     if (s.ripeH < 0) s.ripeH = h + 1;
-    if (s.op < 1 && (s.op > 0 || hod === sp.openHod)) s.op = Math.min(1, s.op + smooth(0.3, 0.7, s.turgor) / sp.openDur);
+    if (s.op < 1 && openWindow(sp, hod) && (s.op > 0 || hod === sp.openHod)) s.op = Math.min(1, s.op + smooth(0.3, 0.7, s.turgor) / sp.openDur);
     if (s.op >= 0.5 && s.bloomH < 0) s.bloomH = h + 1;
   }
 
@@ -619,7 +739,8 @@ export function climAt(climT: readonly number[], k: number): number {
 /**
  * When the bud should mature and the flower open if care stays good from now: mean weather (climT, see climate.ts) and
  * development at expDev of the stress-free rate, which is what good care achieves on average; a single plant can be a
- * day either side. Returns null when the plant is not alive.
+ * day either side. The petals open only inside the flower's own part of the day, as in step(). Returns null when the
+ * plant is not alive.
  */
 export function expectBloom(s: PlantState, sp: SimSpecies | null | undefined, hour: { h: number; climT: readonly number[] }): BloomForecast | null {
   sp = sp || SIM_SPECIES[s.sp];
@@ -628,7 +749,7 @@ export function expectBloom(s: PlantState, sp: SimSpecies | null | undefined, ho
   const lim = k + 24 * 90;
   for (; bloom < 0 && k < lim; k++) {
     if (D < 1) { D += ttHour(sp, climAt(hour.climT, k)) * BED.expDev / sp.TT; if (D >= 1) { D = 1; ripe = k + 1; } }
-    if (D >= 1 && (op > 0 || hodOf(k) === sp.openHod)) { op += 1 / sp.openDur; if (op >= 0.5) bloom = k + 1; }
+    if (D >= 1 && openWindow(sp, hodOf(k)) && (op > 0 || hodOf(k) === sp.openHod)) { op += 1 / sp.openDur; if (op >= 0.5) bloom = k + 1; }
   }
   return { ripeH: ripe, bloomH: bloom, days: bloom < 0 ? null : (bloom - s.plantedH) / 24 };
 }
@@ -671,23 +792,53 @@ export function toVisual(s: PlantState, sp?: SimSpecies | null, clock?: number):
   const soggy = theta >= BED.tfc && (dosing || theta > BED.tanox), thirsty = f > 0.4 || (s.turgor < 0.85 && f > 0.3);
   const salty = s.EC > 3 || s.Dsalt > 0.15, byRain = s.wR > s.wC && s.wR >= 1;  // recent rain outweighs recent cans (12 h memory)
   const freshRain = byRain && !dosing && theta >= BED.thFresh;                    // a heavy shower that has not built a dose yet
-  const budReady = D >= 1 && s.op < 0.5;
-  const mood: PlantMood = !s.alive ? "resting" : bloomNow ? "blooming" : soggy || freshRain ? "soggy"
-    : thirsty ? "thirsty" : (Dd > 0.15 || night || salty) ? "resting" : "content";
-  // rain-soaked: reassure only while the rot dose is low; once it builds, suggest the cover instead of "it will drain soon"
-  const wet: PlantLine = !byRain ? "the soil is soaked, let it breathe" : !dosing ? "the rain soaked the soil; it will drain soon"
-    : s.cover ? "the rain cover is on; my roots will slowly dry out" : "the rain keeps my roots wet; a rain cover would help";
+  // a mature bud waits for its opening hour; once it starts, the petals open over openDur hours (slower when wilted)
+  const budReady = D >= 1 && s.op === 0, opening = D >= 1 && s.op > 0 && s.op < 1, second = s.cap < 1;
+  // The plant asks for a drink well before the drought signal starts (readyF 0.2 < abaF0 0.35). A sunny day dries a
+  // seedling's small root zone by a quarter to a third of its available water, so asking only at real thirst (0.4) would
+  // leave a player who waits for the cue with dry afternoons that slow the bud. In the morning the whole day's drying is
+  // still ahead, so it asks as soon as the soil is no longer damp. Never while the can warns that the soil is still damp
+  // (a bed still draining a rot dose counts as damp up to 0.3).
+  const damp = f < BED.dampF || (dosing && f < 0.3);
+  const ready = !damp && f > (t >= BED.readyAmFrom && t < BED.readyAmTo ? BED.readyAmF : BED.readyF);
+  // the roots are rotting right now (R rises only while the dose is above the infection lag): never calm
+  const rotting = s.alive && s.O > BED.Olag && s.R > 0.05;
+  const danger = s.alive && (rotting || (health < 0.3 && !thirsty));
+  // real thirst outranks the blooming mood: a flower drying out must not look serene
+  const mood: PlantMood = !s.alive ? "resting" : danger ? "unwell" : thirsty && !soggy ? "thirsty" : bloomNow ? "blooming" : soggy || freshRain ? "soggy"
+    : (Dd > 0.15 || night || salty) ? "resting" : "content";
+  // Rain-soaked: reassure only while the rot dose is low; once it builds, suggest the cover while it rains, or in the
+  // first coverH hours after the rain only while the bed is still flushing (the dose rising: Qd >= Qt); a cover cannot take
+  // back water already in the bed. After that the plant says the rain has stopped: still soaked while the bed keeps
+  // flushing, drying once the dose falls. Roots that are rotting or damaged (R > 0.12) are named in every wet line, so a
+  // plant dying of rot never reads calm.
+  const sickRoots = rotting || s.R > 0.12;
+  const wet: PlantLine = !byRain ? (sickRoots ? "the soil is soaked and my roots are sick" : "the soil is soaked, let it breathe")
+    : !dosing ? (sickRoots ? "the rain soaked the soil; my roots are still mending" : "the rain soaked the soil; it will drain soon")
+    : s.cover ? (sickRoots ? "the rain cover is on, but my roots are sick" : "the rain cover is on; my roots will slowly dry out")
+    : s.dryH === 0 || (s.dryH < BED.coverH && s.Qd >= BED.Qt)
+      ? (sickRoots ? "the rain keeps my sick roots wet; a rain cover would help" : "the rain keeps my roots wet; a rain cover would help")
+    : s.Qd >= BED.Qt ? (sickRoots ? "the rain has stopped, but my roots are soaked and sick" : "the rain has stopped, but my roots are still soaked")
+    : sickRoots ? "the rain has stopped, but my roots are sick" : "the rain has stopped; my roots are slowly drying out";
+  const bud: PlantLine = opensInMorning(sp)
+    ? (second ? "my bud will open with the morning light; a smaller flower this time" : "my bud will open with the morning light")
+    : (second ? "my bud will open at dusk; a smaller flower this time" : "my bud will open at dusk");
+  // a wilted bud still opening when its part of the day ends finishes in the next one
+  const paused: PlantLine = opensInMorning(sp) ? "my petals will finish opening with the morning light" : "my petals will finish opening at dusk";
   // thirst outranks old root damage: a plant drying out says so, even while its roots are still mending
   const says: PlantLine = !s.alive ? "gone to sleep" : soggy || freshRain ? wet
-    : dosing && f < BED.dampF ? "the soil is draining; let it dry a little"
     : Dd > 0.5 && f > 0.4 ? "very tired, would love water today"
+    : rotting ? (f > 0.4 ? "a little thirsty, but my roots are sick" : "my roots are sick from too much water; let the soil dry")
+    : dosing && f < BED.dampF ? "the soil is draining; let it dry a little"
     : s.R > 0.12 ? (f > 0.4 ? "a little thirsty; my roots are still mending" : "roots recovering; may look worse before better")
     : salty ? "too much food; a deep drink will flush it"
     : s.richH > 0 ? "my bed is already rich"
     : s.Ds > 0.075 ? (f > 0.4 ? "thirsty; a few lower leaves yellowing" : "recovering; new leaves will replace the yellow ones")
-    : s.turgor < 0.9 && f > 0.3 ? "drooping in the afternoon heat" : f > 0.4 ? "a little thirsty" : bloomNow ? "in bloom"
-    : budReady ? (s.op > 0 ? "my petals are opening" : sp.openDur > 6 ? "my bud will open with the morning light" : "my bud will open at dusk")
-    : s.shade && !night ? "growing slowly in the shade" : "happy";
+    : s.turgor < 0.9 && f > 0.3 ? "drooping in the afternoon heat" : f > 0.4 ? "a little thirsty"
+    : bloomNow ? (second ? "in bloom; a smaller second-chance flower" : "in bloom")
+    : opening ? (openWindow(sp, t) ? "my petals are opening" : paused) : budReady ? bud
+    : ready ? "ready for a drink"
+    : s.shade && !night ? "growing slowly in the shade" : second && s.bloomH < 0 ? "a second-chance sprout; my flower will be smaller" : "happy";
   let yaw = 90;
   if (sp.id === "sundrop" && D < 0.85 && t >= 6 && t <= 18) yaw = 105 + (t - 6) * 12.5;
   return {
@@ -697,14 +848,16 @@ export function toVisual(s: PlantState, sp?: SimSpecies | null, clock?: number):
     chlorosis: clamp01(Math.max(3 * s.Ds, nDef, 0.5 * s.Dsalt)), rot: rot,
     pests: clamp01(Math.max(s.Ps, s.Pa, s.Pm)),
     size: size, turgor: s.turgor,
-    // flower head: 0 until buds form (D 0.64); the bud grows to full size by D 0.95; stress while the bud formed and a
-    // stunted plant make it smaller. Nothing about the planting date enters.
-    flower: !s.alive || D < 0.64 ? 0 : (0.3 + 0.7 * smooth(0.64, 0.95, D)) * (0.6 + 0.4 * Q) * (0.7 + 0.3 * clamp01((size - 0.5) / 0.5)),
+    // flower head: 0 until buds form (D 0.64); the bud grows to full size by D 0.95; drought stress while the bud formed
+    // makes it smaller, a stunted plant a little smaller (flower size is far less plastic than plant mass, so a cloudy
+    // fortnight that halves the plant costs the flower about a tenth); a second-chance sprout's flower is capped at
+    // replantCap. Nothing about the planting date enters.
+    flower: !s.alive || D < 0.64 ? 0 : s.cap * (0.3 + 0.7 * smooth(0.64, 0.95, D)) * (0.6 + 0.4 * Q) * (0.8 + 0.2 * clamp01((size - 0.5) / 0.5)),
     puddle: theta > 0.38 ? 1 : 0, mushrooms: Math.round(5 * clamp01((s.M - 0.4) / 0.5)),
     snails: night ? Math.round(3 * s.Ps) : 0, aphids: s.Pa, mites: s.Pm, blackSpot: s.BS,
     headYaw: yaw, petalDrop: sp.nightBloom && s.op > 0 && t >= 6 && t < 7.5 ? (t - 6) / 1.5 : 0,
     glow: s.glowH > 0 ? 1 : 0, mood: mood, says: says, alive: s.alive,
-    canAdvice: !s.alive ? "ok" : f < BED.dampF || (dosing && f < 0.3) ? "damp" : thirsty ? "thirsty" : "ok",
+    canAdvice: !s.alive ? "ok" : damp ? "damp" : thirsty ? "thirsty" : ready ? "ready" : "ok",
     feedAdvice: s.alive && nRich(s) ? "rich" : "ok",
   };
 }
