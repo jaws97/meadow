@@ -145,7 +145,8 @@ function useDock(panel: RefObject<HTMLElement | null>) {
  * been thanked today is remembered on this device.
  */
 function useSprinkleThanks(me: MeView, noun: string, resting: boolean) {
-  const showing = useQuality((s) => s.phase === "revealing" || s.phase === "live");
+  // the veils' rule: once first seen the garden counts as showing, through a tier change behind a held still too
+  const showing = useQuality((s) => !underVeil(s));
   const quiet = resting || !showing;
   const names = me.friendsToday.join("\u0001");
   const seed = me.plant.seed;

@@ -69,8 +69,10 @@ export function FriendGardenView() {
   const which = useSyncExternalStore(subscribeNever, readWhich, serverWhich);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   // The veil belongs to the opening only, as on /garden: once the garden has been seen, a later tier change runs
-  // behind a held still of the last frame (components/garden/frameHold), never this veil again.
+  // behind a held still of the last frame (components/garden/frameHold), never this veil again. It fades out over
+  // the reveal, as /garden's and the Meadow's do, and is gone once the garden is live.
   const opened = useQuality((s) => !s.veiled || s.phase === "revealing" || s.phase === "live");
+  const settled = useQuality((s) => !s.veiled || s.phase === "live");
 
   useEffect(() => {
     if (which.kind !== "plot") return;
@@ -105,6 +107,7 @@ export function FriendGardenView() {
   const opening = which.kind === "rose" || friend ? `Opening ${title}` : "Opening a friend's garden";
   const failed = which.kind === "none" ? "That garden could not be found. It may have moved to a new plot." : loaded && !loaded.ok ? loaded.message : null;
   const showing = ready && opened;
+  const veilGone = ready && settled && !failed;
 
   return (
     <main className="meadow-root fixed inset-0 overflow-hidden bg-[#06080f]">
@@ -121,8 +124,8 @@ export function FriendGardenView() {
           </a>
         </div>
       </div>
-      {!showing && (
-        <div className="meadow-veil">
+      {!veilGone && (
+        <div className={`meadow-veil${showing && !failed ? " meadow-veil-out" : ""}`} aria-hidden={showing && !failed}>
           <div>
             <div className="meadow-veil-art">
               <div className="meadow-veil-halo" />

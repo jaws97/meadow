@@ -20,7 +20,8 @@
 // screen's size, the primary pointer, maxTouchPoints, devicePixelRatio,
 // hardwareConcurrency, deviceMemory (Chromium only) and the GPU's name
 // (masked to "Apple GPU" in Safari). iPadOS reports a Mac user agent, so an
-// iPad is a "Mac" with touch points.
+// iPad is a "Mac" with touch points. The panel's refresh rate is measured
+// from the page's first animation frames (measureRefresh).
 import type { Quality } from "@/lib/garden/store";
 
 export type DeviceKind = "phone" | "tablet" | "laptop" | "bigscreen";
@@ -190,34 +191,143 @@ const TIER_KEY = "garden-tier:v1";
 /** A remembered tier is trusted for a week; drivers and browsers update. */
 const TIER_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
 
-/**
- * The tier this device settled on last time, if it is the same kind of
- * device with the same GPU and the memory is recent. A colleague visits every
- * day: opening straight on the tier that fits saves trying a richer one under
- * the veil first (three or four seconds on an office laptop). The governor
- * can still climb back if the device turns out to have room. Browser storage
- * is a convenience only; without it the plan's own tier is used.
- */
-export function recallTier(d: Device, maxTier: Quality): Quality | null {
+interface RememberedTier {
+  tier: Quality;
+  kind: DeviceKind;
+  gpu: string;
+  at: number;
+  /** When a visit last found room for the tier above and asked the next visit to open on it. */
+  climbedAt?: number;
+}
+
+/** What this device remembered, if it is the same kind of device with the same GPU and the memory is recent. */
+function readTier(d: Device): RememberedTier | null {
   try {
     const raw = window.localStorage.getItem(TIER_KEY);
     if (!raw) return null;
-    const s = JSON.parse(raw) as { tier: Quality; kind: DeviceKind; gpu: string; at: number };
+    const s = JSON.parse(raw) as RememberedTier;
     if (s.kind !== d.kind || s.gpu !== d.gpu || !(Date.now() - s.at < TIER_MAX_AGE_MS)) return null;
-    if (!TIERS.includes(s.tier) || TIERS.indexOf(s.tier) > TIERS.indexOf(maxTier)) return null;
-    return s.tier;
+    return TIERS.includes(s.tier) ? s : null;
   } catch {
     return null;
   }
 }
 
-/** Remembers the tier a visit settled on (see recallTier). */
-export function rememberTier(d: Device, tier: Quality) {
+/**
+ * The tier this device settled on last time, if it is the same kind of
+ * device with the same GPU and the memory is recent. A colleague visits every
+ * day: opening straight on the tier that fits saves trying a richer one under
+ * the veil first (three or four seconds on an office laptop). The governor
+ * never climbs a tier on a showing garden; where it found room for one, this
+ * is the tier above, so the climb happens here, under the veil, where the
+ * floor rule can still step back. Browser storage is a convenience only;
+ * without it the plan's own tier is used.
+ */
+export function recallTier(d: Device, maxTier: Quality): Quality | null {
+  const s = readTier(d);
+  if (!s || TIERS.indexOf(s.tier) > TIERS.indexOf(maxTier)) return null;
+  return s.tier;
+}
+
+/** This page has asked the next visit to climb, so its later reminders keep asking. */
+let climbing = false;
+
+/**
+ * Remembers the tier a visit settled on (see recallTier), or `climbTo`, the
+ * tier above it that the governor found room for. A climb is tried at most
+ * once a week: if another visit asked for one in the last week (and then
+ * stepped back down under the veil, or this one would not be asking again),
+ * this visit's own tier is kept, so a device that is only slow at its
+ * opening does not trade tiers at every visit.
+ */
+export function rememberTier(d: Device, tier: Quality, climbTo?: Quality) {
   try {
-    window.localStorage.setItem(TIER_KEY, JSON.stringify({ tier, kind: d.kind, gpu: d.gpu, at: Date.now() }));
+    let climbedAt = readTier(d)?.climbedAt;
+    let next = tier;
+    if (climbTo) {
+      const recent = climbedAt !== undefined && Date.now() - climbedAt < TIER_MAX_AGE_MS;
+      if (climbing || !recent) {
+        next = climbTo;
+        if (!climbing) climbedAt = Date.now();
+        climbing = true;
+      }
+    }
+    const s: RememberedTier = { tier: next, kind: d.kind, gpu: d.gpu, at: Date.now(), climbedAt };
+    window.localStorage.setItem(TIER_KEY, JSON.stringify(s));
   } catch {
     // storage full or blocked: the next visit starts from the plan
   }
+}
+
+/**
+ * The refresh rates a panel is taken to run at: most phones and laptops 60,
+ * ProMotion iPhones and iPads 120 (though Safari often still paces pages at
+ * 60), gaming laptops 144, and 30 for an iPhone in Low Power Mode, which
+ * paces pages at half rate. Nothing between 30 and 60: a 50 Hz television
+ * is judged as a 60 Hz panel, which asks no more of it (the comfortable line
+ * is 50 fps either way), while a loaded page's steady 48 fps cadence on a
+ * 144 Hz laptop must never pass for a slow panel.
+ */
+export const REFRESH_RATES: readonly number[] = [30, 60, 72, 75, 90, 100, 120, 144, 165, 240];
+
+/** The refresh rate (Hz) a frame interval of `ms` is nearest, by ratio. */
+export function snapRefresh(ms: number): number {
+  const hz = 1000 / Math.max(1, ms);
+  let best = 60;
+  let gap = Infinity;
+  for (const r of REFRESH_RATES) {
+    const g = Math.abs(Math.log(r / hz));
+    if (g < gap) {
+      gap = g;
+      best = r;
+    }
+  }
+  return best;
+}
+
+/**
+ * The panel's refresh rate, read from a second or so of animation frames at
+ * startup, before the canvas draws anything (lib/garden/quality judges
+ * smoothness against it), and once more when a startup reading needs a
+ * second (settleRefresh). A busy page only ever lengthens the intervals, so
+ * the fastest quarter of them is the panel; a reading under 55 Hz counts only
+ * when the frames are as regular as Low Power Mode's half rate, since a
+ * loading page's jank is not. Calls back once, or not at all where frames do
+ * not come (a hidden tab: the governor corrects the default from its own
+ * frames).
+ */
+export function measureRefresh(done: (hz: number) => void): void {
+  if (typeof requestAnimationFrame !== "function") return;
+  const gaps: number[] = [];
+  const t0 = performance.now();
+  let last = -1;
+  const tick = (ts: number) => {
+    const gap = ts - last;
+    if (last >= 0 && gap > 2 && gap < 100) gaps.push(gap);
+    last = ts;
+    if (gaps.length < 48 && performance.now() - t0 < 1500) {
+      requestAnimationFrame(tick);
+      return;
+    }
+    if (gaps.length < 8) return;
+    gaps.sort((a, b) => a - b);
+    const quick = gaps[Math.floor(gaps.length / 4)];
+    if (1000 / quick < 55 && gaps[Math.floor(gaps.length / 2)] > quick * 1.1) return;
+    done(snapRefresh(quick));
+  };
+  requestAnimationFrame(tick);
+}
+
+/**
+ * The panel's rate from a startup reading under 55 Hz and a second one taken
+ * once the garden is live (both from measureRefresh, so standard rates).
+ * Low Power Mode's 30 Hz and a 60 Hz page pacing itself at half rate under a
+ * busy GPU look alike at startup, and judging a 60 Hz panel as a 30 Hz one
+ * would leave a struggling garden at 30 fps for the whole visit, so 30 counts
+ * only when both readings say so; otherwise the second reading, never under 60.
+ */
+export function settleRefresh(boot: number, second: number): number {
+  return boot < 55 && second < 55 ? second : Math.max(60, second);
 }
 
 /**

@@ -20,13 +20,25 @@
 // the first real frame has almost nothing left to do. The governor spends a
 // moment under the veil (until frame times settle, a few seconds at most)
 // fitting the pixel budget, stepping the tier there if even the floor is too
-// slow, and the veil lifts.
+// slow (and, when the veil's time runs out with that still being decided,
+// stepping it then rather than after the reveal), and the veil lifts.
+//
+// A tier step under the veil compiles the new tier's programs again; that
+// wait is capped short (STEP_COMPILE_WAIT_MS), and whatever the driver has not
+// finished compiles on the first frames, still behind the veil.
 //
 // Once the garden has been seen it never goes back behind the veil. A tier
-// change after that (the governor's, only after a sustained drop while nobody
-// is touching the screen, or one picked in the development panel) holds a
-// still of the last frame over the canvas (frameHold.ts), runs the same
-// opening behind it, and dissolves the still into the new tier. A change of
+// change after that (the governor's, only a step down after a sustained drop
+// while nobody is touching the screen, or one picked in the development
+// panel) holds a still of the last frame over the canvas (frameHold.ts), runs
+// the same opening behind it, and dissolves the still into the new tier. That
+// freeze is kept short: the new tier's shaders compile behind the still
+// (nothing can be drawn before they are ready), then the pre-draw and the
+// settling get only what is left of HELD_FREEZE_MS, and whatever they have
+// not done happens on the first frames, under the dissolve. The compile is
+// the driver's and can take seconds on a busy GPU, which is why the governor
+// never climbs a tier on a showing garden: room for the tier above is
+// remembered, and the next visit opens on it, under the veil. A change of
 // pixel budget does the same in miniature: resizing the canvas clears its
 // drawing buffer and reallocates the effect composer's, which on screen is a
 // blink of the whole picture, so the still covers the canvas while it
@@ -70,17 +82,27 @@ import { Governor, quality, stepTier, type Phase } from "@/lib/garden/quality";
  * Seconds of frames under the veil before it lifts: at least the first, then
  * as soon as the frame times have settled at a comfortable rate (frames no
  * longer than REVEAL_FRAME_MS), but never more than the second, so a device
- * that never settles still opens. When the governor is at its floor and
- * still slow it is about to ask for a lighter tier, and the veil waits for
- * it up to the third, rather than lift on a garden that must change.
+ * that never settles still opens. When the frames are too slow even for the
+ * floor the governor is about to ask for a lighter tier, and the veil waits
+ * for it up to the third, then takes that step there, rather than lift on a
+ * garden that must change.
  */
 const CALIBRATE_S = 0.9;
 const CALIBRATE_MAX_S = 2.5;
 const CALIBRATE_TIER_MAX_S = 4;
 const REVEAL_FRAME_MS = 22;
-/** Behind a held still the garden is paused, so the settling is brief. */
-const HELD_CALIBRATE_S = 0.35;
-const HELD_CALIBRATE_MAX_S = 1.5;
+/** Behind a held still the garden is paused, so the settling is brief: a few frames, then the dissolve. */
+const HELD_CALIBRATE_S = 0.12;
+const HELD_CALIBRATE_MAX_S = 0.4;
+/**
+ * A held tier change dissolves into the new tier no later than this (ms)
+ * after the still went up, unless the new tier's shaders are still compiling
+ * (nothing can be drawn before they are). The pre-draw leaves the last
+ * HELD_SETTLE_MS of it for the first frames, and is split more coarsely.
+ */
+const HELD_FREEZE_MS = 1200;
+const HELD_SETTLE_MS = 300;
+const HELD_PREDRAW_GROUPS = 2;
 /** After the reveal, the governor's heavy rungs wait this long (ms) for start-up work to drain. */
 const GRACE_MS = 6000;
 /** The veil's fade-out, and a held still's dissolve, after which the garden is simply live. */
@@ -88,11 +110,25 @@ const REVEAL_MS = 1500;
 const HELD_REVEAL_MS = 600;
 /** Nothing changes on a live garden until nobody has touched it for this long (ms). */
 const INPUT_QUIET_MS = 3000;
-/** The opening never takes longer than this to give up waiting on a part and draw anyway. */
+/**
+ * The opening never takes longer than this to give up waiting on a part and
+ * draw anyway. A tier step under the veil waits much less for its compile: a
+ * starved driver has been seen to take twenty seconds and more over it, and
+ * the veil must not stand that long; what is left compiles on the first
+ * frames, still behind the veil.
+ */
 const COMPOSER_WAIT_MS = 4000;
 const COMPILE_WAIT_MS = 25000;
-/** Pre-draw groups: each one frame (or a few, while the GPU catches up). */
+const STEP_COMPILE_WAIT_MS = 5000;
+/**
+ * Pre-draw groups: each one frame (or a few, while the GPU catches up), and
+ * at most this long (ms) for all of them; after a tier step under the veil,
+ * on a device just proven slow, less (what it misses is built on the first
+ * frames, still veiled).
+ */
 const PREDRAW_GROUPS = 6;
+const PREDRAW_MAX_MS = 4000;
+const STEP_PREDRAW_MAX_MS = 2000;
 /** At most this many tier changes a session: each is a deliberate fade, not a habit. */
 const MAX_TIER_CHANGES = 3;
 /** The still kept for next time: first this long into a live visit, then refreshed this often (ms). */
@@ -100,6 +136,13 @@ const POSTER_AFTER_MS = 5000;
 const POSTER_EVERY_MS = 120000;
 
 const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+
+/**
+ * When the still for a tier change on a showing garden went up
+ * (performance.now() ms), or -1: the opening and the governor share it to
+ * keep that freeze within HELD_FREEZE_MS. One canvas per page, so one clock.
+ */
+let heldAt = -1;
 
 /** Resolves once the post-processing chain has its passes, or after `ms`. */
 async function composerReady(ms: number) {
@@ -191,13 +234,26 @@ export function Opening() {
           }),
         );
       }
-      await Promise.race([Promise.all(jobs), wait(COMPILE_WAIT_MS)]);
+      const q = quality.get();
+      const step = q.veiled && q.tierChanges > 0;
+      await Promise.race([Promise.all(jobs), wait(step ? STEP_COMPILE_WAIT_MS : COMPILE_WAIT_MS)]);
       if (cancelled) return;
       mark("compiled");
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as { __gardenCompiled?: number }).__gardenCompiled = gl.info.programs?.length ?? 0;
       }
-      await attempt(() => predraw(gl, scene, camera, PREDRAW_GROUPS, () => cancelled));
+      // The pre-draw waits on the GPU between groups, which on a GPU shared
+      // with a busy tab can take seconds each: under the veil it gets
+      // PREDRAW_MAX_MS (less after a tier step), behind a held still what is
+      // left of the freeze's allowance (a group at least). What it has not
+      // reached is built on the first frames instead, still unseen or under
+      // the dissolve.
+      const until = quality.get().veiled
+        ? performance.now() + (step ? STEP_PREDRAW_MAX_MS : PREDRAW_MAX_MS)
+        : Math.max(performance.now() + 100, heldAt + HELD_FREEZE_MS - HELD_SETTLE_MS);
+      const groups = quality.get().veiled ? PREDRAW_GROUPS : HELD_PREDRAW_GROUPS;
+      const pre = attempt(() => predraw(gl, scene, camera, groups, () => cancelled || performance.now() > until));
+      await Promise.race([pre, wait(until - performance.now())]);
       if (cancelled) return;
       mark("predrawn");
       quality.set({ phase: "warming" });
@@ -219,7 +275,11 @@ export function Opening() {
  */
 function changeTier(next: Quality, canvas: HTMLCanvasElement, governor: Governor, ownTier: RefObject<Quality>) {
   const q = quality.get();
-  if (!q.veiled && !isHolding()) holdFrame(canvas);
+  if (!q.veiled) {
+    if (!isHolding()) holdFrame(canvas);
+    heldAt = performance.now();
+    mark("held");
+  }
   ownTier.current = next;
   quality.adoptTier(next);
   const after = quality.get();
@@ -270,8 +330,11 @@ export function RenderGovernor() {
     since: 0,
     statsAt: 0,
     range: quality.get().range,
+    refresh: 0,
     liveAt: -1,
     posterAt: -1,
+    /** The tier above has been remembered for the next visit (Governor.roomAbove). */
+    roomNoted: false,
     /** A budget change being drawn behind the still: the pixel ratio it waits for, since when, and frames drawn at it. */
     resize: null as { dpr: number; at: number; frames: number } | null,
   });
@@ -302,6 +365,10 @@ export function RenderGovernor() {
           } catch {
             // without a still the new tier simply appears
           }
+        }
+        if (!before.veiled) {
+          heldAt = performance.now();
+          mark("held");
         }
         quality.set({ pinned: true });
         quality.adoptTier(tier);
@@ -334,6 +401,8 @@ export function RenderGovernor() {
         pinned: q.pinned,
         tierChanges: q.tierChanges,
         timer: Boolean(timer),
+        refreshHz: governor.refreshHz,
+        roomAbove: governor.roomAbove,
         last: governor.last,
       };
     };
@@ -359,6 +428,11 @@ export function RenderGovernor() {
       // The canvas changed size: a new floor and ceiling, the budget as the store left it.
       c.range = q.range;
       governor.setRange(q.range, q.budget);
+    }
+    if (q.refreshHz !== c.refresh) {
+      // The panel's rate, measured at startup: what smooth means on this screen.
+      c.refresh = q.refreshHz;
+      governor.setRefresh(q.refreshHz);
     }
     const phaseS = (now - c.since) / 1000;
     const showing = q.phase === "revealing" || q.phase === "live";
@@ -390,7 +464,8 @@ export function RenderGovernor() {
     const tier = garden.get().quality;
     const canStep = !q.pinned && q.tierChanges < MAX_TIER_CHANGES && q.plan !== null;
     const lowest = !canStep || stepTier(tier, -1, q.plan?.maxTier ?? tier) === null;
-    const highest = !canStep || stepTier(tier, 1, q.plan?.maxTier ?? tier) === null;
+    // Room above is only ever noted for the next visit, so the session's tier changes do not limit it.
+    const highest = q.pinned || stepTier(tier, 1, q.plan?.maxTier ?? tier) === null;
     const interacting = now - lastInput.current < INPUT_QUIET_MS;
     // Sampled even when frozen (?governor=off), so the readout still reports the frame.
     const sampled = governor.sample(delta * 1000, gpuMs, now, { calibrating, lowest, highest, interacting });
@@ -425,33 +500,56 @@ export function RenderGovernor() {
 
     if (calibrating) {
       const held = !q.veiled;
-      const settled = governor.stable && governor.last.frameMs <= REVEAL_FRAME_MS;
+      const settled = governor.stable && governor.last.frameMs <= Math.max(REVEAL_FRAME_MS, governor.slowMs);
       const minS = held ? HELD_CALIBRATE_S : CALIBRATE_S;
       const maxS = held ? HELD_CALIBRATE_MAX_S : governor.wantsTier ? CALIBRATE_TIER_MAX_S : CALIBRATE_MAX_S;
-      if ((phaseS > minS && settled) || phaseS > maxS) {
+      // A held still's allowance spent: it dissolves into whatever the new tier is drawing by now.
+      const spent = held && heldAt >= 0 && now - heldAt > HELD_FREEZE_MS && phaseS > 0.05;
+      if ((phaseS > minS && settled) || phaseS > maxS || spent) {
+        // The veil's time is up with the floor rule still deciding: its tier
+        // step is taken now, still veiled, rather than seconds after the
+        // reveal behind a held still (P1).
+        if (!held && phaseS > maxS && q.auto && canStep && q.plan) {
+          const next = governor.settleTier(lowest).kind === "tier" ? stepTier(tier, -1, q.plan.maxTier) : null;
+          if (next) {
+            governor.slowTierUp();
+            changeTier(next, gl.domElement, governor, ownTier);
+            return;
+          }
+        }
         mark("revealed");
         governor.beginGrace(now, GRACE_MS);
         quality.set({ phase: "revealing" });
-        if (held) releaseFrame(HELD_REVEAL_MS);
+        if (held) {
+          heldAt = -1;
+          releaseFrame(HELD_REVEAL_MS);
+        }
       }
     } else if (q.phase === "revealing" && now - c.since > (q.veiled ? REVEAL_MS : HELD_REVEAL_MS)) {
       mark("live");
       c.liveAt = now;
       quality.set({ phase: "live", veiled: false });
+      // A startup refresh reading of 30 Hz is believed only if a second one, now, agrees.
+      quality.confirmRefresh();
     } else if (q.phase === "live") {
       // Once the garden has settled, keep a still for the next visit's veil and
-      // the tier this device settled on, so the next visit opens on it. Both
-      // only on the real clock: a friend's garden and the party screen hold the
-      // clock by hand, and must not decide how the viewer's own garden opens.
+      // the tier this device settled on, so the next visit opens on it (or on
+      // the tier above, once the governor has found room for it: that climb is
+      // never made on a showing garden). Both only on the real clock: a
+      // friend's garden and the party screen hold the clock by hand, and must
+      // not decide how the viewer's own garden opens.
       const due = c.posterAt < 0 ? now - c.liveAt > POSTER_AFTER_MS : now - c.posterAt > POSTER_EVERY_MS;
       const g = garden.get();
+      const room = governor.roomAbove && !q.pinned && q.plan ? stepTier(g.quality, 1, q.plan.maxTier) : null;
+      const remember = () => {
+        if (g.autoClock && !q.pinned && q.device) rememberTier(q.device, g.quality, room ?? undefined);
+      };
       if (due && c.liveAt >= 0 && !document.hidden) {
         c.posterAt = now;
-        if (g.autoClock) {
-          savePoster(gl.domElement, lookOf(g));
-          if (!q.pinned && q.device) rememberTier(q.device, g.quality);
-        }
-      }
+        if (g.autoClock) savePoster(gl.domElement, lookOf(g));
+        remember();
+      } else if (room && !c.roomNoted) remember();
+      c.roomNoted = room !== null;
     }
   }, 2);
 
