@@ -6,6 +6,39 @@
 
 export type Vec3 = readonly [number, number, number];
 
+/** One composed camera shot for a screen shape; see LAYOUT.camera. */
+export interface Framing {
+  aspect: number;
+  azimuth: number;
+  elevation: number;
+  distance: number;
+  fov: number;
+  targetRise: number;
+  targetLift: number;
+}
+
+/** The framing for any aspect ratio: the keyframes blended linearly, held flat past the ends. */
+export function framingFor(aspect: number, keys: readonly Framing[] = LAYOUT.camera.framings): Framing {
+  if (aspect <= keys[0].aspect) return keys[0];
+  const last = keys[keys.length - 1];
+  if (aspect >= last.aspect) return last;
+  let i = 1;
+  while (keys[i].aspect < aspect) i++;
+  const a = keys[i - 1];
+  const b = keys[i];
+  const t = (aspect - a.aspect) / (b.aspect - a.aspect);
+  const mix = (x: number, y: number) => x + (y - x) * t;
+  return {
+    aspect,
+    azimuth: mix(a.azimuth, b.azimuth),
+    elevation: mix(a.elevation, b.elevation),
+    distance: mix(a.distance, b.distance),
+    fov: mix(a.fov, b.fov),
+    targetRise: mix(a.targetRise, b.targetRise),
+    targetLift: mix(a.targetLift, b.targetLift),
+  };
+}
+
 export const LAYOUT = {
   hero: [0, 0, 0] as Vec3,
 
@@ -76,20 +109,42 @@ export const LAYOUT = {
   ],
 
   /**
-   * Default framings. Landscape: the hero just above the middle with the bed,
-   * path, lantern and arch round it, looking down a little so the hedges, not
-   * pale sky, fill the band behind the bloom. Portrait (a phone): closer in on
-   * a longer lens, so the bloom sits on the upper third line, the plant fills
-   * half the frame height and the bed and its kerb fill the lower half; the
-   * canopies are cropped along the top. `targetRise` and `targetLift` set
-   * where on the plant the orbit target rides (target y = head y * rise + lift).
+   * Default framings, one per screen shape, blended between by aspect ratio
+   * (width / height) so every phone, tablet and monitor gets a composed shot.
+   * In every one the full bloom's crown sits on the upper third line. Each
+   * gives the camera's place round the orbit target as a compass bearing
+   * (`azimuth`, radians from +z, positive toward +x), an `elevation` and a
+   * `distance` for the full-grown plant, the vertical `fov`, and where on the
+   * plant the target rides (target y = head y * rise + lift).
+   *
+   *  - Tall phones (0.46): close enough that the bed fills the width (the
+   *    outermost kerb stones just cropped), the lantern at the left edge and
+   *    the bloom on the upper third, with the camera low enough that the
+   *    horizon sits back behind the hedge tops and the hedgerow beyond. A
+   *    phone frame is far taller than the bed and bloom, so some lawn always
+   *    shows below the kerb; this keeps it to about a quarter of the frame.
+   *  - iPad portrait (0.72): closer, the lantern at the left edge, the kerb
+   *    across the foot of the frame.
+   *  - iPad landscape and laptops (1.33-1.6): the signed-off composition, the
+   *    hero just above the middle with the bed, path, lantern and arch round
+   *    it, looking down a little so the hedges, not pale sky, fill the band
+   *    behind the bloom.
+   *  - 16:9 and wider: the horizontal view is held near the 16:10 frame's
+   *    (the lens narrows vertically instead), so a wide screen never runs out
+   *    past the hedges onto open lawn; an ultrawide steps back a touch so the
+   *    bed still fits.
    */
   camera: {
-    position: [0.45, 1.6, 3.33] as Vec3,
     target: [0, 0.55, -0.3] as Vec3,
-    targetRise: 0.72,
-    targetLift: 0.1,
-    portrait: { position: [0.2, 1.45, 2.5] as Vec3, targetRise: 0.6, targetLift: 0.1 },
+    framings: [
+      { aspect: 0.46, azimuth: 0.06, elevation: 0.33, distance: 4.1, fov: 50, targetRise: 0.45, targetLift: 0.1 },
+      { aspect: 0.72, azimuth: 0.08, elevation: 0.3, distance: 3.3, fov: 49, targetRise: 0.64, targetLift: 0.1 },
+      { aspect: 1.0, azimuth: 0.1, elevation: 0.24, distance: 3.5, fov: 45, targetRise: 0.68, targetLift: 0.1 },
+      { aspect: 1.33, azimuth: 0.123, elevation: 0.163, distance: 3.71, fov: 42, targetRise: 0.72, targetLift: 0.1 },
+      { aspect: 1.6, azimuth: 0.123, elevation: 0.163, distance: 3.71, fov: 42, targetRise: 0.72, targetLift: 0.1 },
+      { aspect: 1.78, azimuth: 0.123, elevation: 0.163, distance: 3.75, fov: 40.1, targetRise: 0.72, targetLift: 0.1 },
+      { aspect: 2.37, azimuth: 0.123, elevation: 0.17, distance: 4.4, fov: 31, targetRise: 0.664, targetLift: 0.1 },
+    ] as readonly Framing[],
     focusRange: 1.6,
   },
 } as const;

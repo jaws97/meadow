@@ -12,16 +12,33 @@
 // driven from here) and a narrow kicker from the sun's bearing aimed at the
 // flower head so its petal edges glow against the darker garden. Every light
 // is mounted all day (at intensity 0 when idle): changing the light count
-// would recompile every material in the scene.
+// would recompile every material in the scene. The ones that only work with
+// the sun low or down are hidden while it stands high, with their programs
+// prepared in the background before each switch (LightSets, lightSets.ts).
 //
 // On the lite tier the night lift comes from the sky bounce and the fill
 // rather than the tone-mapping exposure, which would also lift every emissive.
-import { useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useEffect, useMemo, useRef } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
 import { Environment, Lightformer } from "@react-three/drei";
 import * as THREE from "three";
 import { lightState, rimUniforms } from "@/lib/garden/dressing";
+import { composerHandle } from "@/components/garden/Effects";
+import {
+  applySet,
+  canSwitchSets,
+  compilePinned,
+  isReadySet,
+  lightSet,
+  markReady,
+  OPTIONAL_LIGHT,
+  prepareSet,
+  upcomingSet,
+  wantedFullSet,
+} from "@/components/garden/lightSets";
+import { compileShadowCasters, compileTransmissionBackfaces, type Compile } from "@/components/garden/warmup";
 import { env } from "@/lib/garden/env";
+import { quality as budget } from "@/lib/garden/quality";
 import { useGarden, type Quality } from "@/lib/garden/store";
 import { clamp01, lerp } from "@/lib/plant/prng";
 
@@ -126,6 +143,53 @@ const FOG_FAR_THICK = 17;
 const tmpDir = new THREE.Vector3();
 const tmpFlat = new THREE.Vector3();
 
+/**
+ * Keeps the optional lights in the live set (a light mounted later, by a
+ * replanted bloom, joins it before it is drawn), prepares the other set's
+ * programs in the background as the sun nears the threshold, and switches
+ * once they are ready. See lightSets.ts.
+ */
+function LightSets() {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+  const enabled = useRef(false);
+  useEffect(() => {
+    enabled.current = canSwitchSets(gl);
+    if (!enabled.current) {
+      lightSet.full = true;
+      applySet(scene, true);
+    }
+  }, [gl, scene]);
+  useFrame(() => {
+    if (!enabled.current) return;
+    applySet(scene, lightSet.full);
+    const alt = env.sun.altitude;
+    const want = wantedFullSet(lightSet.full, alt);
+    if (want !== lightSet.full && isReadySet(want)) {
+      lightSet.full = want;
+      applySet(scene, want);
+      return;
+    }
+    if (lightSet.preparing) return;
+    const next = want !== lightSet.full ? want : upcomingSet(lightSet.full, alt);
+    if (next === null || isReadySet(next)) return;
+    lightSet.preparing = true;
+    const target = composerHandle.current?.inputBuffer ?? null;
+    const pinned: Compile = (s, c, t) => compilePinned(gl, s, c, t);
+    prepareSet(gl, scene, camera, next, target, () =>
+      Promise.all([
+        compileShadowCasters(gl, scene, camera, target, pinned),
+        compileTransmissionBackfaces(gl, scene, camera, target, pinned),
+      ]),
+    ).then(() => {
+      markReady(next);
+      lightSet.preparing = false;
+    });
+  }, -9);
+  return null;
+}
+
 export function Lights() {
   const quality = useGarden((s) => s.quality);
 
@@ -136,6 +200,7 @@ export function Lights() {
   const fillRef = useRef<THREE.DirectionalLight>(null);
   const rimRef = useRef<THREE.SpotLight>(null);
   const rimTarget = useMemo(() => new THREE.Object3D(), []);
+  const frame = useRef(0);
 
   const shadowSize = SHADOW_SIZE[quality];
 
@@ -156,7 +221,11 @@ export function Lights() {
       // changes the directional-light count, and three releases the unused
       // program variant, so every material would recompile at each dusk and
       // dawn. Skipping the light's own shadow pass saves the work instead.
-      sun.shadow.autoUpdate = env.sky.sunIntensity > 0.01;
+      // Under load the governor (lib/garden/quality) may refresh the map every
+      // other frame: the sun crawls and the foliage's dappled sway reads the
+      // same at half rate, so it is the cheapest rung before a tier change.
+      const every = budget.get().shadowEvery;
+      sun.shadow.autoUpdate = env.sky.sunIntensity > 0.01 && (every === 1 || frame.current++ % every === 0);
       // A quality change resizes mapSize but the allocated map keeps its old
       // size; dropping it makes the next pass allocate at the new one.
       const map = sun.shadow.map;
@@ -253,14 +322,16 @@ export function Lights() {
         shadow-camera-top={SHADOW_TOP}
         shadow-camera-bottom={-SHADOW_HALF}
       />
-      <directionalLight ref={leakRef} intensity={0} />
-      <directionalLight ref={moonRef} color={MOON_COLOR} intensity={0} />
+      <LightSets />
+      <directionalLight ref={leakRef} intensity={0} userData={OPTIONAL_LIGHT} />
+      <directionalLight ref={moonRef} color={MOON_COLOR} intensity={0} userData={OPTIONAL_LIGHT} />
       <hemisphereLight ref={hemiRef} intensity={0.6} />
       <directionalLight ref={fillRef} position={[1.2, 3, 3.5]} intensity={0.12} />
       <primitive object={rimTarget} />
       <spotLight
         ref={rimRef}
         target={rimTarget}
+        userData={OPTIONAL_LIGHT}
         intensity={0}
         angle={RIM_ANGLE}
         penumbra={0.8}

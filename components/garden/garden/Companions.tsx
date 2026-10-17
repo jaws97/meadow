@@ -3,7 +3,7 @@
 // corners, ferns behind and at the sides, lavender clumps along the back of
 // the bed in a drift, tall cosmos in drifts at the back corners, daisies in
 // drifts at the sides, green cushions of alyssum domed with rounded heads of
-// white flowers spilling over the front kerb, mats of creeping
+// cream flowers spilling over the front kerb, mats of creeping
 // groundcover through the open mulch, and clover creeping along the stones
 // and onto the lawn. lib/garden/dressing plans every stem, floret, petal and
 // leaf for the owner (colours from their seed, counts from the quality tier);
@@ -19,6 +19,7 @@
 // uniforms): while the owner's flower is young the companions stand low and
 // in leaf, their flowers closed to small green buds, and they come into
 // flower as the hero's own bud swells, so they never upstage it.
+import { useFrame } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import {
@@ -43,7 +44,9 @@ import {
   type Placement,
   type SwayOptions,
 } from "@/lib/garden/dressing";
+import { env } from "@/lib/garden/env";
 import type { Quality } from "@/lib/garden/store";
+import { smoothstep } from "@/lib/plant/prng";
 import { leafTexture, petalTexture } from "@/lib/plant/textures";
 
 /** One sway program for every companion part: full bend at half a metre of world height. */
@@ -52,6 +55,8 @@ const SWAY: SwayOptions = { height: 0.5, amount: 1.4, world: true };
 const SWAY_PLANT: SwayOptions = { ...SWAY, stage: "plant" };
 const SWAY_FLOWER: SwayOptions = { ...SWAY, stage: "flower" };
 const SWAY_KEY = "garden-companion-sway";
+/** How much the alyssum heads dim by full night, so they glow softly rather than stay self-lit. */
+const ALYSSUM_NIGHT_DIM = 0.45;
 
 // Parts whose colour comes from the instance get near-white maps, so the
 // owner's lavender, cosmos and daisy colours land true instead of doubled.
@@ -61,6 +66,8 @@ const NEUTRAL_PETAL = { base: "#eee8df", mid: "#ffffff", tip: "#fffaf3", vein: "
 interface CompanionMaterials {
   stem: THREE.MeshStandardMaterial;
   floret: THREE.MeshStandardMaterial;
+  /** the alyssum's heads: matte, so a cushion shades as one soft mass (and dimmed at night, see Companions) */
+  alyssum: THREE.MeshStandardMaterial;
   lavLeaf: THREE.MeshStandardMaterial;
   petal: THREE.MeshStandardMaterial;
   disc: THREE.MeshStandardMaterial;
@@ -92,6 +99,7 @@ function makeMaterials(p: Palette): CompanionMaterials {
   return {
     stem: plant({ roughness: 0.7 }),
     floret: flower({ vertexColors: true, roughness: 0.85 }),
+    alyssum: flower({ vertexColors: true, roughness: 0.97, envMapIntensity: 0.3 }),
     lavLeaf: plant({ map: leafMap(NEUTRAL_LEAF, 3), roughness: 0.8 }),
     petal: flower({ map: petalTexture(NEUTRAL_PETAL), roughness: 0.62, envMapIntensity: 0.7 }),
     disc: flower({ vertexColors: true, roughness: 0.9 }),
@@ -187,6 +195,11 @@ export function Companions({ seed, quality }: { seed: string; quality: Quality }
 
   const palette = built.plan.palette;
   const mats = useMemo(() => makeMaterials(palette), [palette]);
+  // Cream heads catch every scrap of the night's fill and bounce and stayed
+  // nearly self-lit after dark; their brightness eases down as night falls.
+  useFrame(() => {
+    mats.alyssum.color.setScalar(1 - ALYSSUM_NIGHT_DIM * smoothstep(0.3, 0.9, env.nightness));
+  });
   useEffect(
     () => () => {
       for (const m of Object.values(mats)) m.dispose();
@@ -203,7 +216,7 @@ export function Companions({ seed, quality }: { seed: string; quality: Quality }
       <Placed geometry={geo.stem} material={mats.stem} placements={stems} depth={mats.depthPlant} castShadow={shade} />
       <Placed geometry={geo.floret} material={mats.floret} placements={plan.lavFlorets} depth={mats.depthFlower} castShadow={shade} />
       <Placed geometry={geo.cushion} material={mats.cushion} placements={plan.alyssumDomes} depth={mats.depthPlant} castShadow={false} />
-      <Placed geometry={geo.tinyFlower} material={mats.floret} placements={plan.alyssum} depth={mats.depthFlower} castShadow={false} />
+      <Placed geometry={geo.tinyFlower} material={mats.alyssum} placements={plan.alyssum} depth={mats.depthFlower} castShadow={false} />
       <Placed geometry={geo.lavLeaf} material={mats.lavLeaf} placements={plan.lavLeaves} depth={mats.depthPlant} castShadow={false} />
       <Placed geometry={geo.daisyPetal} material={mats.petal} placements={plan.daisyPetals} depth={mats.depthFlower} castShadow={shade} />
       <Placed geometry={geo.cosmosPetal} material={mats.petal} placements={plan.cosmosPetals} depth={mats.depthFlower} castShadow={shade} />

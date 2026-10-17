@@ -49,7 +49,7 @@ const backGain = { value: 1 };
 const BACKLIGHT_GOLDEN_GAIN = 1.8;
 
 const VERT_COMMON =
-  "#include <common>\nuniform float uTime; uniform float uWind; uniform float uSway; uniform float uMass;\nattribute vec3 aMassNormal;";
+  "#include <common>\nuniform float uTime; uniform float uWind; uniform float uSway; uniform float uMass;\nattribute vec3 aMassNormal;\nvarying float vRim;";
 
 // The mass normal is already in the mesh's object space, so the instance
 // matrix must not be applied to it again: beginnormal computes the geometric
@@ -81,7 +81,31 @@ const SWAY_PROJECT = THREE.ShaderChunk.project_vertex.replace(
     "  mvPosition.xyz += vec3(sx * 0.85, sy, sz) * gust * uWind * uSway; }",
 );
 
-const FRAG_COMMON = "#include <common>\nuniform float uBacklight; uniform float uBackGain;";
+const FRAG_COMMON = "#include <common>\nuniform float uBacklight; uniform float uBackGain;\nvarying float vRim;";
+
+// Alpha-tested cards (the canopies and the hedges' outer cards) keep their
+// coverage as they recede. A mipmapped leaf print averages its alpha with the
+// sky round each leaf, so past a few metres more and more of a crown fails
+// the alpha test and a canopy dissolves into lace: small leaf fragments with
+// sky between them, which the cinematic depth of field then turns into a
+// honeycomb of bright bokeh discs along every crown against the sky. Scaling
+// alpha up with the mip level (as Ben Golus describes for alpha-tested
+// foliage) keeps each cluster as full at ten metres as at one; and a card
+// seen at the rim of its crown, where nothing stands behind it but sky,
+// passes the test a little more easily, so the outline reads as a soft edge
+// of leaves rather than a fringe of holes.
+const COVERAGE =
+  "#include <map_fragment>\n#if defined( USE_ALPHATEST ) && defined( USE_MAP )\n" +
+  "{ vec2 texel = vMapUv * vec2( textureSize( map, 0 ) );\n" +
+  "  vec2 ddx = dFdx( texel ), ddy = dFdy( texel );\n" +
+  "  float lod = 0.5 * log2( max( max( dot( ddx, ddx ), dot( ddy, ddy ) ), 1e-6 ) );\n" +
+  "  diffuseColor.a *= 1.0 + max( 0.0, lod ) * 0.32; }\n#endif";
+const RIM_ALPHATEST =
+  "#ifdef USE_ALPHATEST\n  if ( diffuseColor.a < alphaTest * mix( 1.0, 0.55, vRim ) ) discard;\n#endif";
+/** How edge-on a card's crown is to the camera at the card: 0 facing, 1 at the silhouette. */
+const RIM_VERTEX =
+  "#include <fog_vertex>\n{ vec3 mN = normalize( normalMatrix * aMassNormal );\n" +
+  "  vRim = smoothstep( 0.35, 0.95, 1.0 - abs( dot( mN, normalize( -mvPosition.xyz ) ) ) ); }";
 const NORMAL_NO_FLIP = THREE.ShaderChunk.normal_fragment_begin.replace("normal *= faceDirection;", "");
 // The sun stands at directionalLights[0] (first in the scene): light shining
 // through thin foliage toward the camera lifts the diffuse by a view-dependent
@@ -127,10 +151,13 @@ function makeFoliageMaterial(o: FoliageOpts): THREE.MeshStandardMaterial {
   });
   m.onBeforeCompile = (shader) => {
     patchVertex(shader, o.sway, o.mass);
+    shader.vertexShader = shader.vertexShader.replace("#include <fog_vertex>", RIM_VERTEX);
     shader.uniforms.uBacklight = { value: o.backlight };
     shader.uniforms.uBackGain = backGain;
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", FRAG_COMMON)
+      .replace("#include <map_fragment>", COVERAGE)
+      .replace("#include <alphatest_fragment>", RIM_ALPHATEST)
       .replace("#include <normal_fragment_begin>", NORMAL_NO_FLIP)
       .replace("#include <lights_fragment_end>", BACKLIGHT);
   };
@@ -248,21 +275,26 @@ function bloomMaterial(p: BloomPalette, emissive: string): THREE.MeshStandardMat
 // ---------------------------------------------------------------------------
 
 const SWAY: Record<Quality, number> = { cinematic: 1, balanced: 1, lite: 0.6 };
-/** The hedge cores show more between the cards on lite, so they are lifted toward the card greens. */
+/**
+ * The hedge cores show more between the cards on lite, so they are lifted a
+ * little toward the card greens; only a little, or a lite garden's hedges
+ * read brighter than the other tiers'.
+ */
 const CORE_TINT: Record<Quality, THREE.Color> = {
   cinematic: new THREE.Color(1, 1, 1),
-  balanced: new THREE.Color(1.15, 1.15, 1.05),
-  lite: new THREE.Color(1.7, 1.75, 1.3),
+  balanced: new THREE.Color(1.08, 1.08, 1.03),
+  lite: new THREE.Color(1.3, 1.33, 1.12),
 };
 /**
- * The canopy cores are the crown's shaded inside: dark, but lifted toward the
- * card greens where the cards are fewer and larger (lite), so a gap between
- * cards reads as leaves in shadow rather than a black hole.
+ * The canopy cores are the crown's shaded inside: dark, lifted just enough
+ * that a gap between cards reads as leaves in shadow rather than a black
+ * hole. A strong lift turned them into neon patches wherever the sun caught
+ * them, above all on lite, which has no shadows to keep a crown's inside dark.
  */
 const CANOPY_CORE_TINT: Record<Quality, THREE.Color> = {
-  cinematic: new THREE.Color(1.55, 1.6, 1.25),
-  balanced: new THREE.Color(1.75, 1.8, 1.35),
-  lite: new THREE.Color(2.3, 2.38, 1.7),
+  cinematic: new THREE.Color(1.12, 1.15, 1.0),
+  balanced: new THREE.Color(1.18, 1.22, 1.04),
+  lite: new THREE.Color(1.25, 1.28, 1.06),
 };
 
 export function Backdrop() {

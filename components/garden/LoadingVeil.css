@@ -1,0 +1,231 @@
+/*
+ * The loading veil's look and motion (LoadingVeil.tsx). A plain stylesheet
+ * with prefixed class names rather than a CSS module: the project's Turbopack
+ * rule runs every .css file through Tailwind as global CSS.
+ *
+ * The loading veil's motion. Only transform and opacity animate, on HTML
+ * elements, so the browser runs every animation on its compositor thread:
+ * they keep moving even while the main thread is busy building the garden or
+ * a driver without parallel compilation stalls it on a shader.
+ */
+
+.garden-veil-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 60% at 50% 112%, rgba(255, 168, 88, 0.22), rgba(255, 168, 88, 0) 62%),
+    radial-gradient(80% 55% at 50% 38%, rgba(64, 86, 150, 0.22), rgba(64, 86, 150, 0) 72%),
+    linear-gradient(180deg, #060912 0%, #0a0f1f 55%, #131a29 100%);
+  opacity: 1;
+  transition: opacity 1.4s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity;
+}
+
+.garden-veil-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.garden-veil-out .garden-veil-content {
+  transform: translate3d(0, -10px, 0) scale(1.03);
+}
+
+/*
+ * A return visit: the garden as this device last saw it, softly blurred,
+ * behind the sprout. Oversized so the blur never shows a hard edge, eased in
+ * so it arrives as light rather than a pop, and dimmed toward the middle so
+ * the sprout and its words stay legible over any garden.
+ */
+.garden-veil-has-poster {
+  background: #0a0f14;
+}
+
+.garden-veil-poster {
+  position: absolute;
+  inset: -32px;
+  background-position: center;
+  background-size: cover;
+  filter: blur(7px) saturate(1.05);
+  transform: scale(1.04);
+  animation: garden-veil-posterin 0.7s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.garden-veil-has-poster::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    radial-gradient(60% 46% at 50% 50%, rgba(6, 9, 18, 0.62), rgba(6, 9, 18, 0.28) 70%, rgba(6, 9, 18, 0.18) 100%);
+}
+
+.garden-veil-out .garden-veil-poster {
+  transform: scale(1);
+  transition: transform 1.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes garden-veil-posterin {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.garden-veil-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 1.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.garden-veil-art {
+  position: relative;
+  width: 148px;
+  height: 148px;
+}
+
+.garden-veil-halo {
+  position: absolute;
+  inset: -24px;
+  /* closest-side, fading to nothing at the edge, so no rim of the box ever shows */
+  background: radial-gradient(
+    circle closest-side at 50% 60%,
+    rgba(255, 214, 140, 0.42) 0%,
+    rgba(255, 178, 92, 0.16) 42%,
+    rgba(255, 160, 80, 0.05) 70%,
+    rgba(255, 160, 80, 0) 100%
+  );
+  animation: garden-veil-breathe 5.2s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes garden-veil-breathe {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.07);
+    opacity: 1;
+  }
+}
+
+.garden-veil-sprout {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 84%;
+  animation: garden-veil-sway 7s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes garden-veil-sway {
+  0%,
+  100% {
+    transform: rotate(-2.2deg);
+  }
+  50% {
+    transform: rotate(2.2deg);
+  }
+}
+
+.garden-veil-mote {
+  position: absolute;
+  left: 50%;
+  top: 66%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 236, 180, 1) 0%, rgba(255, 200, 110, 0.55) 45%, rgba(255, 190, 100, 0) 75%);
+  opacity: 0;
+  animation: garden-veil-rise var(--d, 7s) ease-in-out var(--delay, 0s) infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes garden-veil-rise {
+  0% {
+    transform: translate3d(0, 0, 0) scale(0.6);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.95;
+  }
+  70% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: translate3d(var(--dx, 0px), -104px, 0) scale(1);
+    opacity: 0;
+  }
+}
+
+.garden-veil-title {
+  margin-top: 22px;
+  font-size: 15px;
+  font-weight: 300;
+  letter-spacing: 0.06em;
+  color: rgba(246, 234, 214, 0.88);
+}
+
+.garden-veil-line {
+  margin-top: 6px;
+  min-height: 18px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: rgba(246, 234, 214, 0.5);
+  animation: garden-veil-linein 0.9s ease both;
+}
+
+@keyframes garden-veil-linein {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 3px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.garden-veil-track {
+  position: relative;
+  margin-top: 16px;
+  width: 132px;
+  height: 1px;
+  overflow: hidden;
+  border-radius: 1px;
+  background: rgba(246, 234, 214, 0.12);
+}
+
+.garden-veil-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, rgba(255, 200, 120, 0.2), rgba(255, 214, 150, 0.95));
+  transition: transform var(--t, 1.2s) cubic-bezier(0.2, 0.6, 0.2, 1);
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .garden-veil-sprout,
+  .garden-veil-mote,
+  .garden-veil-poster {
+    animation: none;
+  }
+  .garden-veil-mote {
+    display: none;
+  }
+  .garden-veil-halo {
+    animation-duration: 9s;
+  }
+}

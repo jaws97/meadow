@@ -3,6 +3,8 @@
 // and the render loop reads the latest state directly without re-rendering.
 // In the browser the quality tier starts at what the device can carry.
 import { useSyncExternalStore } from "react";
+import { planFor, readDevice, recallTier } from "@/lib/garden/device";
+import { quality } from "@/lib/garden/quality";
 import type { SpeciesId } from "@/lib/plant/species";
 
 export type Quality = "cinematic" | "balanced" | "lite";
@@ -43,51 +45,25 @@ const initial: GardenState = {
 const QUALITIES: readonly Quality[] = ["cinematic", "balanced", "lite"];
 
 /**
- * Integrated and mobile GPUs, by the renderer string WebGL reports (Intel's
- * discrete Arc cards excepted). A desktop on one of these runs the cinematic
- * tier, with its 4096 shadow map and larger depth-of-field buffers, at well
- * under 30 fps, so it starts a tier lower.
- */
-const MODEST_GPU = /intel|radeon\(tm\) graphics|radeon graphics|vega \d+ graphics|mali|adreno|powervr|swiftshader|llvmpipe/i;
-
-/** The GPU's name from a throwaway context, or "" where the browser hides it. */
-function gpuName(): string {
-  try {
-    const gl = document.createElement("canvas").getContext("webgl");
-    if (!gl) return "";
-    const info = gl.getExtension("WEBGL_debug_renderer_info");
-    const name = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : "";
-    gl.getExtension("WEBGL_lose_context")?.loseContext();
-    return name;
-  } catch {
-    return "";
-  }
-}
-
-/**
- * The tier this device starts on. Phones (a coarse pointer on a small screen)
- * get "lite": most of the audience is on a phone, and a phone that holds a
- * steady frame rate beats one that renders more and stutters. Tablets and
- * modest laptops get "balanced", a capable desktop "cinematic". Core count,
- * memory (Chrome only) and an integrated GPU pull a machine down a tier.
- * `?quality=` overrides it for testing, and the development panel can change
- * it at any time.
+ * The tier this device starts on, from its class and GPU (lib/garden/device),
+ * and the pixel budget the runtime governor starts from (lib/garden/quality).
+ * `?quality=` pins a tier for testing, as the development panel does when a
+ * tier is picked there; `?governor=off` freezes the budget as well.
  */
 export function detectQuality(): Quality {
   if (typeof window === "undefined") return initial.quality;
-  const asked = new URLSearchParams(window.location.search).get("quality");
-  if (asked && (QUALITIES as readonly string[]).includes(asked)) return asked as Quality;
-  const nav = navigator as Navigator & { deviceMemory?: number };
-  // The primary pointer, not touch support: a touchscreen laptop is still driven by its trackpad.
-  const touch = window.matchMedia ? window.matchMedia("(pointer: coarse)").matches : nav.maxTouchPoints > 0;
-  const shortSide = Math.min(window.screen.width, window.screen.height);
-  const cores = nav.hardwareConcurrency || 4;
-  const memory = nav.deviceMemory ?? 8;
-  if (touch && shortSide < 600) return "lite";
-  if (touch) return cores >= 8 && memory >= 6 ? "balanced" : "lite";
-  if (cores < 8 || memory < 8) return "balanced";
-  const gpu = gpuName();
-  return MODEST_GPU.test(gpu) && !/\barc\b/i.test(gpu) ? "balanced" : "cinematic";
+  const params = new URLSearchParams(window.location.search);
+  const asked = params.get("quality");
+  const device = readDevice();
+  const plan = planFor(device);
+  const pinnedTier = asked && (QUALITIES as readonly string[]).includes(asked) ? (asked as Quality) : null;
+  // A device that settled on another tier last time opens on it (device.recallTier).
+  const tier = pinnedTier ?? recallTier(device, plan.maxTier) ?? plan.tier;
+  quality.init(device, { ...plan, tier }, {
+    pinned: pinnedTier !== null,
+    auto: params.get("governor") !== "off",
+  });
+  return tier;
 }
 
 // The server renders with the initial state (see useGarden's server snapshot);

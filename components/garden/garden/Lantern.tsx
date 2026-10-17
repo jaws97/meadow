@@ -20,6 +20,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { lampUniforms, makeLantern } from "@/lib/garden/dressing";
 import { LAYOUT } from "@/lib/garden/layout";
+import { OPTIONAL_LIGHT } from "@/components/garden/lightSets";
 import type { Quality } from "@/lib/garden/store";
 import { makeCanvas } from "@/lib/plant/textures";
 import { gardenMaterials } from "@/components/garden/garden/materials";
@@ -131,6 +132,7 @@ export function Lantern({ quality }: { quality: Quality }) {
       {realLight ? (
         <pointLight
           ref={light}
+          userData={OPTIONAL_LIGHT}
           position={[lamp.x, lamp.y - 0.01, lamp.z]}
           color={LAYOUT.lantern.color}
           intensity={0}

@@ -30,6 +30,15 @@ export const meadow = {
   /** Plot the body is parked beside, or -1. */
   nearPlot: -1,
 
+  /**
+   * Where the physics cart stood when the Meadow fell back to gliding (Rapier
+   * failed to start, or the frame rate stayed low), so the glider picks up
+   * from the same spot instead of jumping back to the spawn. Consumed once.
+   */
+  handoff: null as { x: number; z: number; yaw: number } | null,
+  /** A gentle line for the overlay (never an error), with when it was set, in performance.now() ms. */
+  notice: null as { text: string; at: number } | null,
+
   /** Planned route for the dotted guide, flattened x,z pairs; `count` points are live. */
   route: { points: new Float32Array(128), count: 0, version: 0 },
   /** Where a tap sent the body, for the ground ring. */
@@ -76,5 +85,7 @@ export function resetMeadow(kind: MoverKind): void {
   meadow.route.version++;
   meadow.goal.active = false;
   meadow.finger.active = false;
+  meadow.handoff = null;
+  meadow.notice = null;
   meadow.stats.loading = true;
 }

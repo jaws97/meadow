@@ -1,7 +1,8 @@
 "use client";
 // The physics-free fallback: a lantern that glides at hover height, selected
-// with ?mover=glide. It needs no WASM and no physics world, so if the cart
-// spike fails on some phones, Seed Day still has a way to explore the Meadow.
+// with ?mover=glide, or taken up automatically when the physics cart cannot
+// start or cannot hold its frame rate (MeadowCanvas). It needs no WASM and no
+// physics world, so Seed Day always has a way to explore the Meadow.
 //
 // It is a point that accelerates toward the wished velocity (10 m/s^2, at
 // most 5 m/s), coasts to rest when let go, and is pushed out of the same
@@ -40,7 +41,11 @@ class Glider implements Mover {
   private faceYaw: number | null = null;
 
   constructor() {
-    this.respawn(SPAWN.x, SPAWN.z, SPAWN.yaw);
+    // Taking over from the physics cart: start where it stood, facing its way.
+    const from = meadow.handoff;
+    meadow.handoff = null;
+    if (from) this.respawn(from.x, from.z, from.yaw);
+    else this.respawn(SPAWN.x, SPAWN.z, SPAWN.yaw);
   }
 
   steerLock(): number {

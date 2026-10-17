@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
+import { withHaze, writeHaze, type HazeOptions } from "@/components/garden/haze";
 import { env } from "@/lib/garden/env";
 import { vnoise2 } from "@/lib/plant/prng";
 
@@ -73,7 +74,8 @@ void main() {
   vec3 col = mix(uHorizon, uZenith, grad);
   col = mix(col * 0.45, col, smoothstep(-0.12, 0.0, h));
   // Warm glow pooled on the horizon: sunset fire by day, city light at night.
-  float band = exp(-max(h, 0.0) * mix(9.0, 7.0, uNight)) * mix(0.35, 0.55, uNight);
+  // At night a quieter, lower band: through the gaps in the crowns it should glow, not glare.
+  float band = exp(-max(h, 0.0) * mix(9.0, 8.0, uNight)) * mix(0.35, 0.42, uNight);
   col = mix(col, uGlow, band * smoothstep(-0.08, 0.02, h));
   float sd = max(dot(d, uSunDir), 0.0);
   // The disc leans on the horizon glow so a low sun stays orange instead of
@@ -212,16 +214,50 @@ interface Ridge {
   crests: number;
   seed: number;
   color: string;
+  /** Aerial haze (haze.ts): a veil that grows with distance and at night, and a misty foot. */
+  haze: HazeOptions;
 }
 
 /**
  * Three rings of hills, nearest and darkest first, spread around every side of
- * the garden. The far ring is tallest and bluest, as distance makes it.
+ * the garden. The far ring is tallest and bluest, as distance makes it. Each
+ * stands in haze that thickens with distance and at night, and its foot melts
+ * into the sky's horizon colour, so the ground meets the hills in mist rather
+ * than on a ruled line, and at night they are soft shapes rather than flat
+ * blue cut-outs. The nearest ring stands lowest, mostly behind the hedgerow
+ * that ends the lawn (FarWoods), so its crests do not show as bumps on it.
  */
 const RIDGES: readonly Ridge[] = [
-  { radius: 21, base: -4, minHeight: 0.8, maxHeight: 3.4, crests: 7, seed: 1.7, color: "#213f27" },
-  { radius: 28, base: -4, minHeight: 1.4, maxHeight: 5.2, crests: 5, seed: 7.3, color: "#1f3c2b" },
-  { radius: 36, base: -4, minHeight: 2.4, maxHeight: 7.4, crests: 4, seed: 13.1, color: "#1d3730" },
+  {
+    radius: 21,
+    base: -4,
+    minHeight: 0.6,
+    maxHeight: 2.8,
+    crests: 7,
+    seed: 1.7,
+    color: "#213f27",
+    haze: { day: 0.16, night: 0.62, foot: 0.5, from: -0.4, to: 1.6 },
+  },
+  {
+    radius: 28,
+    base: -4,
+    minHeight: 1.4,
+    maxHeight: 5.2,
+    crests: 5,
+    seed: 7.3,
+    color: "#1f3c2b",
+    haze: { day: 0.26, night: 0.7, foot: 0.45, from: 0, to: 2.6 },
+  },
+  {
+    radius: 36,
+    base: -4,
+    minHeight: 2.4,
+    maxHeight: 7.4,
+    crests: 4,
+    seed: 13.1,
+    color: "#1d3730",
+    haze: { day: 0.36, night: 0.78, foot: 0.4, from: 0.5, to: 3.6 },
+  },
 ];
 
 /** Owned by the one sky material: written once per frame from env, read by the shader. */
@@ -357,7 +393,7 @@ export function SkyDome() {
     () =>
       RIDGES.map((ridge) => ({
         geometry: makeRidgeGeometry(ridge),
-        material: new THREE.MeshStandardMaterial({ color: ridge.color, roughness: 1, vertexColors: true }),
+        material: withHaze(new THREE.MeshStandardMaterial({ color: ridge.color, roughness: 1, vertexColors: true }), ridge.haze),
       })),
     [],
   );
@@ -372,6 +408,7 @@ export function SkyDome() {
   );
 
   useFrame(() => {
+    writeHaze(env.sky.fog, env.sky.glow, env.nightness);
     uniforms.uZenith.value.copy(env.sky.zenith);
     uniforms.uHorizon.value.copy(env.sky.horizon);
     uniforms.uGlow.value.copy(env.sky.glow);

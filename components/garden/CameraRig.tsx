@@ -1,52 +1,38 @@
 "use client";
-// The garden camera. It opens on the layout's framing for the screen's shape:
-// on a landscape screen the hero just above the middle with the bed, path,
-// lantern and arch round it; on a portrait phone closer in on a longer lens,
-// the bloom on the upper third line and the bed and its kerb filling the
-// lower half. The orbit target eases up the flower as it grows, and the
+// The garden camera. It opens on the layout's framing for the screen's shape
+// (LAYOUT.camera.framings, blended by aspect ratio): on a tall phone close
+// enough that the bed fills the width, the lantern at the left edge and the
+// bloom on the upper third line, low enough that the horizon sits behind the
+// hedges; on an iPad in either orientation and on a laptop the
+// composed garden round the hero; on 16:9 and wider the lens narrows
+// vertically rather than letting the view run out past the hedges. The orbit
+// target eases up the flower as it grows, and the
 // camera dollies in and out with it at the same viewing angle, so a hand-high
 // seedling fills about a third of the frame just as the full bloom fills its
 // share: the owner's plant is the subject at every stage of its fortnight. A
 // zoom by the viewer is kept as a share of that distance. Left alone, the camera drifts a
 // little, as if handheld on a slow dolly; any touch of the controls pauses the
 // drift, which eases back in a few seconds after the last gesture.
-// OrbitControls stays live so the viewer can lean right in to the flower.
+// OrbitControls stays live so the viewer can lean right in to the flower:
+// a drag (mouse, trackpad or one finger) orbits, the wheel, a trackpad pinch
+// or two fingers zoom.
 import { OrbitControls } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useCallback, useLayoutEffect, useRef, type ComponentRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, type ComponentRef } from "react";
 import * as THREE from "three";
 import { HERO_GROUND_Y } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
-import { LAYOUT } from "@/lib/garden/layout";
+import { framingFor, LAYOUT, type Framing } from "@/lib/garden/layout";
 import { lerp, smoothstep } from "@/lib/plant/prng";
 
 type Controls = ComponentRef<typeof OrbitControls>;
 
-/**
- * Vertical field of view on a landscape screen: at 42° a metre-high plant
- * fills a little under half the frame from three and a half metres, with the
- * bed at its feet and the hedges and the foot of the canopies behind it.
- */
-const FOV = 42;
-/**
- * On a portrait screen the lens opens only until this much shows from side
- * to side, and never past MAX_FOV vertically: widening further would push the
- * hero back into a sliver of a frame full of sky and lawn. The camera moves in
- * instead (LAYOUT.camera.portrait), so the bed is wider than the frame and
- * runs off both sides, the way a close garden photograph is cropped.
- */
-const MIN_HFOV = THREE.MathUtils.degToRad(22);
-const MAX_FOV = 50;
-/** Aspect ratios across which the framing blends from portrait (below) to landscape (above). */
-const PORTRAIT_ASPECT = 0.62;
-const LANDSCAPE_ASPECT = 1.05;
+/** Aspect ratios are rounded to this step, so a window resize does not re-frame every pixel. */
+const ASPECT_STEP = 0.02;
 
-const CAM = LAYOUT.camera;
-const TARGET = CAM.target;
+const TARGET = LAYOUT.camera.target;
 const TARGET_MIN = 0.2;
 const TARGET_MAX = 1.0;
-/** On a portrait screen the target sits a little toward the head's side, which centres the bloom. */
-const PORTRAIT_TARGET_X = 0.1;
 const EASE_RATE = 1.5;
 const MIN_DISTANCE = 0.8;
 const MAX_DISTANCE = 7;
@@ -117,16 +103,14 @@ function framingBlend(headY: number): number {
 }
 
 /**
- * The orbit target's height for a head at `headY`, on the framing blend `p`:
- * the layout's rule (a share of the head's height) for a grown plant, and
- * about two thirds of the way up the plant for a young one, so a seedling
- * sits in the middle of its close-up rather than at the foot of the frame.
+ * The orbit target's height for a head at `headY` in framing `f`: the
+ * layout's rule (a share of the head's height) for a grown plant, and about
+ * two thirds of the way up the plant for a young one, so a seedling sits in
+ * the middle of its close-up rather than at the foot of the frame.
  */
-function targetY(headY: number, p: number): number {
-  const rise = lerp(CAM.targetRise, CAM.portrait.targetRise, p);
-  const lift = lerp(CAM.targetLift, CAM.portrait.targetLift, p);
+function targetY(headY: number, f: Framing): number {
   const young = HERO_GROUND_Y + 0.62 * Math.max(0, headY - HERO_GROUND_Y) + 0.03;
-  const y = lerp(young, headY * rise + lift, framingBlend(headY));
+  const y = lerp(young, headY * f.targetRise + f.targetLift, framingBlend(headY));
   return Math.min(TARGET_MAX, Math.max(TARGET_MIN, y));
 }
 
@@ -138,36 +122,15 @@ function targetZ(headY: number): number {
   return lerp(LAYOUT.hero[2], TARGET[2], framingBlend(headY));
 }
 
-/** The layout's camera distance on the framing blend `p`, for a full-grown plant. */
-function framingDistance(p: number): number {
-  const a = CAM.position;
-  const b = CAM.portrait.position;
-  const ty = targetY(HERO_GROUND_Y + FULL_HEIGHT, p);
-  return Math.hypot(
-    lerp(a[0], b[0], p) - (TARGET[0] + PORTRAIT_TARGET_X * p),
-    lerp(a[1], b[1], p) - ty,
-    lerp(a[2], b[2], p) - TARGET[2],
-  );
-}
-
-/** The layout's own elevation angle of the camera above its target, on the framing blend `p`. */
-function framingElevation(p: number): number {
-  const a = CAM.position;
-  const b = CAM.portrait.position;
-  const ty = targetY(HERO_GROUND_Y + FULL_HEIGHT, p);
-  const dx = lerp(a[0], b[0], p) - (TARGET[0] + PORTRAIT_TARGET_X * p);
-  const dz = lerp(a[2], b[2], p) - TARGET[2];
-  return Math.atan2(lerp(a[1], b[1], p) - ty, Math.hypot(dx, dz));
-}
-
 /** The dolly's share of the framing distance for a plant whose head stands `h` above the mulch. */
 function dollyRatio(h: number): number {
   return Math.min(DOLLY_MAX, Math.max(DOLLY_MIN, (h + DOLLY_PAD) / (FULL_HEIGHT + DOLLY_PAD)));
 }
 
-/** 0 on a landscape screen .. 1 on a portrait phone, quantised so a resize does not re-frame every pixel. */
-function portraitAmount(aspect: number): number {
-  return Math.round((1 - smoothstep(PORTRAIT_ASPECT, LANDSCAPE_ASPECT, aspect)) * 20) / 20;
+/** The camera's offset from the target for the full-grown plant in framing `f`. */
+function framingOffset(f: Framing, out: THREE.Vector3): THREE.Vector3 {
+  const flat = Math.cos(f.elevation) * f.distance;
+  return out.set(Math.sin(f.azimuth) * flat, Math.sin(f.elevation) * f.distance, Math.cos(f.azimuth) * flat);
 }
 
 export function CameraRig() {
@@ -176,46 +139,41 @@ export function CameraRig() {
   const width = useThree((s) => s.size.width);
   const height = useThree((s) => s.size.height);
   const drift = useRef<Drift>({ yaw: 0, lift: 0, interacting: false, lastGesture: -Infinity, zoom: 1 });
-  const aspect = width / Math.max(1, height);
-  const portrait = portraitAmount(aspect);
+  const aspect = Math.round(width / Math.max(1, height) / ASPECT_STEP) * ASPECT_STEP;
+  const framing = useMemo(() => framingFor(aspect), [aspect]);
   // Read by the frame loop; written here so a resize is picked up without a re-subscription.
-  const framing = useRef(portrait);
+  const live = useRef(framing);
   useLayoutEffect(() => {
-    framing.current = portrait;
-  }, [portrait]);
+    live.current = framing;
+  }, [framing]);
 
   // Open on the framing for this screen's shape, and re-frame when the phone
-  // turns, unless the viewer has already moved the camera themselves. The
-  // layout's position is taken as a direction from the full-grown plant's
-  // target, applied to wherever the target now rides, so a re-frame on a
-  // young plant keeps the authored angle; the dolly then sets the distance.
+  // turns or the window changes shape, unless the viewer has already moved
+  // the camera themselves. The framing is a direction and distance from the
+  // full-grown plant's target, applied to wherever the target now rides, so a
+  // re-frame on a young plant keeps the authored angle; the dolly then sets the distance.
   useLayoutEffect(() => {
     if (drift.current.lastGesture !== -Infinity || drift.current.interacting) return;
-    const p = CAM.position;
-    const q = CAM.portrait.position;
-    const tx = TARGET[0] + PORTRAIT_TARGET_X * portrait;
-    const ty = targetY(HERO_GROUND_Y + FULL_HEIGHT, portrait);
-    offset.set(lerp(p[0], q[0], portrait) - tx, lerp(p[1], q[1], portrait) - ty, lerp(p[2], q[2], portrait) - TARGET[2]);
+    framingOffset(framing, offset);
     const c = controls.current;
     if (c) {
       camera.position.copy(c.target).add(offset);
       c.update();
     } else {
-      camera.position.set(tx + offset.x, ty + offset.y, TARGET[2] + offset.z);
-      camera.lookAt(tx, ty, TARGET[2]);
+      const ty = targetY(HERO_GROUND_Y + FULL_HEIGHT, framing);
+      camera.position.set(TARGET[0] + offset.x, ty + offset.y, TARGET[2] + offset.z);
+      camera.lookAt(TARGET[0], ty, TARGET[2]);
     }
-  }, [camera, portrait]);
+  }, [camera, framing]);
 
   useLayoutEffect(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return;
-    const narrow = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(MIN_HFOV / 2) / aspect));
-    const fov = Math.min(MAX_FOV, Math.max(FOV, narrow));
-    if (Math.abs(camera.fov - fov) > 0.01) {
+    if (Math.abs(camera.fov - framing.fov) > 0.01) {
       // eslint-disable-next-line react-hooks/immutability -- the camera is a three.js object, configured imperatively
-      camera.fov = fov;
+      camera.fov = framing.fov;
       camera.updateProjectionMatrix();
     }
-  }, [camera, aspect]);
+  }, [camera, framing]);
 
   // A gesture takes over the camera wherever the drift has left it: the drift
   // is forgotten rather than unwound, so nothing snaps under the hand.
@@ -232,8 +190,7 @@ export function CameraRig() {
     // Keep the viewer's zoom as a share of the dolly, so the plant keeps its size in frame as it grows.
     const c = controls.current;
     if (c) {
-      const p = framing.current;
-      const auto = framingDistance(p) * dollyRatio(Math.max(0, env.headPos.y - HERO_GROUND_Y));
+      const auto = live.current.distance * dollyRatio(Math.max(0, env.headPos.y - HERO_GROUND_Y));
       d.zoom = Math.min(3, Math.max(0.3, camera.position.distanceTo(c.target) / auto));
     }
   }, [camera]);
@@ -243,13 +200,12 @@ export function CameraRig() {
     if (!c) return;
     const dt = Math.min(delta, 0.1);
     const k = 1 - Math.exp(-dt * EASE_RATE);
-    const p = framing.current;
+    const f = live.current;
     const d = drift.current;
     prevTarget.copy(c.target);
-    // the portrait offset (which centres a full bloom) fades out on a close-up of a young plant
-    c.target.x += (lerp(LAYOUT.hero[0], TARGET[0] + PORTRAIT_TARGET_X * p, framingBlend(env.headPos.y)) - c.target.x) * k;
+    c.target.x += (lerp(LAYOUT.hero[0], TARGET[0], framingBlend(env.headPos.y)) - c.target.x) * k;
     c.target.z += (targetZ(env.headPos.y) - c.target.z) * k;
-    c.target.y += (targetY(env.headPos.y, p) - c.target.y) * k;
+    c.target.y += (targetY(env.headPos.y, f) - c.target.y) * k;
 
     if (!d.interacting) {
       // Carry the camera with the target and ease its distance toward the
@@ -257,7 +213,7 @@ export function CameraRig() {
       // from seedling to bloom, and an orbit the viewer chose is respected.
       const h = Math.max(0, env.headPos.y - HERO_GROUND_Y);
       const ratio = dollyRatio(h);
-      const want = Math.min(MAX_DISTANCE, Math.max(MIN_DISTANCE + 0.05, framingDistance(p) * ratio * d.zoom));
+      const want = Math.min(MAX_DISTANCE, Math.max(MIN_DISTANCE + 0.05, f.distance * ratio * d.zoom));
       const ease = 1 - Math.exp(-dt * DOLLY_RATE);
       offset.copy(camera.position).sub(prevTarget).sub(driftLift.set(0, d.lift, 0));
       const dist = offset.length() || want;
@@ -265,7 +221,7 @@ export function CameraRig() {
       if (d.lastGesture === -Infinity) {
         const flat = Math.hypot(offset.x, offset.z) || 1e-6;
         const elev = Math.atan2(offset.y, flat);
-        const goal = lerp(CLOSE_ELEVATION, framingElevation(p), smoothstep(0.28, 0.62, ratio));
+        const goal = lerp(CLOSE_ELEVATION, f.elevation, smoothstep(0.28, 0.62, ratio));
         const e = elev + (goal - elev) * ease;
         const k = (Math.cos(e) * next) / flat;
         offset.set(offset.x * k, Math.sin(e) * next, offset.z * k);
@@ -280,7 +236,7 @@ export function CameraRig() {
     const phase = (t / DRIFT_PERIOD) * Math.PI * 2;
     const wantYaw = Math.sin(phase) * DRIFT_YAW * idle;
     // the handheld bob shrinks with the dolly, so a close seedling shot does not bob out of frame
-    const reach = Math.min(1, Math.max(0.3, camera.position.distanceTo(c.target) / framingDistance(p)));
+    const reach = Math.min(1, Math.max(0.3, camera.position.distanceTo(c.target) / f.distance));
     const wantLift = Math.sin(phase * 2 + 1.1) * DRIFT_LIFT * idle * reach;
     const dYaw = wantYaw - d.yaw;
     const dLift = wantLift - d.lift;
@@ -300,7 +256,7 @@ export function CameraRig() {
     <OrbitControls
       ref={controls}
       makeDefault
-      target={[TARGET[0], targetY(HERO_GROUND_Y + FULL_HEIGHT, 0), TARGET[2]]}
+      target={[TARGET[0], targetY(HERO_GROUND_Y + FULL_HEIGHT, framing), TARGET[2]]}
       enablePan={false}
       minDistance={MIN_DISTANCE}
       maxDistance={MAX_DISTANCE}

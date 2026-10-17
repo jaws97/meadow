@@ -8,13 +8,15 @@
 // pass ever suspends on an asset; with the current stack nothing does, SMAA
 // loads its lookup textures asynchronously without suspending.
 // The plant grows from the crown of its mound in the raised bed, not from the
-// lawn, so a seedling stands on the mulch instead of under it.
+// lawn, so a seedling stands on the mulch instead of under it. The far woods
+// close the view beyond the hedges for wide screens and side orbits.
 import { Suspense } from "react";
 import { HERO_GROUND_Y } from "@/lib/garden/dressing";
 import { Atmosphere } from "@/components/garden/Atmosphere";
 import { CameraRig } from "@/components/garden/CameraRig";
 import { Clock } from "@/components/garden/Clock";
 import { Effects } from "@/components/garden/Effects";
+import { FarWoods } from "@/components/garden/FarWoods";
 import { Garden } from "@/components/garden/Garden";
 import { Backdrop } from "@/components/garden/Backdrop";
 import { Ground } from "@/components/garden/Ground";
@@ -31,6 +33,7 @@ export function Scene() {
       <Ground />
       <Garden />
       <Backdrop />
+      <FarWoods />
       <group position-y={HERO_GROUND_Y}>
         <Plant />
       </group>

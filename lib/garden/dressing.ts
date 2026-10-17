@@ -2481,8 +2481,12 @@ const COSMOS_PAIRS: ReadonlyArray<readonly [string, string]> = [
   ["#f7c9de", "#ffffff"],
 ];
 const DAISY_WHITES = ["#ffffff", "#fff7ea", "#fff2cf"] as const;
-/** Sweet alyssum is white: a soft snowfall of a cushion against the dark mulch and grey stone. */
-const ALYSSUM_TINTS = ["#ffffff", "#fdfcf7", "#fbfaff"] as const;
+/**
+ * Sweet alyssum's white, warmed to cream: pure white heads on dark leaves
+ * read as salt or snow, high contrast and glittering at a soft pixel ratio;
+ * cream reads as flowers in the same light.
+ */
+const ALYSSUM_TINTS = ["#f4efe0", "#f2ecdb", "#f6f1e5"] as const;
 /** Creeping groundcovers: thyme's dark green, baby's tears' fresh green, creeping Jenny's gold-green. */
 const GROUND_GREENS = [
   { base: "#2a5a2a", tip: "#5e9446", vein: "#a9cf8c" },
@@ -2527,6 +2531,17 @@ const mc = new THREE.Matrix4();
  * groundcover stands between the hero and the default camera, so even a
  * seedling is always in view.
  */
+/** Advances `rng` exactly as the original alyssum heads did, `n` of them (see planCompanions). */
+function skipLegacyAlyssumHeads(rng: Rng, n: number) {
+  for (let h = 0; h < n; h++) {
+    rng.next();
+    rng.next();
+    const perHead = rng.int(7, 11);
+    rng.next();
+    for (let k = 0; k < perHead * 5; k++) rng.next();
+  }
+}
+
 export function planCompanions(seed: string, budget: CompanionBudget): CompanionPlan {
   const rng = new Rng(seed + "|garden");
   const lavHue = rng.range(0.72, 0.78);
@@ -2752,7 +2767,14 @@ export function planCompanions(seed: string, budget: CompanionBudget): Companion
     ];
     let area = 0;
     for (const md of mounds) area += md.r * md.r;
-    const heads = Math.max(12, Math.round(budget.alyssumFlorets / 3.6));
+    // Fewer, larger heads, each a tight dome of florets lying on the mound's
+    // own surface, so the cushion shades as one mass of bloom rather than a
+    // scatter of separately lit specks. They draw from their own stream; the
+    // shared one is advanced exactly as the earlier, finer heads drew from it,
+    // so the cosmos and daisies planned after them keep their places.
+    const legacyHeads = Math.max(12, Math.round(budget.alyssumFlorets / 3.6));
+    const heads = Math.max(8, Math.round(budget.alyssumFlorets / 6.5));
+    const hrng = new Rng(`${seed}|alyssum|${m}`);
     for (const md of mounds) {
       // along the kerb (x) and out over it (z), from the cushion's spot
       const cx0 = spot.x + tx * md.x + (ox / ol) * (R * 0.25 + md.z);
@@ -2762,22 +2784,23 @@ export function planCompanions(seed: string, budget: CompanionBudget): Companion
       compose(ma, cx0, cy0, cz0, yaw, 0, 0, md.r, md.h, md.r);
       c.setScalar(rng.range(0.85, 1.05));
       plan.alyssumDomes.push(placementAt(ma, c));
+      skipLegacyAlyssumHeads(rng, Math.round((legacyHeads * md.r * md.r) / area));
       // rounded heads of florets all over the mound, down to its skirt, each a tight umbel
       const n = Math.round((heads * md.r * md.r) / area);
       for (let h = 0; h < n; h++) {
-        const th = Math.acos(1 - rng.next() * 0.92);
-        const ph = rng.range(0, Math.PI * 2);
-        const perHead = rng.int(7, 11);
-        const headShade = rng.range(0.82, 1.0) * lerp(0.8, 1.05, Math.cos(th));
+        const th = Math.acos(1 - hrng.next() * 0.92);
+        const ph = hrng.range(0, Math.PI * 2);
+        const perHead = hrng.int(6, 9);
+        const headShade = hrng.range(0.86, 1.0) * lerp(0.82, 1.04, Math.cos(th));
         for (let k = 0; k < perHead; k++) {
           // a little cap of florets round the head's centre, on the mound's own lumpy surface
-          const a = rng.range(0, Math.PI * 2);
-          const dd = Math.sqrt(rng.next()) * 0.17;
+          const a = hrng.range(0, Math.PI * 2);
+          const dd = Math.sqrt(hrng.next()) * 0.21;
           const t2 = Math.max(0, th + Math.cos(a) * dd);
           const p2 = ph + (Math.sin(a) * dd) / Math.max(0.2, Math.sin(th));
           // the unit direction in the mound's own frame, turned by the instance's yaw
           tv.set(Math.sin(t2) * Math.cos(p2), Math.cos(t2), Math.sin(t2) * Math.sin(p2));
-          const lump = cushionLump(tv.x, tv.y, tv.z) + 0.03 * (1 - dd / 0.17);
+          const lump = cushionLump(tv.x, tv.y, tv.z) + 0.04 * (1 - dd / 0.21);
           tv.multiplyScalar(lump);
           const cs = Math.cos(yaw);
           const sn = Math.sin(yaw);
@@ -2790,11 +2813,12 @@ export function planCompanions(seed: string, budget: CompanionBudget): Companion
             cy0 + Math.max(0, tv.y) * md.h + 0.002,
             cz0 + lz * md.r,
             Math.atan2(tn.x, tn.z),
-            Math.acos(Math.min(1, tn.y)) + rng.range(-0.25, 0.25),
+            // facing out along the dome, barely jittered, so neighbours catch the light alike
+            Math.acos(Math.min(1, tn.y)) + hrng.range(-0.07, 0.07),
             0,
-            rng.range(1.3, 1.75),
+            hrng.range(1.9, 2.4),
           );
-          c.copy(palette.alyssum).multiplyScalar(headShade * rng.range(0.92, 1.02));
+          c.copy(palette.alyssum).multiplyScalar(headShade * hrng.range(0.95, 1.02));
           plan.alyssum.push(placementAt(ma, c));
         }
       }

@@ -17,6 +17,7 @@
 import * as THREE from "three";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
+import { withHaze, type HazeOptions } from "@/components/garden/haze";
 import { grassTexture } from "@/lib/garden/groundTextures";
 import {
   bedRho,
@@ -53,6 +54,8 @@ const BLADE_SPLIT = [0.45, 0.35, 0.2] as const;
 const BLADE_HEIGHT = 0.16;
 const LOW_HEIGHT = 0.03;
 const LAWN_R = 14;
+/** The lawn's haze: none in the garden, thickening past the hedgerow to meet the hills' misty foot at the rim. */
+const LAWN_HAZE: HazeOptions = { day: 0, night: 0, foot: 0.5, from: 8.5, to: LAWN_R, radial: true };
 const CLUMP_COUNT = 340;
 const FALLEN_LEAVES = 14;
 /** Grass keeps outside this many oval units: past the stones and their spade-cut edge. */
@@ -585,12 +588,17 @@ export function Ground() {
   const clumps = useMemo(() => makeClumps(plan), [plan]);
 
   const lawnGeo = useMemo(() => makeLawnGeometry(plan), [plan]);
+  // The far rim of the lawn melts into the same haze as the hedgerow and the
+  // hills (haze.ts), so the turf never meets them on a ruled line.
   const lawnMat = useMemo(
     () =>
-      withGardenLight(
-        new THREE.MeshStandardMaterial({ map: grassTexture(), roughness: 1, color: 0xffffff, vertexColors: true }),
-        "garden-lawn",
-        false,
+      withHaze(
+        withGardenLight(
+          new THREE.MeshStandardMaterial({ map: grassTexture(), roughness: 1, color: 0xffffff, vertexColors: true }),
+          "garden-lawn",
+          false,
+        ),
+        LAWN_HAZE,
       ),
     [],
   );

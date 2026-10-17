@@ -2,7 +2,8 @@
 // The spike's developer readout and its few buttons, as plain HTML over the
 // canvas. It polls the shared runtime four times a second, so it costs the
 // render loop nothing. Also here: the fade veil that hides a respawn, which
-// follows the runtime every animation frame so the fade is smooth.
+// follows the runtime every animation frame so the fade is smooth, and the
+// gentle notice shown when the Meadow falls back to gliding by itself.
 import { useEffect, useRef, useState } from "react";
 import { meadow } from "@/components/meadow/runtime";
 
@@ -119,4 +120,41 @@ export function FadeVeil() {
     return () => cancelAnimationFrame(raf);
   }, []);
   return <div ref={ref} className="pointer-events-none fixed inset-0 z-20 bg-[#f3e6d2]" style={{ opacity: 0, visibility: "hidden" }} />;
+}
+
+/** How long the fallback notice stays, in ms, before it fades. */
+const NOTICE_MS = 5200;
+
+/**
+ * A calm line at the top of the screen when the Meadow has switched to
+ * gliding by itself (MeadowCanvas): never an error, just what is happening.
+ */
+export function MoverNotice() {
+  const [text, setText] = useState<string | null>(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    let seen = -1;
+    const id = window.setInterval(() => {
+      const n = meadow.notice;
+      if (!n || n.at === seen) {
+        if (n && performance.now() - n.at > NOTICE_MS) setShown(false);
+        return;
+      }
+      seen = n.at;
+      setText(n.text);
+      setShown(true);
+    }, 250);
+    return () => window.clearInterval(id);
+  }, []);
+  if (!text) return null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4 transition-opacity duration-700"
+      style={{ top: "max(16px, env(safe-area-inset-top))", opacity: shown ? 1 : 0 }}
+    >
+      <span className="rounded-full bg-[#fff1cf]/90 px-4 py-2 text-sm text-[#3b2f22] shadow-lg">{text}</span>
+    </div>
+  );
 }

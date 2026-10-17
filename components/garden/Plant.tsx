@@ -50,6 +50,7 @@ import {
   thornMaterial,
 } from "@/components/garden/materials";
 import { BASE_EXPOSURE } from "@/components/garden/Effects";
+import { OPTIONAL_LIGHT } from "@/components/garden/lightSets";
 import {
   heroBudGrowth,
   heroLeafUnfurl,
@@ -476,6 +477,7 @@ function FlowerHead() {
       {/* glow */}
       <pointLight
         ref={setGlow}
+        userData={OPTIONAL_LIGHT}
         color={sp.fx.glowColor}
         intensity={0}
         distance={1.8}

@@ -304,13 +304,28 @@ function paintLeaf(
 
 export type ClusterKind = "tree" | "hedge";
 
+/** Mixes two hex colours, `t` 0 for `a` .. 1 for `b`. */
+function mixHex(a: string, b: string, t: number): string {
+  return "#" + mixA.set(a).lerp(mixB.set(b), clamp01(t)).getHexString();
+}
+const mixA = new THREE.Color();
+const mixB = new THREE.Color();
+
 /**
  * A cluster of leaves on a transparent square, for the canopy and hedge
- * cards: a back layer of darker leaves, then lit ones over them, all growing
- * outward from the middle so the card has no hard edge. The leaves are small
- * and many, each a slightly different value, so a crown made of these cards
+ * cards: a back layer of darker leaves, then lighter ones over them, all
+ * growing outward so the card has no hard edge. The leaves are small and
+ * many, each a slightly different value, so a crown made of these cards
  * reads as foliage rather than as a print of a few large cut-out leaves.
  * `seed` picks the palette as well as the layout.
+ *
+ * Two things keep a crown of these cards from reading as stamped doilies
+ * against the sky. The patch is three to five overlapping lobes of different
+ * sizes rather than one disc, so no card has a round outline. And the light
+ * lives inside: leaves are lit by how deep in the patch they sit and how high
+ * (the sky lights a crown from above), so the outermost leaves, the ones
+ * seen against the sky, stay in the base and shadow greens instead of
+ * ringing each card with its palest tips.
  */
 export function leafClusterTexture(kind: ClusterKind, seed: number): THREE.CanvasTexture {
   return cached(`cluster:${kind}:${seed}`, () => {
@@ -320,29 +335,58 @@ export function leafClusterTexture(kind: ClusterKind, seed: number): THREE.Canva
     const rng = new Rng(seed * 7919 + (kind === "tree" ? 11 : 29));
     const pals = kind === "tree" ? TREE_LEAVES : HEDGE_LEAVES;
     const pal = pals[(seed - 1 + pals.length) % pals.length];
-    // Trees: many small leaves in a loose patch, the ones at the rim pointing
-    // outward; hedges: a tighter mat of small leaves, some rounded, some pointed.
+    // Trees: many small leaves in loose lobes, the ones at a lobe's rim
+    // pointing outward; hedges: a tighter mat of small leaves, some rounded,
+    // some pointed.
     const n = kind === "tree" ? 185 : 120;
     const lenR: [number, number] = kind === "tree" ? [0.058, 0.092] : [0.06, 0.09];
-    const baseR = kind === "tree" ? 0.34 : 0.36;
     const widK = kind === "tree" ? 0.55 : 0.62;
     const round = kind === "tree" ? 0.45 + 0.1 * (seed % 2) : 0.55 + 0.25 * (seed % 2);
     const cx = W / 2;
     const cy = W / 2;
+    // The lobes: spread round the middle, each kept inside the square with
+    // room for a leaf's length past its rim.
+    const lobeCount = 3 + Math.floor(rng.next() * 3);
+    const turn = rng.range(0, Math.PI * 2);
+    const lobes = Array.from({ length: lobeCount }, (_, k) => {
+      const a = turn + (k / lobeCount) * Math.PI * 2 + rng.range(-0.35, 0.35);
+      const d = rng.range(0.07, 0.15) * W;
+      const r = Math.min(rng.range(0.16, 0.25) * W, 0.5 * W - d - lenR[1] * W - 4);
+      return { x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d, r };
+    });
+    const area = lobes.reduce((s, l) => s + l.r * l.r, 0);
+    const pickLobe = () => {
+      let u = rng.next() * area;
+      for (const l of lobes) {
+        u -= l.r * l.r;
+        if (u <= 0) return l;
+      }
+      return lobes[lobes.length - 1];
+    };
     for (let layer = 0; layer < 3; layer++) {
       const count = Math.round(n * (layer === 0 ? 0.4 : layer === 1 ? 0.35 : 0.25));
       for (let i = 0; i < count; i++) {
-        const ang = rng.range(0, Math.PI * 2);
-        const r = Math.sqrt(rng.next()) * baseR * W;
-        const off = rng.range(-1.1, 1.1) * (kind === "tree" ? 1.2 : 1);
-        const bx = cx + Math.cos(ang + off) * r;
-        const by = cy + Math.sin(ang + off) * r;
+        const lobe = pickLobe();
+        const a = rng.range(0, Math.PI * 2);
+        const t = Math.sqrt(rng.next());
+        const bx = lobe.x + Math.cos(a) * t * lobe.r;
+        const by = lobe.y + Math.sin(a) * t * lobe.r;
+        // outward from the lobe's middle, loosely
+        const ang = a + rng.range(-1.1, 1.1) * (kind === "tree" ? 1.0 : 0.9);
         const len = rng.range(lenR[0], lenR[1]) * W;
         const wid = len * widK * rng.range(0.85, 1.15);
-        const t = rng.next();
-        const lit = layer === 2 && t < 0.5;
-        const c0 = layer === 0 ? pal.dark : layer === 1 ? pal.base : pal.base;
-        const c1 = layer === 0 ? pal.base : layer === 1 ? pal.tip : lit ? pal.lit : pal.tip;
+        // How far out the leaf's tip reaches (0 deep inside .. 1 at the
+        // patch's edge) and how high it sits; the edge stays dark.
+        const tipX = bx + Math.cos(ang) * len;
+        const tipY = by + Math.sin(ang) * len;
+        let depth = 0;
+        for (const l of lobes) depth = Math.max(depth, 1 - Math.hypot(tipX - l.x, tipY - l.y) / (l.r + len * 0.6));
+        const rim = 1 - smoothstep(0.08, 0.5, depth);
+        const high = clamp01(0.5 - (by - cy) / W);
+        const light = clamp01((1 - rim) * (0.55 + 0.6 * high) * (layer === 0 ? 0.35 : layer === 1 ? 0.75 : 1));
+        const lit = layer === 2 && rng.next() < 0.5 && light > 0.55;
+        const c0 = layer === 0 ? pal.dark : mixHex(pal.dark, pal.base, 0.35 + 0.65 * (1 - rim));
+        const c1 = layer === 0 ? mixHex(pal.dark, pal.base, 0.4 + 0.6 * light) : mixHex(pal.base, lit ? pal.lit : pal.tip, light);
         // each leaf a touch lighter or darker than its neighbours
         const v = rng.range(-0.14, 0.14);
         paintLeaf(ctx, bx, by, ang, len, wid, round, shiftHex(c0, 0, v), shiftHex(c1, 0, v), pal.vein, layer === 0 ? 0.92 : 1);
