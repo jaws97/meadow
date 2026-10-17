@@ -1,9 +1,12 @@
-// How a plant in the Meadow stands, from the snapshot's coarse bands: its height by stage and species, where the
-// cart pulls up to visit it, and the owner's rose on the dais as a visit of its own. Shared by the instanced plants,
-// the tap picker, the visit card and the camera, so they always agree on where a plant's head is.
+// How a plant in the Meadow stands, from the snapshot's coarse bands: its height by stage and species (a growing
+// plant's measured from the very plant its detail levels draw, lod/atlasManifest.ts), where the cart pulls up to visit
+// it, and the owner's rose on the dais as a visit of its own. Shared by the plants, the tap picker, the visit card and
+// the camera, so they always agree on where a plant's head is.
 import type { VisitTarget } from "@/components/meadow/autopilot";
 import { ROSE } from "@/components/meadow/autopilot";
 import { BED, DAIS, meadowLayout, plotAt } from "@/components/meadow/layout";
+import { HEIGHTS } from "@/components/meadow/lod/atlasManifest";
+import { bandOf } from "@/components/meadow/lod/bands";
 import { SPECIES, type SpeciesId } from "@/lib/plant/species";
 import type { MeadowPlot } from "@/lib/server/meadow";
 
@@ -23,7 +26,7 @@ export const ROSE_SCALE = 2.3;
  */
 export const PLANT_SCALE = 1.3;
 
-/** A plant's height at each stage, as a share of its species' full height (a seed is a mound with a shoot). */
+/** A cheap stand-in's height at each stage, as a share of its species' full height (a seed is a mound with a shoot). */
 export const STAGE_SHARE: Record<Stage, number> = { seed: 0.07, sprout: 0.2, leafy: 0.5, bud: 0.86, bloom: 1, resting: 0.36 };
 
 /** A species' full height in the Meadow, metres. */
@@ -31,9 +34,11 @@ export function speciesHeight(id: SpeciesId): number {
   return SPECIES[id].stem.height * PLANT_SCALE;
 }
 
-/** Metres from the soil to the top of a plant drawn for this snapshot entry. */
-export function plantHeight(p: Pick<MeadowPlot, "species" | "stage">): number {
-  return p.stage === "seed" ? 0.09 * PLANT_SCALE : speciesHeight(p.species) * STAGE_SHARE[p.stage];
+/** Metres from the soil to the top of a plant drawn for this snapshot entry (before its own few percent of size). */
+export function plantHeight(p: Pick<MeadowPlot, "species" | "stage" | "bloom">): number {
+  if (p.stage === "seed") return 0.09 * PLANT_SCALE;
+  const band = bandOf(p);
+  return band ? HEIGHTS[p.species][band] * PLANT_SCALE : speciesHeight(p.species) * STAGE_SHARE[p.stage];
 }
 
 /** Where a plant's middle is in the world, for tap picking and for the camera. */

@@ -3,23 +3,27 @@
    Three.js objects (materials, uniforms, instanced meshes, the scene's fog) are created once and then written in
    the frame loop, which is how an R3F scene animates without re-rendering; the React Compiler lint reads those
    writes as mutating a hook's value. They are intentional and never feed back into what React renders. */
-// Every planted plot in the Meadow, drawn cheaply: the plant at its stage (a seed of light in its mound, with a soft
-// glow on the soil round it, so a ring of new seeds reads as a ring of little lights from across the room; a sprout, a
-// leafy young plant, a tall plant with its bud or bloom, or a plant resting after it died) in its species' leaf
-// colour, the species' own bud or flower on top (opening and closing with its hours: a closed flower is drawn as its
-// bud), and a name stake in front, facing the path, with the name painted on its board. Empty plots grow soft
+// Every planted plot in the Meadow: a seed of light in its mound (with a soft glow on the soil round it, so a ring of
+// new seeds reads as a ring of little lights from across the room) or a plant resting after it died, and a name
+// stake in front of every plant, facing the path, with the name painted on its board. Empty plots grow soft
 // wildflowers. A plant that has just been planted rises out of the soil, and Bursts.tsx marks the moment with light.
 //
-// Cost: about twenty draw calls for the whole Meadow, whatever its size. Each stage's foliage, each species' buds
-// and blooms, the stakes, the signs (one texture of names, nameAtlas.ts) and the wildflowers are each one instanced
-// mesh; instances are rewritten only when the snapshot changes (or a plant is visited), never per frame, apart
-// from the few seconds a new plant takes to rise. On phones the plants cast no shadows. The plant being visited is
-// left out here and drawn in full by VisitedPlant.
+// The growing plants (a sprout, a leafy young plant, a plant in bud or in bloom) are drawn at the detail each deserves
+// by lod/LodPlants.tsx: the garden's own flower, lightly built, near the camera, and a picture of it farther off.
+// Until its pictures have arrived (or if they never do) they are drawn here the old cheap way: the plant at its stage
+// in its species' leaf colour with the species' own bud or flower on top (a closed flower drawn as its bud).
+//
+// Cost: about twenty draw calls here, whatever the Meadow's size. Seeds, resting plants, the stakes, the signs (one
+// texture of names, nameAtlas.ts) and the wildflowers are each one instanced mesh; instances are rewritten only when
+// the snapshot changes (or a plant is visited), never per frame, apart from the few seconds a new plant takes to
+// rise. On phones the plants cast no shadows. The plant being visited is left out here and drawn in full by
+// VisitedPlant.
 import { useFrame } from "@react-three/fiber";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { meadowData, useMeadowData } from "@/components/meadow/data";
 import { BED, type MeadowLayout } from "@/components/meadow/layout";
+import { LodPlants, lodStatus } from "@/components/meadow/lod/LodPlants";
 import { NameAtlas, signMaterial, syncSignMaterial } from "@/components/meadow/nameAtlas";
 import { liveGlowMaterial, merge, paint } from "@/components/meadow/parts";
 import { PLANT_SCALE, speciesHeight, STAGE_SHARE } from "@/components/meadow/plantLook";
@@ -212,7 +216,7 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
   const wildLeavesRef = useRef<THREE.InstancedMesh>(null);
   const wildBlossomsRef = useRef<THREE.InstancedMesh>(null);
   const rising = useRef<Rising[]>([]);
-  const built = useRef({ version: -1, detail: -2, mine: -2 });
+  const built = useRef({ version: -1, detail: -2, mine: -2, lod: false });
 
   const rebuild = useCallback(() => {
     const d = meadowData.get();
@@ -244,6 +248,8 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
     const now = performance.now();
     const risingNow: Rising[] = [];
     const plots = [...d.byPlot.values()].sort((a, b) => a.plot - b.plot);
+    // the growing plants are LodPlants' once its pictures are in
+    const lod = lodStatus.ready;
     // every name a cell first, so a growing atlas never leaves a sign pointing at the old layout
     for (const p of plots) atlas.cellOf(p.name);
     syncSignMaterial(mats.sign, atlas);
@@ -301,6 +307,7 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
         if (rise) risingNow.push(rise);
         continue;
       }
+      if (lod && p.stage !== "resting") continue;
       const kind: Foliage = p.stage === "sprout" ? "sprout" : p.stage === "leafy" ? "leafy" : p.stage === "resting" ? "resting" : "tall";
       // the tall plant is built a metre high: a bud stands at its stage's share of the species' height
       const share = kind === "tall" ? STAGE_SHARE[p.stage] : 1;
@@ -363,16 +370,17 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
 
   useLayoutEffect(() => {
     rebuild();
-    built.current = { version, detail: meadow.detailPlot, mine: meadow.myPlot };
+    built.current = { version, detail: meadow.detailPlot, mine: meadow.myPlot, lod: lodStatus.ready };
   }, [version, rebuild]);
 
   const tmp = useMemo(() => ({ m: new THREE.Matrix4(), t: new THREE.Matrix4(), s: new THREE.Matrix4() }), []);
   useFrame((state) => {
     const b = built.current;
-    if (b.detail !== meadow.detailPlot || b.mine !== meadow.myPlot) {
+    if (b.detail !== meadow.detailPlot || b.mine !== meadow.myPlot || b.lod !== lodStatus.ready) {
       rebuild();
       b.detail = meadow.detailPlot;
       b.mine = meadow.myPlot;
+      b.lod = lodStatus.ready;
     }
     // night: the seeds of light and the flowers' own glow come up
     const t = state.clock.elapsedTime;
@@ -447,6 +455,7 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
       <instancedMesh ref={signRef} args={[geos.sign, mats.sign, cap]} frustumCulled={false} />
       <instancedMesh ref={wildLeavesRef} args={[geos.wildLeaves, mats.wildLeaves, cap]} receiveShadow frustumCulled={false} />
       <instancedMesh ref={wildBlossomsRef} args={[geos.wildBlossoms, mats.wild.material, cap]} frustumCulled={false} />
+      <LodPlants layout={L} shadows={shadows} />
     </group>
   );
 }

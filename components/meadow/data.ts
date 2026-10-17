@@ -10,7 +10,12 @@
 // Retries (the backend's rules): a sprinkle is retried by itself only on 503 busy or unavailable, honouring
 // Retry-After with a little jitter and resending the same body with the same clientEventId, so a retry can never
 // count twice. Every other refusal is shown as the server's own message.
+//
+// Development only: ?demo=N tops the real snapshot up with made-up plants, and ?synthetic=N[&stage=bloom] replaces it
+// with a made-up Meadow of N plants (lod/synthetic.ts) whose visits are answered locally and whose sprinkles are
+// never sent, so nothing reaches the server or the database. Neither does anything in a production build.
 import { useSyncExternalStore } from "react";
+import { readSynthetic, syntheticFriend, syntheticSnapshot, type SyntheticOptions } from "@/components/meadow/lod/synthetic";
 import type { FriendGarden, MeadowPlot, MeadowSnapshot } from "@/lib/server/meadow";
 
 export type { FriendGarden, MeadowPlot, MeadowSnapshot };
@@ -59,6 +64,19 @@ export function useMeadowData<T>(selector: (d: MeadowData) => T): T {
 /** Two plants are the same on screen when nothing the Meadow draws or says about them has changed. */
 const samePlot = (a: MeadowPlot, b: MeadowPlot) =>
   a.species === b.species && a.name === b.name && a.stage === b.stage && a.health === b.health && a.bloom === b.bloom && a.generation === b.generation;
+
+let syntheticRead = false;
+let syntheticOpts: SyntheticOptions | null = null;
+
+/** Development only: the made-up Meadow asked for in the address (?synthetic=N), or null (always, in production). */
+export function syntheticMeadow(): SyntheticOptions | null {
+  if (process.env.NODE_ENV === "production" || typeof window === "undefined") return null;
+  if (!syntheticRead) {
+    syntheticRead = true;
+    syntheticOpts = readSynthetic(window.location.search);
+  }
+  return syntheticOpts;
+}
 
 /**
  * Development only: `?demo=360` tops the real snapshot up with made-up plants (in this browser alone, nothing is
@@ -111,6 +129,12 @@ let inFlight: Promise<void> | null = null;
 
 async function poll(): Promise<void> {
   if (inFlight) return inFlight;
+  const synthetic = syntheticMeadow();
+  if (synthetic) {
+    // the made-up Meadow never changes and never asks the server
+    if (data.snapshot === null) absorb(syntheticSnapshot(synthetic));
+    return;
+  }
   inFlight = (async () => {
     lastPoll = Date.now();
     try {
@@ -231,6 +255,11 @@ const friendRequests = new Map<number, Promise<Loaded<FriendGarden>>>();
 
 /** A friend's plant, from a minute-fresh cache or the server; never throws. */
 export function loadFriend(plot: number): Promise<Loaded<FriendGarden>> {
+  const synthetic = syntheticMeadow();
+  if (synthetic) {
+    const value = syntheticFriend(plot, synthetic);
+    return Promise.resolve(value ? { ok: true, value } : { ok: false, code: "plot_empty", message: "Nobody has planted in that plot yet." });
+  }
   const cached = friends.get(plot);
   if (cached && Date.now() - cached.at < FRIEND_FRESH_MS) return Promise.resolve({ ok: true, value: cached.value });
   const pending = friendRequests.get(plot);
@@ -284,6 +313,8 @@ export type SprinkleOutcome =
 
 /** Sends today's sprinkle to the plant in `plot` (see the header for the retry rules). */
 export async function sendSprinkle(plot: number): Promise<SprinkleOutcome> {
+  // a made-up plant's plot may hold a real plant in the database: its sprinkle stays here
+  if (syntheticMeadow()) return { ok: false, code: "synthetic", message: "This is a made-up plant for testing, so no sprinkle was sent." };
   const body = JSON.stringify({ plot, clientEventId: newClientEventId() });
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
