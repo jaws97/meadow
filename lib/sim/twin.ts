@@ -8,8 +8,8 @@
 // ideal care: a can whenever depletion passes 0.2, one feed on day 5, pests tended at once. Its biomass B (g) is read where
 // development crosses D = 0.05, 0.10 .. 1 (interpolated within the crossing hour, rounded to 0.1 mg, tab[0] pinned to the
 // seed mass BED.B0, made non-decreasing); B_pot is its mass when the bud matures (D = 1).
-// The numbers are copied verbatim from the locked model.js (fitted for SIM_VERSION 5 and unchanged in 6, whose changes do
-// not touch development) and are checked against golden-v6.json, so the port reproduces the prototype exactly. Refitting means a new SIM_VERSION and a regenerated golden file.
+// The numbers are copied verbatim from the locked model.js (fitted for SIM_VERSION 5 and unchanged in 6 and 7, whose changes do
+// not touch development) and are checked against golden-v7.json, so the port reproduces the prototype exactly. Refitting means a new SIM_VERSION and a regenerated golden file.
 import type { SpeciesId } from "@/lib/plant/species";
 
 export interface TwinEntry {
@@ -36,7 +36,7 @@ export const TWIN: Readonly<Record<SpeciesId, TwinEntry>> = Object.freeze({
     Bpot: 0.8048,
     tab: Object.freeze([0.03, 0.03, 0.041, 0.0528, 0.0541, 0.0716, 0.0863, 0.0892, 0.1172, 0.1454, 0.1512, 0.1961, 0.2367, 0.256, 0.3376, 0.4102, 0.4378, 0.546, 0.6369, 0.6744, 0.8048]),
   }),
-  tefiti: Object.freeze({
+  island: Object.freeze({
     Bpot: 0.2649,
     tab: Object.freeze([0.03, 0.03, 0.037, 0.0433, 0.0443, 0.0534, 0.0602, 0.0615, 0.0735, 0.0849, 0.087, 0.1034, 0.117, 0.1232, 0.1481, 0.1673, 0.1761, 0.2042, 0.2233, 0.2354, 0.2649]),
   }),

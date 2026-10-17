@@ -1,5 +1,5 @@
-// Parity with the locked prototype: replays every scenario of golden-v6.json (written by the prototype's run.mjs from
-// model.js, SIM_VERSION 6) through the TypeScript port and compares every recorded state and visual field, every bloom
+// Parity with the locked prototype: replays every scenario of golden-v7.json (written by the prototype's run.mjs from
+// model.js, SIM_VERSION 7) through the TypeScript port and compares every recorded state and visual field, every bloom
 // forecast, the constants block, the planting-window table and the heavy-rain hint (rainSoon) cases. The golden file stores non-integer numbers rounded to
 // 1e-9, so a field passes when the port's value, rounded the same way, is within 1e-9; strings, booleans and integers must
 // be exact, and the constants must be identical. The prototype's golden-check.mjs runs the same comparison on model.js.
@@ -51,7 +51,7 @@ interface Golden {
   rainSoon: GoldenRainSoon[];
 }
 
-const G = JSON.parse(fs.readFileSync(new URL("./__fixtures__/golden-v6.json", import.meta.url), "utf8")) as Golden;
+const G = JSON.parse(fs.readFileSync(new URL("./__fixtures__/golden-v7.json", import.meta.url), "utf8")) as Golden;
 
 const R = 1e9;
 const rnd = (x: number) => (Number.isFinite(x) && !Number.isInteger(x) ? Math.round(x * R) / R : x);
@@ -89,7 +89,7 @@ function compareSnapshot(sc: GoldenScenario, want: GoldenScenario["snapshots"][n
   return n;
 }
 
-describe("golden-v6 parity with the prototype", () => {
+describe("golden-v7 parity with the prototype", () => {
   it("is the file this port targets", () => {
     expect(G.simVersion).toBe(SIM_VERSION);
     expect(G.gameStart).toBe(GAME_START);

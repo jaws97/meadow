@@ -1,9 +1,10 @@
 // Input validation for the API bodies: names that belong on a garden sign get through tidied, anything else gets a
 // calm, specific message, and every care and sprinkle field is checked before the server touches the database.
 import { describe, expect, it } from "vitest";
+import { SIM_SPECIES } from "@/lib/sim";
 import { PLOT_LIMIT } from "./plots";
 import { newToken } from "./tokens";
-import { cleanFirstName, isClientEventId, isUuid, parseCareBody, parseLinkOpenBody, parseSeedBody, parseSprinkleBody } from "./validate";
+import { SPECIES_IDS, cleanFirstName, isClientEventId, isUuid, parseCareBody, parseLinkOpenBody, parseSeedBody, parseSprinkleBody } from "./validate";
 
 const ID = "3f6c2a9e-8b1d-4c7a-9e2f-1a2b3c4d5e6f";
 
@@ -70,6 +71,11 @@ describe("parseSeedBody", () => {
       const r = parseSeedBody({ firstName: "Asha", species: "rose", clientEventId: bad });
       expect(!r.ok && [r.code, r.field]).toEqual(["client_event_id", "clientEventId"]);
     }
+  });
+
+  it("takes every species the model knows", () => {
+    expect([...SPECIES_IDS].sort()).toEqual(Object.keys(SIM_SPECIES).sort());
+    for (const species of SPECIES_IDS) expect(parseSeedBody({ firstName: "Ravi", species, clientEventId: ID }).ok, species).toBe(true);
   });
 
   it("names the field that is wrong", () => {

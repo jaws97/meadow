@@ -1,4 +1,4 @@
-// The Disney Garden plant model, SIM_VERSION 6: a line-for-line TypeScript port of the locked scratch prototype
+// The Disney Garden plant model, SIM_VERSION 7: a line-for-line TypeScript port of the locked scratch prototype
 // (sim/model.js). One step() is one real hour of a seedling-scale plant (grams, not a shrub) in a raised bed in
 // Bangalore. Water, weather, damage, pests, nitrogen and biomass run in real time.
 //
@@ -10,14 +10,15 @@
 // plant keeps its own clock from its own planting hour, and a late planter has the same chance as one who planted at the
 // party.
 //
-// A mature bud opens at its natural hour: rose, sundrop, marigold and Te Fiti's with the morning light (half open by
-// 08:00), magnolia over the morning (half open by 09:00), Night Jasmine at dusk (18:00). Petals open only in their own part
-// of the day (openWindow), so a wilted bud that has not finished pauses and finishes the next morning (or dusk). The plant
-// asks for water ("ready for a drink") well before the drought signal can slow its bud, so a player who waters only when
-// asked, twice a day at any hours, gets the 13-15 day bloom. After the one Fairy Dust revival is used, a plant that dies
-// again can be replanted as a sprout whose flower is capped at 0.7. Damping-off runs on the water the bed has to shed each
-// day; rain's share of that flush is capped just below the infection threshold, so rain alone never builds a rot dose
-// while cans on a rain-soaked bed do, and the cans' share never counts more water than the cans supplied.
+// A mature bud opens at its natural hour: rose, sundrop, marigold and the Island Bloom with the morning light (half
+// open by 08:00), magnolia over the morning (half open by 09:00), Night Jasmine at dusk (18:00). Petals open only in
+// their own part of the day (openWindow), so a wilted bud that has not finished pauses and finishes the next morning
+// (or dusk). The plant asks for water ("ready for a drink") well before the drought signal can slow its bud, so a
+// player who waters only when asked, twice a day at any hours, gets the 13-15 day bloom. After the one Fairy Dust
+// revival is used, a plant that dies again can be replanted as a sprout whose flower is capped at 0.7. Damping-off runs
+// on the water the bed has to shed each day; rain's share of that flush is capped just below the infection threshold,
+// so rain alone never builds a rot dose while cans on a rain-soaked bed do, and the cans' share never counts more water
+// than the cans supplied.
 //
 // SIM_VERSION 6 (after 5; the database keeps sim_version as a smallint, so versions stay integers): a plant whose roots
 // have started to rot (the dose past the infection lag) never reads calm, and a soaked bed outranks the blooming mood;
@@ -26,9 +27,13 @@
 // the over-watering clocks stay on their agreed days; rainSoon() reads a forecast for the app's "heavy rain tonight;
 // skip the can" hint.
 //
+// SIM_VERSION 7 (after 6) is a rename only: the tropical flower's key is "island" (the Island Bloom). Not one equation
+// or number changed, but a stored state carries its species key, so every SIM_VERSION 6 checkpoint is rebuilt from its
+// planting and events (lib/server/catchup.ts) under the new key.
+//
 // Pure and deterministic: no Date, no Math.random, no module state, and inputs are never mutated, so a state can be
 // stored as JSON and stepped on any server. The equations, their order and every constant match the prototype; the parity
-// test replays the prototype's golden file (golden-v6.json) to 1e-9. Change a number here only together with a new
+// test replays the prototype's golden file (golden-v7.json) to 1e-9. Change a number here only together with a new
 // SIM_VERSION and a regenerated golden file.
 //
 // Hour index h counts whole hours from GAME_START (10 Nov 2026 00:00 IST), so the IST clock hour is h % 24. step() for
@@ -39,7 +44,7 @@ import { TWIN } from "./twin";
 export { TWIN };
 export type { TwinEntry } from "./twin";
 
-export const SIM_VERSION = 6;
+export const SIM_VERSION = 7;
 /** h = 0: 10 Nov 2026 00:00 IST, the day of the party. */
 export const GAME_START = "2026-11-10T00:00+05:30";
 /** 10 Nov 15:00 IST: the party starts and the seeds are handed out. */
@@ -151,7 +156,7 @@ export const SIM_SPECIES: Readonly<Record<SpeciesId, SimSpecies>> = Object.freez
     truth: "A magnolia grown from seed usually takes a decade or more to flower. This one is pure magic." }),
   marigold: Object.freeze<SimSpecies>({ id: "marigold", name: "Marigold", p: 0.50, wilt: 0.45, Zrmax: 0.08, tolD: 1.2, tolW: 0.96, Tb: 6, Tlo: 17, Topt: 26, Tmax: 38, TT: 143.5, TTreal: 1000, RUE: 2.4, SLA: 0.030, Tcrit: 44, dLeaf: 0.025, openHod: 6, openDur: 4, mites: 1.0,
     truth: "An African marigold flowers about 6-8 weeks after sowing; here it takes 2." }),
-  tefiti: Object.freeze<SimSpecies>({ id: "tefiti", name: "Te Fiti's Bloom", p: 0.35, wilt: 0.50, Zrmax: 0.085, tolD: 1.1, tolW: 1.0, Tb: 9, Tlo: 17, Topt: 29, Tmax: 42, TT: 105.6, TTreal: null, RUE: 2.2, SLA: 0.022, Tcrit: 45, dLeaf: 0.18, openHod: 6, openDur: 4, mites: 0.3, budDrop: true,
+  island: Object.freeze<SimSpecies>({ id: "island", name: "Island Bloom", p: 0.35, wilt: 0.50, Zrmax: 0.085, tolD: 1.1, tolW: 1.0, Tb: 9, Tlo: 17, Topt: 29, Tmax: 42, TT: 105.6, TTreal: null, RUE: 2.2, SLA: 0.022, Tcrit: 45, dLeaf: 0.18, openHod: 6, openDur: 4, mites: 0.3, budDrop: true,
     truth: "Hibiscus and tiare grown from seed take one to several years to flower. This one is magic." }),
   jasmine: Object.freeze<SimSpecies>({ id: "jasmine", name: "Night Jasmine", p: 0.50, wilt: 0.35, Zrmax: 0.085, tolD: 1.15, tolW: 0.95, Tb: 10, Tlo: 17, Topt: 28, Tmax: 38, TT: 92.6, TTreal: null, RUE: 2.0, SLA: 0.020, Tcrit: 42, dLeaf: 0.07, openHod: 17, openDur: 2, mites: 0.3, nightBloom: true,
     truth: "A parijat raised from seed or a cutting usually needs a year or more before it flowers. This one is magic." }),
@@ -449,7 +454,7 @@ export function soilN(s: PlantState): number { return s.Ns / (BED.rho * BED.A * 
 export function nRich(s: PlantState): boolean { return s.NNI >= 0.9 && soilN(s) >= BED.Nrich; }
 /** Planting (and replanting) is open from the party, 10 Nov 15:00, to 10 Dec 23:59 IST. */
 export function canPlant(h: number): boolean { return h >= PLANT_OPEN_H && h < PLANT_CLOSE_H; }
-/** Rose, sundrop, magnolia, marigold and Te Fiti's open with the morning light; Night Jasmine at dusk. */
+/** Rose, sundrop, magnolia, marigold and the Island Bloom open with the morning light; Night Jasmine at dusk. */
 export function opensInMorning(sp: SimSpecies): boolean { return sp.openHod < 12; }
 /**
  * The petals of a mature bud open only in their own part of the day: a morning flower from first light to duskH, Night

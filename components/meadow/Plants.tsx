@@ -38,7 +38,7 @@ import {
 import { lerp } from "@/lib/plant/prng";
 import { SPECIES, type SpeciesId } from "@/lib/plant/species";
 
-const SPECIES_IDS: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "tefiti", "jasmine"];
+const SPECIES_IDS: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine"];
 type Foliage = "sprout" | "leafy" | "tall" | "resting";
 const FOLIAGE: readonly Foliage[] = ["sprout", "leafy", "tall", "resting"];
 /** How long a new plant takes to rise out of the soil, ms. */

@@ -94,6 +94,7 @@ describe("the counter and the feed", () => {
     expect(plantedLine({ name: "Priya", species: "jasmine" })).toBe("Priya planted a Night Jasmine");
     expect(plantedLine({ name: "Arun", species: "rose" })).toBe("Arun planted an Enchanted Rose");
     expect(plantedLine({ name: "A friend", species: "marigold" })).toBe("A friend planted a Marigold");
+    expect(plantedLine({ name: "Ravi", species: "island" })).toBe("Ravi planted an Island Bloom");
     expect(counterWords(1)).toBe("seed planted");
     expect(counterWords(2)).toBe("seeds planted");
     expect(counterWords(0)).toBe("seeds planted");
@@ -117,7 +118,7 @@ describe("the counter and the feed", () => {
 
   it("finds new plantings oldest first, and the latest ones newest first", () => {
     const known = new Set([plantingKey(plot(0, "Priya"))]);
-    const plots = [plot(5, "Meera", "sundrop"), plot(0, "Priya"), plot(2, "Ravi", "tefiti")];
+    const plots = [plot(5, "Meera", "sundrop"), plot(0, "Priya"), plot(2, "Ravi", "island")];
     expect(newPlantings(known, plots).map((p) => p.name)).toEqual(["Ravi", "Meera"]);
     expect(latestPlantings(plots, 2).map((p) => p.name)).toEqual(["Meera", "Ravi"]);
     // a removed test plant's plot taken by someone else is a new planting

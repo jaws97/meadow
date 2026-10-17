@@ -26,7 +26,7 @@ import { ensureTypeScript, importSim } from "./lib/load-sim.mjs";
 ensureTypeScript();
 
 const BASE = "http://localhost:3000";
-const SPECIES = ["rose", "sundrop", "magnolia", "marigold", "tefiti", "jasmine"];
+const SPECIES = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine"];
 const NAMES = [
   "Asha", "Rahul", "Priya", "Arjun", "Meera", "Kiran", "Divya", "Vikram", "Ananya", "Rohan", "Sneha", "Aditya", "Kavya",
   "Nikhil", "Pooja", "Siddharth", "Lakshmi", "Varun", "Isha", "Karthik", "Neha", "Manoj", "Riya", "Suresh", "Tara",

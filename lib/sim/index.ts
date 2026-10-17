@@ -1,4 +1,4 @@
-// The plant simulation's public API: the locked model (SIM_VERSION 6), game time, Bangalore weather from Open-Meteo,
+// The plant simulation's public API: the locked model (SIM_VERSION 7), game time, Bangalore weather from Open-Meteo,
 // the climate normal behind the bloom forecast, the heavy-rain hint read from the forecast (rainSoon), and the replay the
 // server runs to bring a stored plant up to date.
 // Framework-free and pure apart from weather.ts's fetch helpers, so the same code runs on the server, in tests and in

@@ -18,6 +18,8 @@ const FINGERPRINTS: Record<number, string> = {
   4: "274d8b019681b13f00367613f6254d4565c44fba7646a399a2aff5ef549fb7ff",
   5: "21eacbfb9b2f30e37b6a75d29d8033f3fd5eecd7b303ea8aeefb768e2055c61b",
   6: "0ec8fe9b4900e8d449081d8ea104ff98430c3f77322fba29c8695a2e3e8bb001",
+  // rename only: the "island" key in each state; with that key and v read back as 6's, the hash is 6's exactly
+  7: "bc62cfb50ce85539441ed4448fae024d1d8eec6c5f9f59bb5e1c8cfb1582bc02",
 };
 
 // a small seeded generator, so the "random" season is the same on every machine

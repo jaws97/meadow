@@ -6,7 +6,7 @@ import { SIM_SPECIES, type SimSpecies } from "@/lib/sim";
 import { SPECIES, type SpeciesId } from "@/lib/plant/species";
 
 /** The order the server lists the seed packets in (lib/server/validate.ts SPECIES_IDS). */
-export const SEED_ORDER: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "tefiti", "jasmine"];
+export const SEED_ORDER: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine"];
 
 /**
  * Packet lines that promise something the model (v5) does not do: no flower heals faster, and every flower keeps its

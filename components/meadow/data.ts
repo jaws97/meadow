@@ -68,7 +68,7 @@ function withDemoPlants(snapshot: MeadowSnapshot): MeadowSnapshot {
   if (process.env.NODE_ENV === "production") return snapshot;
   const want = Number(new URLSearchParams(window.location.search).get("demo"));
   if (!Number.isInteger(want) || want <= snapshot.plots.length) return snapshot;
-  const species = ["rose", "sundrop", "magnolia", "marigold", "tefiti", "jasmine"] as const;
+  const species = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine"] as const;
   const stages = ["seed", "seed", "seed", "sprout", "sprout", "leafy", "leafy", "bud", "bloom"] as const;
   const taken = new Set(snapshot.plots.map((p) => p.plot));
   const plots = [...snapshot.plots];

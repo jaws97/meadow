@@ -1,7 +1,7 @@
 // The six seed packets. Every number here is in metres and radians.
-// Each species is inspired by a film; all art is original.
+// Five are inspired by a film and the Island Bloom is our own; all art is original.
 
-export type SpeciesId = "rose" | "sundrop" | "magnolia" | "marigold" | "tefiti" | "jasmine";
+export type SpeciesId = "rose" | "sundrop" | "magnolia" | "marigold" | "island" | "jasmine";
 
 export interface PetalLayer {
   /** petals in this whorl */
@@ -71,6 +71,7 @@ export interface FlowerSpec {
 export interface Species {
   id: SpeciesId;
   name: string;
+  /** the film that inspired it, or "Original" */
   film: string;
   tagline: string;
   stem: {
@@ -200,10 +201,10 @@ export const SPECIES: Record<SpeciesId, Species> = {
     },
     fx: { glowNight: true, pulse: false, sparks: true, scent: true, glowColor: "#ffb347" },
   },
-  tefiti: {
-    id: "tefiti",
-    name: "Te Fiti's Bloom",
-    film: "Moana",
+  island: {
+    id: "island",
+    name: "Island Bloom",
+    film: "Original",
     tagline: "A spiral bud that pulses green at night.",
     stem: { height: 0.7, radius: 0.02, segments: 3, lean: 0.1, wobble: 0.4, color: "#2f6a4a", tipColor: "#3f8a5a", thorns: false },
     leaves: {

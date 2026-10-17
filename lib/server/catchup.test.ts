@@ -3,7 +3,7 @@
 // weather gap pauses without inventing anything, and a checkpoint from another model version is rebuilt.
 import { describe, expect, it } from "vitest";
 import { SIM_VERSION, catchUp, createPlant, replayFromPlanting, type HourWeather, type PlantState, type Planting, type TimedEvent } from "@/lib/sim";
-import { advanceCheckpoint, seedState, type AdvanceDeps, type CheckpointRecord } from "./catchup";
+import { advanceCheckpoint, baseState, seedState, type AdvanceDeps, type CheckpointRecord } from "./catchup";
 
 const OWNER = "5b0c9f1e-2a3d-4e5f-8a9b-0c1d2e3f4a5b";
 const PLANTING: Planting = { speciesId: "marigold", plantedH: 17, owner: OWNER };
@@ -161,6 +161,18 @@ describe("advanceCheckpoint", () => {
     expect(r.saved).toBe(true);
     expect(r.state).toEqual(replay(f.events, 70));
     expect(f.cp).toMatchObject({ simVersion: SIM_VERSION, version: 5 });
+  });
+});
+
+describe("baseState", () => {
+  it("rebuilds a checkpoint saved under a species key the model no longer knows from its planting", () => {
+    // SIM_VERSION 7 renamed a key: a SIM_VERSION 6 state still names the old one, the planting row the new one
+    const planting: Planting = { speciesId: "island", plantedH: 17, owner: OWNER };
+    const old = { ...createPlant("island", 17, OWNER), v: 6, h: 70, sp: "retired" } as unknown as PlantState;
+    const { state, rebuilt } = baseState({ h: 70, state: old, simVersion: 6, version: 3 }, planting);
+    expect(rebuilt).toBe(true);
+    expect(state).toEqual(seedState(planting));
+    expect(catchUp(state, [{ id: 1, h: 25, kind: "water" }], wx, 70)).toMatchObject({ sp: "island", v: SIM_VERSION, h: 70, alive: true });
   });
 });
 

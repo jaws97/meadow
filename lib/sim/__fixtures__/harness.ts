@@ -1,5 +1,5 @@
 // Test harness for the target suites: a TypeScript copy of the prototype's sim/harness.mjs and the policies, sweeps and
-// metrics of sim/run.mjs (SIM_VERSION 6), run on the recorded weather fixtures in this folder. Keep it in step with the
+// metrics of sim/run.mjs (SIM_VERSION 7), run on the recorded weather fixtures in this folder. Keep it in step with the
 // prototype: the targets are only meaningful if they are measured exactly the way the model was tuned.
 //
 // Weather: Open-Meteo best_match archive for Bangalore, 2023-25, cut to the game window (10 Nov 00:00 - 20 Dec 24:00

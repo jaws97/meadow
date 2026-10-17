@@ -82,7 +82,7 @@ describe("state and visual invariants", () => {
   });
 
   it("never mutates its inputs", () => {
-    const s = deepFreeze(simulate({ spId: "tefiti", endH: 200 }).s);
+    const s = deepFreeze(simulate({ spId: "island", endH: 200 }).s);
     const ev = deepFreeze<SimEvent[]>([{ kind: "water", id: 1 }, { kind: "sprinkle", actor: "pal" }, { kind: "shade", amount: 1 }]);
     const wx = deepFreeze({ ...WX });
     expect(() => step(s, { h: s.h, wx }, ev)).not.toThrow();
@@ -196,7 +196,7 @@ describe("broken weather rows (cleanWx)", () => {
 describe("opening in the flower's own part of the day", () => {
   it("morning flowers open from first light to 17:00, Night Jasmine from dusk to 06:00", () => {
     const hours = (id: keyof typeof SIM_SPECIES) => Array.from({ length: 24 }, (_, h) => h).filter((h) => openWindow(SIM_SPECIES[id], h));
-    for (const id of ["rose", "sundrop", "magnolia", "marigold", "tefiti"] as const) expect(hours(id), id).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    for (const id of ["rose", "sundrop", "magnolia", "marigold", "island"] as const) expect(hours(id), id).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
     expect(hours("jasmine")).toEqual([0, 1, 2, 3, 4, 5, 17, 18, 19, 20, 21, 22, 23]);
   });
 
