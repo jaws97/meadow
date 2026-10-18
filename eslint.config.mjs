@@ -37,6 +37,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // local tooling: agent worktrees (with their own builds) and browser-automation scratch
+    ".claude/**",
+    ".playwright-mcp/**",
   ]),
 ]);
 
