@@ -329,6 +329,14 @@
 .care-chip[data-tone="friends"] .care-chip-icon {
   color: #ffc6b3;
 }
+/* a lotus's pond and jar: the soft water blue of the rain, calm while nothing asks */
+.care-chip[data-tone="pond"] .care-chip-icon {
+  color: #a9c9e8;
+}
+/* the koi's last pinch: a gentle kohaku coral */
+.care-chip[data-tone="koi"] .care-chip-icon {
+  color: #f6b59a;
+}
 
 @media (min-width: 640px) {
   .care-chips {
@@ -704,11 +712,39 @@
   }
 }
 
+/* a lotus's four buttons: one row on a phone, a longer word ("Top up the pond") on two lines when it must, and each
+   small word right under its own label (lined up along the row's foot, "too young" sat far below a one-line "Feed") */
+.care-actions[data-count="4"] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.care-actions[data-count="4"] .care-act-label {
+  max-width: 100%;
+  padding: 0 2px;
+  line-height: 1.22;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* the lotus's longest small word, "asking for food", fits a 390 px phone's column; on a narrower one it takes two lines */
+.care-actions[data-count="4"] .care-act-sub {
+  max-width: 100%;
+  padding: 0 2px;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-align: center;
+  text-wrap: balance;
+  white-space: normal;
+}
+
 @media (min-width: 1024px) and (orientation: landscape) {
   .care-actions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     row-gap: 8px;
     margin: 2px 0 0;
+  }
+  .care-actions[data-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .care-act {
     min-height: 84px;
@@ -966,6 +1002,9 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
     row-gap: 2px;
     margin: 0;
+  }
+  .care-actions[data-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .care-act {
     min-height: 60px;

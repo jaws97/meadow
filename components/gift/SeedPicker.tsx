@@ -1,13 +1,15 @@
 "use client";
-// The six seed packets as cards: a render of each flower in bloom, its name and a one-line character drawn from the
+// The seven seed packets as cards: a render of each flower in bloom, its name and a one-line character drawn from the
 // plant model (components/gift/species.ts), and under the cards the chosen one's fuller nature and the model's honest
-// line about the real plant. The cards are native radio buttons, so arrow keys move between them, a screen reader
-// hears "radio, 2 of 6", and the choice is plain to see. On a phone that fuller nature opens below the cards, out of
+// line about the real plant. The six flowers of the bed sit two or three to a row; the seventh, the lotus, grows in its
+// own koi pond, so it closes the set as one wide card the width of a row, its picture exactly one column wide (a
+// subgrid of the cards' grid) and its words beside it with where it lives. The cards are native radio buttons, so arrow
+// keys move between them, a screen reader hears "radio, 2 of 7", and the choice is plain to see. On a phone that fuller nature opens below the cards, out of
 // sight, so a choice brings it gently into view when it is not already showing, as far as the chosen card itself can
 // stay in view (the Plant button names the choice as well).
 import Image from "next/image";
 import { useEffect, useRef } from "react";
-import { Check, TraitIcon } from "@/components/gift/icons";
+import { Check, Koi, TraitIcon } from "@/components/gift/icons";
 import { SEED_PACKETS, packetOf } from "@/components/gift/species";
 import type { SpeciesId } from "@/lib/plant/species";
 
@@ -42,9 +44,9 @@ export function SeedPicker({ value, onChange }: { value: SpeciesId | null; onCha
   return (
     <>
       <fieldset className="gift-seeds">
-        <legend className="gift-sr">Six seeds</legend>
+        <legend className="gift-sr">Seven seeds</legend>
         {SEED_PACKETS.map((p) => (
-          <label key={p.id} className="gift-seed">
+          <label key={p.id} className={p.home ? "gift-seed gift-seed-wide" : "gift-seed"}>
             <input
               type="radio"
               name="gift-seed"
@@ -54,7 +56,7 @@ export function SeedPicker({ value, onChange }: { value: SpeciesId | null; onCha
                 picked.current = true;
                 onChange(p.id);
               }}
-              aria-describedby={`gift-seed-char-${p.id}`}
+              aria-describedby={p.home ? `gift-seed-home-${p.id} gift-seed-char-${p.id}` : `gift-seed-char-${p.id}`}
             />
             <span className="gift-seed-check">
               <Check size={15} strokeWidth={2.2} />
@@ -63,6 +65,12 @@ export function SeedPicker({ value, onChange }: { value: SpeciesId | null; onCha
               <Image src={p.image} alt="" width={480} height={360} unoptimized loading="eager" />
             </span>
             <span className="gift-seed-name">{p.name}</span>
+            {p.home && (
+              <span className="gift-seed-home" id={`gift-seed-home-${p.id}`}>
+                <Koi size={14} />
+                {p.home}
+              </span>
+            )}
             <span className="gift-seed-char" id={`gift-seed-char-${p.id}`}>
               {p.character}
             </span>
@@ -77,6 +85,7 @@ export function SeedPicker({ value, onChange }: { value: SpeciesId | null; onCha
               <h3 className="gift-h3">{chosen.name}</h3>
             </div>
             <p className="gift-about-tagline">{chosen.tagline}</p>
+            {chosen.note && <p className="gift-about-note">{chosen.note}</p>}
             <ul className="gift-traits">
               {chosen.traits.map((t) => (
                 <li key={t.kind} className="gift-trait">

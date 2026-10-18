@@ -2,6 +2,10 @@
 // The development overlay: every simulation and environment knob in the
 // store, a handful of one-click presets, and the Bangalore clock readout.
 // It is plain HTML laid over the canvas, so it never touches the render loop.
+// For a lotus, a development build adds the season scrubber (the pond model
+// run in the browser, components/lotus/product/LotusDevControls); it is never
+// part of a production build, where the panel still opens with ?dev.
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { garden, useGarden, type GardenState, type Quality } from "@/lib/garden/store";
 import { SPECIES_LIST } from "@/lib/plant/species";
@@ -35,6 +39,12 @@ const PRESETS: ReadonlyArray<{ label: string; patch: Partial<GardenState> }> = [
   { label: "Night", patch: { hour: 21.5, cloud: 0.1, autoClock: false } },
   { label: "Rain", patch: { rain: 0.8, cloud: 0.9, hour: 15, autoClock: false } },
 ];
+
+/** Development builds only (the condition is constant, so a production build leaves the import out). */
+const LotusDevControls =
+  process.env.NODE_ENV !== "production" ? dynamic(() => import("@/components/lotus/product/LotusDevControls"), { ssr: false }) : null;
+// (loaded at once in development, panel or not, so scripted captures find its window.__lotusDev handle with ?nopanel)
+if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") void import("@/components/lotus/product/LotusDevControls");
 
 const COLLAPSED_KEY = "disney-garden:devpanel-collapsed";
 
@@ -387,6 +397,8 @@ export function DevPanel() {
             <SpeciesSelect />
             <SeedInput />
           </Section>
+
+          {LotusDevControls ? <LotusDevControls /> : null}
 
           <Section title="Simulation">
             {SLIDERS.map((s) => (

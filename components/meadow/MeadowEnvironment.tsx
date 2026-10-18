@@ -32,7 +32,8 @@ const MOON = new THREE.Color("#9db3ff");
 /** The light's numbers are the garden's sky keys, scaled for an open meadow under the same sky. */
 const HEMI_GAIN = 2.1;
 const SUN_GAIN = 0.95;
-const CLOUD = 0.2;
+/** The Meadow's sky: a few fair-weather clouds, always (a visited lotus's water takes the same sky). */
+export const MEADOW_CLOUD = 0.2;
 
 const SKY_VERTEX = /* glsl */ `
 varying vec3 vDir;
@@ -139,7 +140,7 @@ export function MeadowEnvironment({ shadowSize }: { shadowSize: number }) {
       c.next = t + 0.5;
       c.hour = pinned ?? istNow();
       const info = sunInfo(istDateAt(c.hour));
-      const sky = skyState(info.altitude, CLOUD, c.hour, 0);
+      const sky = skyState(info.altitude, MEADOW_CLOUD, c.hour, 0);
       uniforms.uZenith.value.copy(sky.zenith);
       uniforms.uHorizon.value.copy(sky.horizon);
       uniforms.uGlow.value.copy(sky.glow);
@@ -147,6 +148,7 @@ export function MeadowEnvironment({ shadowSize }: { shadowSize: number }) {
       uniforms.uSunDisc.value = sky.sunDisc;
       uniforms.uStars.value = sky.stars;
       meadow.night = sky.nightness;
+      meadow.hour = c.hour;
       fog.color.copy(sky.fog);
       const L = meadowLayout();
       // the haze starts past the Meadow as seen from wherever the camera stands, so pulling back never fogs it

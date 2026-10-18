@@ -35,7 +35,7 @@ import { meadowData, useMeadowData, type MeadowPlot } from "@/components/meadow/
 import { BED, type MeadowLayout } from "@/components/meadow/layout";
 import { ATLAS, CELLS, HEIGHTS } from "@/components/meadow/lod/atlasManifest";
 import { bakeLodPlant } from "@/components/meadow/lod/bake";
-import { bandOf, BANDS, cellIndex, LOD_SPECIES, plotHash, plotSpin, plotTilt, plotTurn, type Band } from "@/components/meadow/lod/bands";
+import { bandOf, BANDS, cellIndex, LOD_REACH, LOD_SPECIES, plotHash, plotSpin, plotTilt, plotTurn, standsUpright, type Band } from "@/components/meadow/lod/bands";
 import { handover } from "@/components/meadow/lod/handover";
 import { advanceFades, chooseNear, nearRange, screenHeight, type LevelOptions } from "@/components/meadow/lod/levels";
 import {
@@ -162,12 +162,14 @@ const comboOf = (species: SpeciesId, band: Band) => LOD_SPECIES.indexOf(species)
 function placeSlot(p: MeadowPlot, band: Band, L: MeadowLayout, now: number): Slot | null {
   const plot = L.plots[p.plot];
   if (!plot) return null;
-  // leaning a touch toward the path (more for a poorly plant) and turned to its angle, as its full plant stands
+  // leaning a touch toward the path (more for a poorly plant; a lotus's urli stands level) and turned to its angle,
+  // as its full plant stands
   const inner = plot.side === "inner";
   const poorly = p.health === "poorly";
-  const tilt = plotTilt(p.plot, plot.a, inner, poorly);
+  const upright = standsUpright(p.species);
+  const tilt = plotTilt(p.plot, plot.a, inner, poorly, undefined, upright);
   const spin = plotSpin(p.plot);
-  const quat = plotTurn(p.plot, plot.a, inner, poorly);
+  const quat = plotTurn(p.plot, plot.a, inner, poorly, undefined, upright);
   // the full plant's size (VisitedPlant.tsx), so the visit's handover never grows or shrinks it
   const scale = PLANT_SCALE;
   const jitter = 0.96 + 0.08 * plotHash(p.plot, 9);
@@ -183,7 +185,8 @@ function placeSlot(p: MeadowPlot, band: Band, L: MeadowLayout, now: number): Slo
     tilt,
     quat,
     scale,
-    height: HEIGHTS[p.species][band] * scale,
+    // (a lotus is chosen by its urli's width where that is more than its height: bands.ts LOD_REACH)
+    height: Math.max(HEIGHTS[p.species][band], LOD_REACH[p.species] ?? 0) * scale,
     tint: [t[0] * jitter, t[1] * jitter, t[2] * jitter, t[3]],
     sway: [p.plot, plot.a],
     appeared: appeared !== undefined && now - appeared < RISE_MS ? appeared : -1,

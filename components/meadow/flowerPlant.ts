@@ -205,6 +205,19 @@ function dissolveTwin(src: THREE.Material): THREE.Material {
   return twin;
 }
 
+/**
+ * A material's dissolving twin and the dissolving shadow, for a visited plant drawn outside buildFlowerPlant (the
+ * lotus, VisitedLotus.tsx), whose parts are dressed in them once they are mounted.
+ */
+export function dissolveTwinOf<T extends THREE.Material>(src: T): T {
+  return dissolveTwin(src) as T;
+}
+
+export function dissolveDepth(): THREE.MeshDepthMaterial {
+  twinDepth ??= fullPlantDepthMaterial();
+  return twinDepth;
+}
+
 /** Dresses a built plant for the visit's handover: every part in its dissolving twin, its shadow dissolving too. */
 export function dissolving(plant: BuiltPlant): BuiltPlant {
   twinDepth ??= fullPlantDepthMaterial();

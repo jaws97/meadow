@@ -3,7 +3,8 @@
 // words; then what a visitor can do. The flower and the day sit right under the name (and name the card for screen
 // readers), so two colleagues with one first name are told apart. A friend's plant offers today's one Sprinkle (POST /api/sprinkle, only for
 // someone whose garden is on this device; "1 left today", or the server's own words once it is shared or if it is
-// refused) and "See their garden", a read-only look at their whole garden. A person's own plant says "This is
+// refused) and "See their garden", a read-only look at their whole garden. A lotus lives in a pond, which a sprinkle
+// cannot top up, and its card says so before the sprinkle is shared: it is a kind gesture, and counts as one. A person's own plant says "This is
 // yours" instead. The owner's rose on the dais has a card of its own.
 //
 // On a phone the card sits at the bottom of the screen and tells the camera how much it covers, so the plant is
@@ -179,7 +180,7 @@ function PlantCard({ plot }: { plot: number }) {
             </a>
           </>
         ) : me.signedIn ? (
-          <SprinkleControl state={shared} onSprinkle={onSprinkle} />
+          <SprinkleControl state={shared} onSprinkle={onSprinkle} pond={species === "lotus"} />
         ) : (
           <span className="meadow-note">Sprinkles are shared from your own garden. Open your garden on this device to share one.</span>
         )}
@@ -195,7 +196,7 @@ function PlantCard({ plot }: { plot: number }) {
   );
 }
 
-function SprinkleControl({ state, onSprinkle }: { state: SprinkleState | null; onSprinkle: () => void }) {
+function SprinkleControl({ state, onSprinkle, pond }: { state: SprinkleState | null; onSprinkle: () => void; pond: boolean }) {
   if (state?.state === "done" || state?.state === "refused") {
     return <span className="meadow-note meadow-note-warm">{state.message}</span>;
   }
@@ -205,7 +206,9 @@ function SprinkleControl({ state, onSprinkle }: { state: SprinkleState | null; o
       <button type="button" className="meadow-button meadow-button-primary" onClick={onSprinkle} disabled={state?.state === "sending" || already}>
         <DropIcon /> {state?.state === "sending" ? "Sprinkling" : "Sprinkle"}
       </button>
-      <span className="meadow-note">{already ? "Today's sprinkle is shared. Tomorrow brings another." : "1 left today"}</span>
+      <span className="meadow-note">
+        {already ? "Today's sprinkle is shared. Tomorrow brings another." : pond ? "1 left today. A lotus lives in a pond, so this is a kind gesture." : "1 left today"}
+      </span>
     </>
   );
 }

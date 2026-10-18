@@ -6,9 +6,13 @@
 // levels' own seed (bands.ts LOD_SEEDS), so its full plant and its light plant are the same plant, for checking the
 // visit's handover.
 //
+// A made-up lotus is answered with a lotus's numbers (lib/sim PondVisual): in its jar as a seed, its floating and
+// standing leaves as it grows, a flower on its second day or (closed) a seed pod, the pond fallen below its pot when it
+// is poorly, so a visit draws its urli as a real one would be drawn.
+//
 // Deterministic: the same count gives the same Meadow on every device, so measurements can be repeated.
 import { LOD_SEEDS, LOD_SPECIES, plotHash } from "@/components/meadow/lod/bands";
-import type { Visual } from "@/lib/sim";
+import type { PondVisual, SoilVisual, Visual } from "@/lib/sim";
 import type { FriendGarden, MeadowPlot, MeadowSnapshot } from "@/lib/server/meadow";
 
 export type Stage = MeadowPlot["stage"];
@@ -82,7 +86,7 @@ export function syntheticFriend(plot: number, opts: SyntheticOptions): FriendGar
   const p = plantAt(plot, opts);
   const alive = p.stage !== "resting";
   const poorly = p.health === "poorly";
-  const visual: Visual = {
+  const soil: SoilVisual = {
     growth: GROWTH[p.stage],
     bloom: p.bloom / 3,
     health: HEALTH[p.health],
@@ -110,6 +114,7 @@ export function syntheticFriend(plot: number, opts: SyntheticOptions): FriendGar
     canAdvice: poorly ? "ready" : "ok",
     feedAdvice: "ok",
   };
+  const visual: Visual = p.species === "lotus" ? lotusVisual(p, soil) : soil;
   const snapshot = syntheticSnapshot(opts);
   return {
     v: 1,
@@ -125,5 +130,60 @@ export function syntheticFriend(plot: number, opts: SyntheticOptions): FriendGar
     visual,
     h: snapshot.h,
     at: snapshot.at,
+  };
+}
+
+/** Floating and standing leaves at each stage, as the pond model grows them. */
+const LEAVES: Record<Stage, [number, number]> = { seed: [0, 0], sprout: [3, 0], leafy: [5, 2], bud: [6, 3], bloom: [6, 3], resting: [5, 2] };
+
+/** A made-up lotus's numbers for its stage and health, on top of the soil numbers its stage shares. */
+function lotusVisual(p: MeadowPlot, base: SoilVisual): PondVisual {
+  const jar = p.stage === "seed";
+  const poorly = p.health === "poorly";
+  const flowering = p.stage === "bloom" && p.bloom > 0;
+  const pod = p.stage === "bloom" && !flowering;
+  const [floatLeaves, aerialLeaves] = LEAVES[p.stage];
+  const says: PondVisual["says"] = !base.alive
+    ? "gone to sleep"
+    : jar
+      ? "a seed in clear water, waking up"
+      : poorly
+        ? "the pond has dropped below the rim of my pot; a top-up or two, please"
+        : flowering
+          ? "in bloom"
+          : pod
+            ? "my seed pod is ripening"
+            : "happy";
+  return {
+    ...base,
+    medium: "pond",
+    says,
+    feedAdvice: "ok",
+    koiAdvice: "fed",
+    stage: jar ? "jar" : "pond",
+    moveReady: false,
+    waterMM: poorly ? -60 : 0,
+    pondMM: poorly ? -60 : 0,
+    stonesMM: poorly ? 0 : 50,
+    potIsolated: poorly,
+    potDry: false,
+    water: poorly ? 0 : 0.71,
+    jarClarity: jar ? 0.9 : 1,
+    algae: 0,
+    floatLeaves,
+    aerialLeaves,
+    floatBrown: base.alive ? 0 : 0.8,
+    nibbled: 0,
+    koiHunger: 0,
+    koiGather: 0,
+    koiGasp: false,
+    flowerDay: flowering ? 2 : 0,
+    flowers: p.stage === "bloom" ? 1 : 0,
+    pods: pod ? 1 : 0,
+    pod: pod ? 1 : 0,
+    bud2: 0,
+    podDry: pod ? 0.3 : 0,
+    warmth: flowering ? 0.4 : 0,
+    waterT: 24,
   };
 }

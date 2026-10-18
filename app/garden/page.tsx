@@ -23,9 +23,12 @@ import { LoadingVeil } from "@/components/garden/LoadingVeil";
 import { WelcomeLine } from "@/components/garden/OpeningMoment";
 import { GardenDoor } from "@/components/gift/GardenDoor";
 import { Hint } from "@/components/gift/Hint";
+import { preloadRememberedCourtyard } from "@/components/lotus/product/preload";
 
 // The veil covers the canvas while its chunk loads, so the fallback draws nothing.
 const GardenCanvas = dynamic(() => import("@/components/garden/GardenCanvas"), { ssr: false, loading: () => null });
+// A device that last showed a lotus asks for its courtyard's chunk now, beside the canvas's own.
+if (typeof window !== "undefined") preloadRememberedCourtyard();
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 // The query never changes while the page is open, so there is nothing to subscribe to.

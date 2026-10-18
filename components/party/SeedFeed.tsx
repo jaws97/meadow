@@ -1,7 +1,8 @@
 "use client";
 // The panel's live part: how many seeds have been planted, and the newest
-// names gliding in ("Priya planted a Night Jasmine"), fed by the Meadow
-// snapshot (meadowFeed.ts). New plantings wait in a short line and arrive one
+// names gliding in ("Priya planted a Night Jasmine", "Asha planted a Lotus"),
+// each with a dot in its flower's colour (logic.ts seedColour), fed by the
+// Meadow snapshot (meadowFeed.ts). New plantings wait in a short line and arrive one
 // at a time, a couple of seconds apart, and the counter ticks up with each
 // arrival, so a rush at the start of the party reads as a gentle stream
 // rather than a jump; in a real crowd the line skips ahead (logic.ts
@@ -19,11 +20,11 @@ import {
   latestPlantings,
   newPlantings,
   plantingKey,
+  seedColour,
   seedPhrase,
   type Planting,
 } from "@/components/party/logic";
 import { pollMeadow } from "@/components/party/meadowFeed";
-import { SPECIES } from "@/lib/plant/species";
 
 /** Names on show, plus one fading out below them. */
 const ROWS = 3;
@@ -111,7 +112,7 @@ export function SeedFeed() {
             key={row.key}
             className={`party-feed-item${row.fresh ? " party-feed-in" : ""}`}
             data-row={i}
-            style={{ "--seed": SPECIES[row.species].fx.glowColor } as CSSProperties}
+            style={{ "--seed": seedColour(row.species) } as CSSProperties}
           >
             <span className="party-feed-dot" aria-hidden="true" />
             <span className="party-feed-name">{row.name}</span>

@@ -28,6 +28,8 @@ import {
   POLL_MS,
   readPartyCode,
   readSwitch,
+  seedColour,
+  seedPhrase,
   showcaseHour,
   TOUR,
   TourPlayer,
@@ -95,6 +97,8 @@ describe("the counter and the feed", () => {
     expect(plantedLine({ name: "Arun", species: "rose" })).toBe("Arun planted an Enchanted Rose");
     expect(plantedLine({ name: "A friend", species: "marigold" })).toBe("A friend planted a Marigold");
     expect(plantedLine({ name: "Ravi", species: "island" })).toBe("Ravi planted an Island Bloom");
+    expect(plantedLine({ name: "Test Seed", species: "lotus" })).toBe("Test Seed planted a Lotus");
+    expect(seedPhrase("lotus")).toBe("a Lotus");
     expect(counterWords(1)).toBe("seed planted");
     expect(counterWords(2)).toBe("seeds planted");
     expect(counterWords(0)).toBe("seeds planted");
@@ -114,6 +118,20 @@ describe("the counter and the feed", () => {
     expect(parseSnapshot({ v: 2, plots: [] })).toBeNull();
     expect(parseSnapshot(null)).toBeNull();
     expect(parseSnapshot({ v: 1, plots: [plot(0, "A")] })?.count).toBe(1);
+    // the seventh seed is a planting like the others
+    expect(parseSnapshot({ v: 1, plots: [plot(4, "Asha", "lotus")] })?.plots).toEqual([plot(4, "Asha", "lotus")]);
+  });
+
+  it("gives every seed its own dot, the lotus its petals' pink rather than the marigold's amber", () => {
+    const ids = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"] as const;
+    const colours = ids.map(seedColour);
+    expect(new Set(colours).size).toBe(ids.length);
+    for (const c of colours) expect(c).toMatch(/^#[0-9a-f]{6}$/i);
+    // pink: red well above green, blue between them
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(seedColour("lotus").slice(i, i + 2), 16));
+    expect(r).toBeGreaterThan(g + 40);
+    expect(b).toBeGreaterThan(g);
+    expect(seedColour("marigold")).not.toBe(seedColour("lotus"));
   });
 
   it("finds new plantings oldest first, and the latest ones newest first", () => {

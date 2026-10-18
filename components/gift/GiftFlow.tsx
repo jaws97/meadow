@@ -1,7 +1,8 @@
 "use client";
 // The gift itself, in one glass sheet over the live garden: Lijas's seed offered ("A gift from Lijas"), a first name
-// for the little sign by the flower (or "A friend"), one of six seeds, and the planting moment, which ends with the
-// personal garden link for a laptop or an iPad and a way into the new garden.
+// for the little sign by the flower (or "A friend"), one of seven seeds, and the planting moment, which ends with the
+// personal garden link for a laptop or an iPad and a way into the new garden. A lotus seed goes into a glass of water
+// by its pond rather than into a bed (PlantingMoment's jar), and the words say so.
 //
 // The planting goes through lib/client/session.ts plantSeed: the party code rides along, and busy answers and lost
 // connections are retried by themselves with the same request, while the seed waits glowing above its bed and a line
@@ -23,6 +24,7 @@ import { LinkPanel } from "@/components/gift/LinkPanel";
 import { PlantingMoment } from "@/components/gift/PlantingMoment";
 import { SeedPicker } from "@/components/gift/SeedPicker";
 import { SEED_PACKETS, packetOf } from "@/components/gift/species";
+import { preloadCourtyard } from "@/components/lotus/product/preload";
 import {
   ApiProblem,
   OFFLINE_MESSAGE,
@@ -32,7 +34,7 @@ import {
   plantSeed,
   type SeedResult,
 } from "@/lib/client/session";
-import type { SpeciesId } from "@/lib/plant/species";
+import { isLotus, type SpeciesId } from "@/lib/plant/species";
 
 type Step = "welcome" | "name" | "seed" | "planting";
 
@@ -338,12 +340,14 @@ export function GiftFlow({
         <h2 ref={heading} tabIndex={-1} className="gift-title gift-title-sm">
           Choose your seed
         </h2>
-        <p className="gift-text">Each flower has its own nature. Pick the one that feels like yours.</p>
+        <p className="gift-text">Seven seeds, each with its own nature. Pick the one that feels like yours.</p>
         <SeedPicker
           value={species}
           onChange={(id) => {
             setSpecies(id);
             setSeedHint(false);
+            // the courtyard's own chunk starts on its way now, so it is in by "Go to my garden"
+            if (isLotus(id)) preloadCourtyard();
           }}
         />
       </div>
@@ -352,7 +356,7 @@ export function GiftFlow({
       <>
         {seedHint && (
           <p className="gift-note" role="alert" style={{ textAlign: "center" }}>
-            Choose one of the six seeds first.
+            Choose one of the seven seeds first.
           </p>
         )}
         <div className="gift-sheet-foot-row">
@@ -365,6 +369,8 @@ export function GiftFlow({
     );
   } else {
     const flower = species ? packetOf(species).name : "flower";
+    // a lotus seed starts in a glass of water by its pond (design 2.3), not in the bed
+    const jar = species !== null && isLotus(species);
     const person = checkFirstName(name);
     const first = person.ok ? person.name : name;
     let title: string;
@@ -376,10 +382,14 @@ export function GiftFlow({
           ? "The connection dropped for a moment. Trying again."
           : planting.wait === "busy"
             ? "Lots of seeds are going in at once. Yours will follow in a moment."
-            : "Settling it into the bed.";
+            : jar
+              ? "Settling it into its glass of water."
+              : "Settling it into the bed.";
     } else if (planting.phase === "planted") {
       title = `Welcome to the garden, ${first}`;
-      line = `Your ${flower} is tucked into its bed, with its first drink of water.`;
+      line = jar
+        ? `Your ${flower} seed is resting in its glass of water, beside its own koi pond.`
+        : `Your ${flower} is tucked into its bed, with its first drink of water.`;
     } else {
       title = "Your seed is safe in your hand";
       // the app's own words for "not yet", as for a busy garden: the server's ends on an exclamation mark
@@ -387,7 +397,11 @@ export function GiftFlow({
     }
     body = (
       <div className="gift-step gift-plant" key="planting">
-        <PlantingMoment planted={planting.phase === "planted"} small={planting.phase === "planted" && planting.linkShown} />
+        <PlantingMoment
+          planted={planting.phase === "planted"}
+          small={planting.phase === "planted" && planting.linkShown}
+          vessel={jar ? "jar" : "bed"}
+        />
         <h2 ref={heading} tabIndex={-1} className="gift-title gift-title-sm gift-plant-title">
           {title}
         </h2>

@@ -94,7 +94,8 @@ import {
 import { rememberTier } from "@/lib/garden/device";
 import { opening } from "@/lib/garden/opening";
 import { garden, useGarden, type Quality } from "@/lib/garden/store";
-import { Governor, quality, stepTier, type Phase, type QualityState } from "@/lib/garden/quality";
+import { Governor, quality, stepTier, underVeil, useQuality, type Phase, type QualityState } from "@/lib/garden/quality";
+import { isLotus } from "@/lib/plant/species";
 
 /**
  * Seconds of frames under the veil before it lifts: at least the first, then
@@ -204,20 +205,28 @@ function mark(name: string) {
   }
 }
 
-/** Compiles the scene's programs in parallel, then pre-draws them, each time a tier is (re)built. */
+/**
+ * Compiles the scene's programs in parallel, then pre-draws them, each time a tier is (re)built, and again when another
+ * kind of garden arrives under the veil (reopenUnderVeil): it runs once that garden is in the scene, since it sits in
+ * the same Suspense boundary as the courtyard's lazy chunk.
+ */
 export function Opening() {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
   const camera = useThree((s) => s.camera);
   const tier = useGarden((s) => s.quality);
+  const reopens = useQuality((s) => s.reopens);
 
   useEffect(() => {
     if (quality.get().phase !== "compiling") return;
     let cancelled = false;
+    // another kind of garden arriving meanwhile makes this run's work moot: the next run (this effect again, once that
+    // garden has mounted) is the one that may end the phase
+    const stale = () => cancelled || quality.get().reopens !== reopens;
     (async () => {
       mark("compile-start");
       const composer = await composerReady(COMPOSER_WAIT_MS);
-      if (cancelled) return;
+      if (stale()) return;
       // Compile for the light set the clock asks for now (lightSets.ts).
       if (canSwitchSets(gl)) {
         lightSet.full = wantedFullSet(true);
@@ -269,7 +278,7 @@ export function Opening() {
       const q = quality.get();
       const step = q.veiled && q.tierChanges > 0;
       await Promise.race([Promise.all(jobs), wait(step ? STEP_COMPILE_WAIT_MS : COMPILE_WAIT_MS)]);
-      if (cancelled) return;
+      if (stale()) return;
       mark("compiled");
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as { __gardenCompiled?: number }).__gardenCompiled = gl.info.programs?.length ?? 0;
@@ -284,18 +293,48 @@ export function Opening() {
         ? performance.now() + (step ? STEP_PREDRAW_MAX_MS : PREDRAW_MAX_MS)
         : Math.max(performance.now() + 100, heldAt + HELD_FREEZE_MS - HELD_SETTLE_MS);
       const groups = quality.get().veiled ? PREDRAW_GROUPS : HELD_PREDRAW_GROUPS;
-      const pre = attempt(() => predraw(gl, scene, camera, groups, () => cancelled || performance.now() > until));
+      const pre = attempt(() => predraw(gl, scene, camera, groups, () => stale() || performance.now() > until));
       await Promise.race([pre, wait(until - performance.now())]);
-      if (cancelled) return;
+      if (stale()) return;
       mark("predrawn");
       quality.set({ phase: "warming" });
     })();
     return () => {
       cancelled = true;
     };
-  }, [gl, scene, camera, tier]);
+  }, [gl, scene, camera, tier, reopens]);
 
   return null;
+}
+
+/**
+ * Another kind of garden has come into the store under the veil (a remembered rose giving way to the owner's lotus as
+ * /api/me answers on a new device or after the remembered look has expired, or a remembered lotus giving way to the
+ * owner's rose): the opening compiled and pre-drew the one that is leaving, so it starts again for the one arriving,
+ * and the reveal waits for it. The frame loop stops meanwhile (GardenCanvas), and an opening quote still being read
+ * waits for the new readiness (opening.unready). Once the reveal has begun the garden is showing, and the plant swap's
+ * soft dim and the courtyard's own preparation take over (Scene.tsx, lib/client/plant swapTo).
+ */
+function reopenUnderVeil() {
+  const q = quality.get();
+  // (before the canvas has mounted nothing is compiled yet: the opening simply compiles what it finds)
+  if (!underVeil(q) || q.phase === "boot") return;
+  mark("reopen");
+  opening.unready();
+  quality.set(q.phase === "compiling" ? { reopens: q.reopens + 1 } : { phase: "compiling", reopens: q.reopens + 1, rewound: true });
+}
+
+// Heard from the moment this module loads (before the canvas mounts, and outside the scene's Suspense boundary), so a
+// change of kind is never missed between the opening's first render and its effect, and is acted on before any frame
+// could reveal the old garden's compile over a courtyard that is still loading.
+if (typeof window !== "undefined") {
+  let lotus = isLotus(garden.get().speciesId);
+  garden.subscribe(() => {
+    const now = isLotus(garden.get().speciesId);
+    if (now === lotus) return;
+    lotus = now;
+    reopenUnderVeil();
+  });
 }
 
 /** TierPreparers mounted now: a canvas without one (the party screen) has no hidden layer to prepare. */
@@ -582,7 +621,6 @@ export function RenderGovernor() {
       }),
     [governor, gl],
   );
-
   // Dev-only handle for measuring from the console.
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;

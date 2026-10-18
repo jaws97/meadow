@@ -21,7 +21,8 @@ import type { SpeciesId } from "@/lib/plant/species";
 
 export type Band = "sprout" | "leafy" | "bud" | "bloom";
 export const BANDS: readonly Band[] = ["sprout", "leafy", "bud", "bloom"];
-export const LOD_SPECIES: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine"];
+/** The atlas rows, in order; a new species is appended last so the existing cells keep their places. */
+export const LOD_SPECIES: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"];
 
 /**
  * Growth and bloom each band is posed at (growth is lib/sim's Visual.growth: a sprout spans about 0.05 to 0.32, a
@@ -46,7 +47,17 @@ export const LOD_SEEDS: Record<SpeciesId, string> = {
   marigold: "typical-79",
   island: "typical-20",
   jasmine: "typical-2",
+  // the lotus in its urli is posed from fixed leaf places (components/lotus/lod.ts), not from a seed: this names the
+  // visit's plant in a made-up Meadow's &same=1 (lod/synthetic.ts), whose urli look is the same for every seed
+  lotus: "typical-0",
 };
+
+/**
+ * How far across a plant reaches at its widest, garden metres, where that is more than it stands tall: the lotus's
+ * urli is wider than a sprouting lotus is high, so its levels are chosen by its width on screen (LodPlants.tsx), or its
+ * picture would be stretched past its pixels before its light plant took over.
+ */
+export const LOD_REACH: Partial<Record<SpeciesId, number>> = { lotus: 0.39 };
 
 /** The three angles a detail plant is turned to, radians about its stem. */
 export const SPINS: readonly number[] = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3];
@@ -60,9 +71,11 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 /**
  * Which way the plant in plot `plot` (at angle `a` round the Meadow, on the `inner` or outer side of its bed) leans:
- * a touch toward the path, further when it is poorly. A unit vector, its stem's direction.
+ * a touch toward the path, further when it is poorly. A unit vector, its stem's direction. An `upright` plant (the
+ * lotus, whose urli stands level on the soil with its water) does not lean at all.
  */
-export function plotTilt(plot: number, a: number, inner: boolean, poorly: boolean, out = new THREE.Vector3()): THREE.Vector3 {
+export function plotTilt(plot: number, a: number, inner: boolean, poorly: boolean, out = new THREE.Vector3(), upright = false): THREE.Vector3 {
+  if (upright) return out.set(0, 1, 0);
   const toward = inner ? -1 : 1;
   const px = Math.cos(a) * toward, pz = Math.sin(a) * toward;
   const lean = poorly ? 0.22 : 0.04 * plotHash(plot, 3);
@@ -70,10 +83,13 @@ export function plotTilt(plot: number, a: number, inner: boolean, poorly: boolea
 }
 
 /** How the plant in a plot stands: leaning (plotTilt), then turned to its angle (plotSpin) about its stem. */
-export function plotTurn(plot: number, a: number, inner: boolean, poorly: boolean, out = new THREE.Quaternion()): THREE.Quaternion {
+export function plotTurn(plot: number, a: number, inner: boolean, poorly: boolean, out = new THREE.Quaternion(), upright = false): THREE.Quaternion {
   const spin = new THREE.Quaternion().setFromAxisAngle(UP, SPINS[plotSpin(plot)]);
-  return out.setFromUnitVectors(UP, plotTilt(plot, a, inner, poorly)).multiply(spin);
+  return out.setFromUnitVectors(UP, plotTilt(plot, a, inner, poorly, undefined, upright)).multiply(spin);
 }
+
+/** Whether a species' plant stands level whatever its health (plotTilt's `upright`): the lotus in its urli. */
+export const standsUpright = (species: SpeciesId) => species === "lotus";
 
 /** The Meadow camera's fixed bearing (CameraRig THETA) and the elevation the pictures are taken from, radians. */
 export const VIEW_THETA = 0.25 * Math.PI;

@@ -45,6 +45,8 @@ export const meadow = {
   cameraDistance: 17,
   /** 0 full day .. 1 deep night, by the sun over Bangalore (MeadowEnvironment): lanterns and petals glow with it. */
   night: 0,
+  /** The IST clock hour the Meadow is lit for (MeadowEnvironment; ?hour= pins it): a visited lotus is drawn at it. */
+  hour: 12,
   /**
    * The cart's guardian light, the jar of fireflies: where its heart is in the world and how bright its light, written
    * by the live trolley every frame (FireflyTrolley). The scene's one point light for it (GuardianLight) follows this,

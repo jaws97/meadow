@@ -116,9 +116,40 @@ export const Moon = (p: IconProps) => (
   </Icon>
 );
 
+/** The lotus's seed in its glass jar of water. */
+export const Jar = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M8.6 3.8h6.8" />
+    <path d="M9.2 3.8v2.4c-2.1.9-3.4 2.6-3.4 4.9v6.7a2.4 2.4 0 0 0 2.4 2.4h7.6a2.4 2.4 0 0 0 2.4-2.4v-6.7c0-2.3-1.3-4-3.4-4.9V3.8" />
+    <path d="M5.8 12.4c2.1.9 4.1.9 6.2 0s4.1-.9 6.2 0" />
+    <path d="M10.6 17.4c0-.8.6-1.3 1.4-1.3s1.4.5 1.4 1.3-.6 1.2-1.4 1.2-1.4-.4-1.4-1.2Z" />
+  </Icon>
+);
+
+/** A koi with a pinch of food falling to it. */
+export const Koi = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4.4 15.2c1.9-2.7 4.7-4 7.6-4 1.9 0 3.4.7 4.6 1.8l2.9-2.2v8.8l-2.9-2.2c-1.2 1.1-2.7 1.8-4.6 1.8-2.9 0-5.7-1.3-7.6-4Z" />
+    <path d="M8.2 14.6v.01" strokeWidth={2} />
+    <path d="M9.6 4.4v.01M12.8 3.6v.01M11.6 6.8v.01" strokeWidth={2.1} />
+  </Icon>
+);
+
+/** Rain falling on the pond's water. */
+export const RainOnWater = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M7.4 13a3.8 3.8 0 0 1-.4-7.6 5 5 0 0 1 9.5 1.2 3.2 3.2 0 0 1 .3 6.4H7.4Z" />
+    <path d="m9 15.4-.8 1.6M12.6 15.4l-.8 1.6M16.2 15.4l-.8 1.6" />
+    <path d="M3.5 20c2.8.9 5.7.9 8.5 0s5.7-.9 8.5 0" />
+  </Icon>
+);
+
 export function TraitIcon({ kind, dusk }: { kind: TraitKind; dusk?: boolean }) {
   if (kind === "thirst") return <Drop size={16} />;
   if (kind === "heat") return <Sun size={16} />;
   if (kind === "wet") return <Soil size={16} />;
+  if (kind === "jar") return <Jar size={16} />;
+  if (kind === "koi") return <Koi size={16} />;
+  if (kind === "rain") return <RainOnWater size={16} />;
   return dusk ? <Moon size={16} /> : <Dawn size={16} />;
 }

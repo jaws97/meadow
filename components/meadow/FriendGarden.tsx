@@ -8,13 +8,18 @@
 // the canvas mounts and puts it back when it leaves. It also holds the garden's clock by hand (autoClock off, the
 // hour kept to Bangalore's every half minute): the scene keeps a still of the viewer's own garden for its next
 // opening only while its clock runs by itself, and a friend's garden must never replace that still.
+// A friend's lotus opens in its courtyard (components/lotus/product): the store gets its pond as well (the model's
+// PondVisual as the garden draws it: the level, the green, the leaves, the koi, the flower's day), and the plant's own
+// droop, paling and flower size, so the courtyard shows the pond as it truly is.
 import dynamic from "next/dynamic";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { loadFriend, type FriendGarden } from "@/components/meadow/data";
 import { OWNER_NAME, OWNER_SEED } from "@/components/meadow/plantLook";
 import { dayText, moodLine, speciesName } from "@/components/meadow/words";
 import { useQuality } from "@/lib/garden/quality";
+import { flowerSizeOf, pondShownOf } from "@/lib/client/plantShown";
 import { garden, type GardenState } from "@/lib/garden/store";
+import type { PondVisual } from "@/lib/sim/pond";
 import { istNow } from "@/lib/sky/sun";
 import "@/components/meadow/meadow.css";
 
@@ -34,6 +39,17 @@ const readWhich = (): Which => {
 };
 
 const possessive = (name: string) => (name === "A friend" ? "A friend's" : `${name}'s`);
+
+/**
+ * A friend's lotus for the courtyard: its pond as the owner's own garden gets it (pondShownOf, with no moments: nothing
+ * is played on a visit) and its plant numbers (flowerSizeOf: the flower head against its growth ramp, a second chance
+ * capped at 0.7). Both come from lib/client/plantShown, never lib/client/plant: that module, when it loads, puts this
+ * device's own remembered plant into the store, which a friend's garden must not inherit.
+ */
+function lotusLook(v: PondVisual, generation: number): Partial<GardenState> {
+  const flowerSize = flowerSizeOf(v, generation);
+  return { droop: v.alive ? v.droop : 0.55, chlorosis: v.chlorosis, rot: 0, pests: v.pests, flowerSize, glow: 0, pond: pondShownOf(v) };
+}
 
 type Loaded = { ok: true; friend: FriendGarden } | { ok: false; message: string };
 
@@ -57,6 +73,13 @@ function useFriendInStore(look: Partial<GardenState> | null): boolean {
         health: before.health,
         moisture: before.moisture,
         scorch: before.scorch,
+        droop: before.droop,
+        chlorosis: before.chlorosis,
+        rot: before.rot,
+        pests: before.pests,
+        flowerSize: before.flowerSize,
+        glow: before.glow,
+        pond: before.pond,
         autoClock: before.autoClock,
         hour: before.hour,
       });
@@ -88,10 +111,11 @@ export function FriendGardenView() {
   const [look, setLook] = useState<Partial<GardenState> | null>(null);
   useEffect(() => {
     let next: Partial<GardenState> | null = null;
-    if (which.kind === "rose") next = { speciesId: "rose", seed: OWNER_SEED, growth: 1, bloom: 1, health: 1, moisture: 0.6, scorch: 0 };
+    if (which.kind === "rose") next = { speciesId: "rose", seed: OWNER_SEED, growth: 1, bloom: 1, health: 1, moisture: 0.6, scorch: 0, pond: null };
     else if (loaded?.ok) {
       const f = loaded.friend, v = f.visual;
-      next = { speciesId: f.species, seed: f.seed, growth: v.growth, bloom: v.bloom, health: v.health, moisture: v.moisture, scorch: v.scorch };
+      next = { speciesId: f.species, seed: f.seed, growth: v.growth, bloom: v.bloom, health: v.health, moisture: v.moisture, scorch: v.scorch, pond: null };
+      if ("medium" in v && v.medium === "pond") next = { ...next, ...lotusLook(v, f.generation) };
     }
     if (!next) return;
     const id = window.setTimeout(() => setLook(next), 0);

@@ -141,6 +141,15 @@ export function seedPhrase(species: SpeciesId): string {
   return `${/^[aeiou]/i.test(name) ? "an" : "a"} ${name}`;
 }
 
+/**
+ * The colour of a planting's dot in the feed: the flower's own glow (lib/plant/species fx.glowColor). The lotus glows
+ * amber only while its flower is warm, and that amber is the marigold's; its dot is its petals' soft pink instead, so
+ * the seven read apart on the big screen.
+ */
+export function seedColour(species: SpeciesId): string {
+  return species === "lotus" ? SPECIES.lotus.flower.colorTip : SPECIES[species].fx.glowColor;
+}
+
 /** "Priya planted a Night Jasmine". */
 export function plantedLine(p: Pick<Planting, "name" | "species">): string {
   return `${p.name} planted ${seedPhrase(p.species)}`;

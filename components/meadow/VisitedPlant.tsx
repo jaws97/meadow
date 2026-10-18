@@ -11,25 +11,35 @@
 // (lod/handover.ts), so the plant never cuts, turns or jumps from one drawing to the other while it is being watched. A seed is still a
 // seed of light in its mound (the instanced one says it best), so a plant is drawn in full from the sprout on. Only
 // one plant is ever drawn this way, and it is released once it has handed back.
+//
+// A lotus is drawn in full by VisitedLotus.tsx (its urli and its plant, from the friend's own pond numbers), which
+// mounts it hidden and compiles it; it begins to dissolve in once that is done, and stands level on its plot (its
+// urli holds water), turned to its plot's angle, as its detail levels stand.
 import { useFrame, useThree } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { loadFriend, meadowData, type FriendGarden } from "@/components/meadow/data";
 import { applyPlantEnv, buildFlowerPlant, dissolving, petalGlow, warmDissolve, type BuiltPlant } from "@/components/meadow/flowerPlant";
 import { BED, plotAt } from "@/components/meadow/layout";
-import { bandOf, plotTurn } from "@/components/meadow/lod/bands";
+import { bandOf, plotTurn, standsUpright } from "@/components/meadow/lod/bands";
 import { handover, HANDOVER_SECONDS } from "@/components/meadow/lod/handover";
 import { lodStatus } from "@/components/meadow/lod/LodPlants";
 import { FULL_PLANT_DISSOLVE } from "@/components/meadow/lod/materials";
 import { PLANT_SCALE } from "@/components/meadow/plantLook";
 import { meadow } from "@/components/meadow/runtime";
 import { useUi } from "@/components/meadow/ui";
+import { VisitedLotus } from "@/components/meadow/VisitedLotus";
 import type { Quality } from "@/lib/garden/store";
 
 interface Shown {
   friend: FriendGarden;
-  plant: BuiltPlant;
+  /** the flower's baked plant, or null for a lotus (drawn live by VisitedLotus) */
+  plant: BuiltPlant | null;
+  /** this drawing of the plant (a lotus drawn again is mounted afresh, and compiled before it shows) */
+  id: number;
 }
+
+let drawings = 0;
 
 /** Plants worth drawing in full: anything past the seed. */
 const drawable = (f: FriendGarden) => f.stage !== "seed";
@@ -47,6 +57,9 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
   const [drawn, setDrawn] = useState<Shown | null>(null);
   const friend = loaded && loaded.plot === card ? loaded : null;
   const swayAxis = useMemo(() => new THREE.Vector3(), []);
+  const swayRef = useRef<THREE.Group>(null);
+  // the lotus drawing that has compiled (VisitedLotus) and may dissolve in
+  const [lotusReady, setLotusReady] = useState<Shown | null>(null);
 
   // the dissolving shaders, compiled once the plant environment they are lit by exists (behind the opening veil)
   useEffect(() => {
@@ -81,6 +94,11 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
     if (!friend || !drawable(friend)) return;
     let live = true;
     const id = window.setTimeout(() => {
+      // a lotus is mounted, dressed and compiled by VisitedLotus itself
+      if (friend.species === "lotus") {
+        if (live) setShown({ friend, plant: null, id: ++drawings });
+        return;
+      }
       const v = friend.visual;
       const plant = dissolving(
         buildFlowerPlant(
@@ -104,7 +122,7 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
         .compileAsync(plant.group, camera, scene)
         .catch(() => undefined)
         .then(() => {
-          if (live) setShown({ friend, plant });
+          if (live) setShown({ friend, plant, id: ++drawings });
           else plant.dispose();
         });
     }, 60);
@@ -124,8 +142,8 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
   useEffect(() => {
     const set = owned.current;
     const keep = new Set<BuiltPlant>();
-    if (shown) keep.add(shown.plant);
-    if (drawn) keep.add(drawn.plant);
+    if (shown?.plant) keep.add(shown.plant);
+    if (drawn?.plant) keep.add(drawn.plant);
     for (const p of set) {
       if (keep.has(p)) continue;
       p.dispose();
@@ -141,9 +159,10 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
     };
   }, []);
 
-  // the cheap stand-ins (Plants.tsx) leave the plot to it while it is drawn
+  // the cheap stand-ins (Plants.tsx) leave the plot to it while it is drawn (a lotus once it is ready to be seen)
+  const lotusWaits = drawn !== null && drawn.plant === null && lotusReady !== drawn;
   useEffect(() => {
-    if (!drawn) return;
+    if (!drawn || lotusWaits) return;
     const plot = drawn.friend.plot;
     meadow.detailPlot = plot;
     return () => {
@@ -153,12 +172,18 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
         handover.share = 0;
       }
     };
-  }, [drawn]);
+  }, [drawn, lotusWaits]);
+  const onLotusReady = useCallback((s: Shown) => setLotusReady(s), []);
 
   useFrame((state, dt) => {
     if (!drawn) return;
     const plot = drawn.friend.plot;
     const coming = drawn === ready;
+    // a lotus still compiling keeps its light plant or picture whole (and, its card closed meanwhile, simply goes)
+    if (drawn.plant === null && lotusReady !== drawn) {
+      if (!coming) setDrawn(null);
+      return;
+    }
     // the dissolve: in while its card is open, out once it closes; a plant still drawn the old cheap way (or resting)
     // has no detail level to dissolve against, and takes over at once as it always has
     const entry = meadowData.get().byPlot.get(plot);
@@ -171,6 +196,7 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
       handover.plot = -1;
       handover.share = 0;
       setDrawn(null);
+      if (drawn.plant === null) setLotusReady(null);
       return;
     }
     handover.plot = plot;
@@ -180,9 +206,11 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
     if (at) FULL_PLANT_DISSOLVE.uLodFoot.value.set(at.x, BED.soilH, at.z);
 
     // the breeze rocks it about its foot round the axis along its row, as its light plant rocks (lod/materials.ts)
-    const sway = drawn.plant.group.parent?.parent;
+    const sway = swayRef.current;
     const t = state.clock.elapsedTime;
     if (sway && at) sway.quaternion.setFromAxisAngle(swayAxis.set(-Math.sin(at.a), 0, Math.cos(at.a)), 0.02 * Math.sin(t * 0.9 + plot) + 0.008 * Math.sin(t * 2.1));
+    // (a lotus lights and glows itself, VisitedLotus)
+    if (!drawn.plant) return;
     applyPlantEnv(drawn.plant, meadow.plantEnv, meadow.plantEnvStrength);
     const v = drawn.friend.visual;
     const ei = petalGlow(drawn.friend.species, meadow.night, v.health, v.bloom, t);
@@ -193,13 +221,17 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
   if (!drawn) return null;
   const plot = plotAt(drawn.friend.plot);
   if (!plot) return null;
-  // (the lean of a healthy plant: a poorly one droops by its own numbers here)
-  const turn = plotTurn(plot.index, plot.a, plot.side === "inner", false);
+  // (the lean of a healthy plant: a poorly one droops by its own numbers here; a lotus's urli stands level)
+  const turn = plotTurn(plot.index, plot.a, plot.side === "inner", false, undefined, standsUpright(drawn.friend.species));
   return (
     <group position={[plot.x, BED.soilH, plot.z]}>
-      <group>
+      <group ref={swayRef}>
         <group quaternion={turn} scale={PLANT_SCALE}>
-          <primitive object={drawn.plant.group} />
+          {drawn.plant ? (
+            <primitive object={drawn.plant.group} />
+          ) : (
+            <VisitedLotus key={drawn.id} friend={drawn.friend} tier={quality} onReady={() => onLotusReady(drawn)} />
+          )}
         </group>
       </group>
     </group>

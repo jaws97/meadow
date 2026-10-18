@@ -162,7 +162,7 @@ function FirstLook() {
 export function LoadingVeil() {
   const phase = useQuality((s) => s.phase);
   const veiled = useQuality((s) => s.veiled);
-  const settling = useQuality((s) => s.tierChanges > 0);
+  const settling = useQuality((s) => s.tierChanges > 0 || s.rewound);
   const stage = useOpening((s) => s.stage);
   const look = useOpening((s) => s.look);
   const soft = useOpening((s) => s.soft && !s.reduced);
@@ -174,7 +174,8 @@ export function LoadingVeil() {
   useLayoutEffect(() => opening.begin(true), []);
   const [target, duration] = PROGRESS[phase];
   // The vine only ever grows: a tier step under the veil (which comes from
-  // calibrating) re-runs the opening phases, and the bar holds where it was.
+  // calibrating), or another kind of garden arriving under it (a lotus's
+  // courtyard), re-runs the opening phases, and the bar holds where it was.
   const progress = settling ? Math.max(target, PROGRESS.calibrating[0]) : target;
 
   // The veil's element and its two looks stay the same elements from the first HTML on, so a change of look crosses

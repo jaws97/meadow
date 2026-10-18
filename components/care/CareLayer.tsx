@@ -1,7 +1,7 @@
 "use client";
 // The care layer over the personal garden, for a visitor whose device holds a garden: the plant's own line in its
-// gentle voice, chips for the soil, the plant's day and its bloom outlook, friends' sprinkles and the weather at the
-// office, and the six care actions. A bottom card within thumb reach on phones and portrait iPads, a side panel on
+// gentle voice, chips for the soil (a lotus's pond, or its jar), the plant's day and its bloom outlook, a lotus's koi,
+// friends' sprinkles and the weather at the office, and the care actions (six for a flower of the bed, four for a lotus). A bottom card within thumb reach on phones and portrait iPads, a side panel on
 // laptops and landscape iPads, and a narrow side panel on a phone held sideways (CareLayer.css). Mounted by the garden
 // page with no props; for anyone without a garden it renders nothing and the owner's rose stays the garden everyone sees.
 //
@@ -24,21 +24,45 @@
 // gets the resting card (Fairy Dust, then a second-chance sprout) in place of the buttons; a garden that cannot be
 // reached, or a device that no longer holds its garden, gets a small calm card with words instead of silence.
 //
+// A lotus (components/care/careStates.ts) lives in a pond, so there is no shade cloth and no rain cover to offer, rain
+// is never a reason to wait (it only tops the pond up: the hint says so, in the pond stage, and asks nothing), and its
+// own questions take their place: a top-up on a pond at its line asks before it spills through the notch, and lotus food
+// that would burn its young leaves (or only cloud the jar, or add to a rich mud) asks first. Fresh jar water and
+// planting the seedling in its pot go through without a question. Tend is the koi's pinch: while the last pinch is under
+// four hours old (and there are no aphids to rinse) a tap says from when the next is welcome instead of feeding nobody.
+//
 // Calm by design: no red, no countdowns, soft motion that stops for reduced motion, 44 px targets and more, every
 // action a real button, a polite live region for the replies, and Escape anywhere in the panel to put a question away.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { CareActions, type ActionKey, type ActionState } from "@/components/care/CareActions";
+import { CareActions, type ActionFace, type ActionKey, type ActionState } from "@/components/care/CareActions";
 import { CarePrompt, type PromptSpec } from "@/components/care/CarePrompt";
-import { CloseIcon, CoverIcon, LeafIcon, RainIcon } from "@/components/care/icons";
+import {
+  POND_FULL_LEAVE,
+  koiChip,
+  koiWaitText,
+  lotusFeedQuestion,
+  lotusFeedState,
+  lotusTendState,
+  lotusWaterState,
+  pondChip,
+  shortWhen,
+  tendWouldWait,
+} from "@/components/care/careStates";
+import { BucketIcon, CloseIcon, CoverIcon, JarIcon, KoiIcon, LeafIcon, PlantPondIcon, RainIcon } from "@/components/care/icons";
 import { RestingCard } from "@/components/care/RestingCard";
 import { StatusChips, type ChipsModel } from "@/components/care/StatusChips";
 import { sidePanel } from "@/lib/client/dock";
 import {
+  POND_FULL_PROMPT,
+  RAIN_POND_LINE,
+  RAIN_SOON_LINE,
+  careKeysFor,
+  careLabels,
   dismissNotice,
   friendsLine,
   friendsText,
+  isPondShown,
   isSeed,
-  istWhen,
   lineAsksForWater,
   notReadyText,
   outlookText,
@@ -59,6 +83,7 @@ import {
   usePlant,
   weatherWords,
   type MeView,
+  type ShownPondVisual,
 } from "@/lib/client/plant";
 import { uiHeld, useOpening } from "@/lib/garden/opening";
 import { useQuality } from "@/lib/garden/quality";
@@ -77,14 +102,6 @@ const RAIN_ASKED_MS = 12 * 3_600_000;
 /** A cover put on this recently is not yet pointed out in dry weather. */
 const COVER_SETTLE_MS = 45 * 60_000;
 const SPRINKLE_KEY = "garden-sprinkle-thanks:v1";
-
-/** "15:00" today, "tomorrow", or "12 Nov": short enough to sit under a care button. */
-function shortWhen(iso: string | null, now: number): string | null {
-  if (!iso) return null;
-  const words = istWhen(iso, now);
-  if (words.startsWith("tomorrow")) return "tomorrow";
-  return `from ${words.split(",")[0]}`;
-}
 
 /**
  * While the loading veil still covers the garden (a garden link opening on a fresh device, say), the card under it
@@ -147,7 +164,7 @@ function useDock(panel: RefObject<HTMLElement | null>) {
  * today."), a moment after the garden is showing (not under the loading veil) and never over another reply. Who has
  * been thanked today is remembered on this device.
  */
-function useSprinkleThanks(me: MeView, noun: string, resting: boolean) {
+function useSprinkleThanks(me: MeView, noun: string, pond: boolean, resting: boolean) {
   // the veils' rule: once first seen the garden counts as showing, through a tier change behind a held still too; and
   // the card itself waits for the opening's peace to pass (lib/garden/opening), so the thanks waits with it
   const showing = useQuality((s) => !underVeil(s));
@@ -173,7 +190,7 @@ function useSprinkleThanks(me: MeView, noun: string, resting: boolean) {
       left.splice(i, 1);
       return false;
     });
-    const line = friendsLine(fresh, noun);
+    const line = friendsLine(fresh, noun, pond);
     if (!line) return;
     let tries = 0;
     let timer = 0;
@@ -192,7 +209,14 @@ function useSprinkleThanks(me: MeView, noun: string, resting: boolean) {
     };
     timer = window.setTimeout(attempt, 1800);
     return () => window.clearTimeout(timer);
-  }, [names, seed, day, noun, quiet]);
+  }, [names, seed, day, noun, pond, quiet]);
+}
+
+/** A lotus's water and tend buttons: the jar, the seedling going into its pot, or the bucket; and the koi's pinch. */
+function lotusFaces(v: ShownPondVisual): Partial<Record<ActionKey, ActionFace>> {
+  const labels = careLabels(v);
+  const icon = v.stage === "pond" ? <BucketIcon /> : v.moveReady ? <PlantPondIcon /> : <JarIcon />;
+  return { water: { label: labels.water, icon }, tend: { label: labels.tend, icon: <KoiIcon /> } };
 }
 
 function CarePanel({ me }: { me: MeView }) {
@@ -223,12 +247,16 @@ function CarePanel({ me }: { me: MeView }) {
   const resting = restingOf(me, local);
   const shade = toggleShown({ me, meAt, local }, "shade");
   const cover = toggleShown({ me, meAt, local }, "cover");
+  const pond = isPondShown(shown) ? shown : null;
+  // the rain answers a bed's thirst and a pond's level, never a seed's jar
+  const waterRain = pond?.stage === "jar" ? null : rain;
   const soil = soilWord(shown);
   const seed = isSeed(me, shown);
   const line = plantLine(me, shown, rain, cover);
   // the plant's own line already asks for water: the chips need not say it again
-  const lineAsks = line !== null && line.voice === "plant" && lineAsksForWater(shown.says) && !rain;
-  useSprinkleThanks(me, noun, resting !== null);
+  const lineAsks = line !== null && line.voice === "plant" && lineAsksForWater(shown.says) && !waterRain;
+  // a friend's sprinkle is a kind thought for a lotus's pond (it cannot top up 800 litres): thanked as one
+  useSprinkleThanks(me, noun, pond !== null, resting !== null);
 
   const ask = (spec: Omit<PromptSpec, "id">) => setPrompt({ ...spec, id: ++promptSeq.current });
   const closePrompt = () => {
@@ -245,7 +273,22 @@ function CarePanel({ me }: { me: MeView }) {
   const putCoverOn = () => setCover(true);
 
   function water() {
-    if (!me.care.water.ready) return say(notReadyText("water", me.care.water.nextAt, noun, now), "gentle");
+    if (!me.care.water.ready) return say(notReadyText("water", me.care.water.nextAt, noun, now, shown, me.care.water.planted === true), "gentle");
+    if (pond) {
+      // fresh jar water and the planting go straight in, and rain is never a reason to wait (it only tops the pond up);
+      // a pond at its line asks before the bucket spills through the notch
+      if (pond.stage === "pond" && pond.canAdvice === "damp") {
+        return ask({
+          title: POND_FULL_PROMPT.title,
+          body: POND_FULL_PROMPT.body,
+          actions: [
+            { label: "Leave it", primary: true, run: () => say(POND_FULL_LEAVE) },
+            { label: "Top up anyway", run: () => void sendCare("water") },
+          ],
+        });
+      }
+      return void sendCare("water");
+    }
     const damp = shown.canAdvice === "damp" || soil === "soaked";
     // the rain asks first, and says so when the soil is damp too, so its "Water anyway" is the one question; only that
     // answer quiets it for this rain (a skipped can or a cover put on asks again next time), and damp soil still asks
@@ -281,7 +324,19 @@ function CarePanel({ me }: { me: MeView }) {
   }
 
   function feed() {
-    if (!me.care.feed.ready) return say(notReadyText("feed", me.care.feed.nextAt, noun, now), "gentle");
+    if (!me.care.feed.ready) return say(notReadyText("feed", me.care.feed.nextAt, noun, now, shown), "gentle");
+    if (pond) {
+      const q = lotusFeedQuestion(pond);
+      if (!q) return void sendCare("feed");
+      return ask({
+        title: q.title,
+        body: q.body,
+        actions: [
+          { label: "Leave it", primary: true, run: () => say(q.leave) },
+          { label: q.anyway, run: () => void sendCare("feed") },
+        ],
+      });
+    }
     if (shown.feedAdvice === "rich") {
       return ask({
         title: "The bed is already rich. Feed anyway?",
@@ -312,16 +367,26 @@ function CarePanel({ me }: { me: MeView }) {
     void sendCare("shade", false);
   }
 
+  function tend() {
+    // a lotus's koi had their pinch under four hours ago and there are no aphids to rinse: a tend would feed nobody
+    const koi = me.care.koi;
+    if (pond && koi && tendWouldWait(pond, koi)) return say(koiWaitText(koi, now), "gentle");
+    void sendCare("tend");
+  }
+
   function onAction(key: ActionKey, el: HTMLButtonElement) {
     trigger.current = el;
     setPrompt(null);
     if (key === "water") water();
     else if (key === "feed") feed();
-    else if (key === "shade") {
-      if (shade) liftShade();
+    else if (key === "tend") tend();
+    else if (key === "shade" || key === "cover") {
+      // a lotus has neither (careKeysFor never offers them; the server would decline them calmly)
+      if (pond) return;
+      if (key === "cover") setCover(!cover);
+      else if (shade) liftShade();
       else void sendCare("shade", true);
-    } else if (key === "cover") setCover(!cover);
-    else void sendCare(key);
+    } else void sendCare(key);
   }
 
   const asks = shown.canAdvice === "ready" || shown.canAdvice === "thirsty" ? shown.canAdvice : null;
@@ -331,25 +396,36 @@ function CarePanel({ me }: { me: MeView }) {
     : me.care.water.ready
       ? { sub: null, cue: asks, srHint: asks ? `your ${noun} would like a drink` : undefined }
       : { sub: shortWhen(me.care.water.nextAt, now), cue: null, resting: true };
-  const states: Record<ActionKey, ActionState> = {
-    water: waterState,
-    shade: { sub: shade ? "on" : null, cue: null, pressed: shade },
-    cover: { sub: cover ? "on" : null, cue: null, pressed: cover },
-    feed: { sub: me.care.feed.ready ? null : shortWhen(me.care.feed.nextAt, now), cue: null, resting: !me.care.feed.ready },
-    tend: { sub: !seed && (shown.pests > 0.25 || shown.snails > 0) ? "nibblers" : null, cue: null },
-    talk: { sub: null, cue: null },
-  };
+  const states: Record<ActionKey, ActionState> = pond
+    ? {
+        water: lotusWaterState(pond, me.care.water, waterRain, now),
+        shade: { sub: null, cue: null },
+        cover: { sub: null, cue: null },
+        feed: lotusFeedState(pond, me.care.feed, now),
+        tend: lotusTendState(pond, me.care.koi, now),
+        talk: { sub: null, cue: null },
+      }
+    : {
+        water: waterState,
+        shade: { sub: shade ? "on" : null, cue: null, pressed: shade },
+        cover: { sub: cover ? "on" : null, cue: null, pressed: cover },
+        feed: { sub: me.care.feed.ready ? null : shortWhen(me.care.feed.nextAt, now), cue: null, resting: !me.care.feed.ready },
+        tend: { sub: !seed && (shown.pests > 0.25 || shown.snails > 0) ? "nibblers" : null, cue: null },
+        talk: { sub: null, cue: null },
+      };
+  const keys = careKeysFor(me.plant.species);
+  const faces = pond ? lotusFaces(pond) : undefined;
 
   const outlook = outlookText(me, now);
   const soilAsks = soil === "ready for a drink" || soil === "dry";
+  // said once: when the plant's line asks for a drink (or the rain is about to give one), the chip just describes the soil
+  const soilText = (lineAsks || rain) && soil === "ready for a drink" ? "drying" : soil;
   const chips: ChipsModel = {
-    soil: {
-      // said once: when the plant's line asks for a drink (or the rain is about to give one), the chip just describes the soil
-      word: (lineAsks || rain) && soil === "ready for a drink" ? "drying" : soil,
-      level: shown.moisture,
-      ask: !resting && !rain && !lineAsks && soilAsks,
-    },
+    ground: pond
+      ? pondChip(pond, { lineAsks, rain: waterRain !== null, resting: resting !== null })
+      : { kind: "soil", text: `Soil ${soilText}`, spoken: `Soil: ${soilText}`, level: shown.moisture, ask: !resting && !rain && !lineAsks && soilAsks },
     outlook: { text: outlook.text, spoken: outlook.spoken, bloom: me.forecast !== null || me.state.bloomH !== null },
+    koi: pond ? koiChip(me, pond, now) : null,
     friends: friendsText(me.friendsToday),
     weather: weather ? weatherWords(weather) : null,
   };
@@ -359,6 +435,7 @@ function CarePanel({ me }: { me: MeView }) {
     cover && !rain && dryNow && !resting && !nudgeAway && now - coverOnAt > COVER_SETTLE_MS &&
     !local.some((a) => a.kind === "cover" && now - a.at < COVER_SETTLE_MS);
 
+  const lineSpeaksRain = line !== null && (line.text === RAIN_POND_LINE || line.text.endsWith(RAIN_SOON_LINE));
   let slot: ReactNode = null;
   if (prompt) {
     slot = <CarePrompt spec={prompt} onClose={closePrompt} />;
@@ -374,7 +451,16 @@ function CarePanel({ me }: { me: MeView }) {
         </button>
       </div>
     );
-  } else if (rain && !resting && (!cover || rain.when === "soon")) {
+  } else if (pond && waterRain && !resting && pond.canAdvice !== "damp" && !lineSpeaksRain) {
+    // a lotus below its line: the rain will top the pond up, and there is nothing to put on or to skip (said once: not
+    // when the plant's own line already says the rain is topping it up, or is on its way)
+    slot = (
+      <div className="care-hint" data-tone="rain">
+        <RainIcon />
+        <p>{rainHintText(waterRain, nowH, me.plant.species)}</p>
+      </div>
+    );
+  } else if (!pond && rain && !resting && (!cover || rain.when === "soon")) {
     // "Heavy rain tonight; skip the can." and the rain cover; with the cover already on, only the heavy rain still to
     // come is said (rain falling on the cover now is the plant's own line)
     slot = (
@@ -449,11 +535,12 @@ function CarePanel({ me }: { me: MeView }) {
           <RestingCard
             resting={resting}
             noun={noun}
+            vessel={pond ? (pond.stage === "jar" ? "jar" : "pond") : "bed"}
             problem={failure && (failure.kind === "revive" || failure.kind === "replant") ? failure : null}
             onAction={(kind) => void sendCare(kind)}
           />
         ) : (
-          <CareActions states={states} busy={busy} onAction={onAction} />
+          <CareActions keys={keys} faces={faces} states={states} busy={busy} onAction={onAction} />
         )}
         {weather && <p className="care-credit">{weather.credit}</p>}
         <p className="care-sr" role="status" aria-live="polite">

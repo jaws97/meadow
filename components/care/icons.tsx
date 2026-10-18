@@ -137,6 +137,96 @@ export function SoilIcon({ level }: { level: number }) {
   );
 }
 
+// ---- the lotus: its jar, its pond and its koi ------------------------------------------------------------------------
+
+/** Fresh water for the seed's glass jar: the jar, its water line, the seed resting on the bottom and two bubbles. */
+export function JarIcon() {
+  return (
+    <Icon>
+      <path d="M8.6 3.8h6.8" />
+      <path d="M9.2 3.8v2.4c-2.1.9-3.4 2.6-3.4 4.9v6.7a2.4 2.4 0 0 0 2.4 2.4h7.6a2.4 2.4 0 0 0 2.4-2.4v-6.7c0-2.3-1.3-4-3.4-4.9V3.8" />
+      <path d="M5.8 12.4c2.1.9 4.1.9 6.2 0s4.1-.9 6.2 0" />
+      <path d="M10.6 17.4c0-.8.6-1.3 1.4-1.3s1.4.5 1.4 1.3-.6 1.2-1.4 1.2-1.4-.4-1.4-1.2Z" />
+      <path d="M10.2 14.6v.01M13.6 13.9v.01" strokeWidth="1.8" />
+    </Icon>
+  );
+}
+
+/** The seedling going into its pot in the pond: a round first leaf on its stalk, the water line, the pot under it. */
+export function PlantPondIcon() {
+  return (
+    <Icon>
+      <path d="M12 8.2c2.5 0 4.3-1 4.3-2.3S14.5 3.6 12 3.6 7.7 4.6 7.7 5.9 9.5 8.2 12 8.2Z" />
+      <path d="M12 6v10.2" />
+      <path d="M3.4 13.4c2.9 1 5.7 1 8.6 0s5.7-1 8.6 0" />
+      <path d="M7.4 16.2h9.2l-1.1 4h-7Z" />
+    </Icon>
+  );
+}
+
+/** A 15 L bucket for the pond, its water swaying at the brim. */
+export function BucketIcon() {
+  return (
+    <Icon>
+      <path d="M5.4 9.6h13.2l-1.7 9.4a1.6 1.6 0 0 1-1.6 1.3H8.7a1.6 1.6 0 0 1-1.6-1.3L5.4 9.6Z" />
+      <path d="M5.4 9.6C5.8 5 18.2 5 18.6 9.6" />
+      <path d="M6.6 12.6c1.8.8 3.6.8 5.4 0s3.6-.8 5.4 0" />
+      <path d="M12 2.8v1.6M9 3.4l.5 1.3M15 3.4l-.5 1.3" />
+    </Icon>
+  );
+}
+
+/** "Tend the pond": a pinch of food falling to a koi. */
+export function KoiIcon() {
+  return (
+    <Icon>
+      <path d="M4.4 15.2c1.9-2.7 4.7-4 7.6-4 1.9 0 3.4.7 4.6 1.8l2.9-2.2v8.8l-2.9-2.2c-1.2 1.1-2.7 1.8-4.6 1.8-2.9 0-5.7-1.3-7.6-4Z" />
+      <path d="M11.4 11.4c.5-1.2 1.6-1.9 3-2.1" />
+      <path d="M8.2 14.6v.01" strokeWidth="2" />
+      <path d="M9.6 4.4v.01M12.8 3.6v.01M11.6 6.8v.01" strokeWidth="2.1" />
+    </Icon>
+  );
+}
+
+/**
+ * The pond chip: the tank in section, the fill line marked at its walls, and the water standing at its level (mm
+ * against the fill line: the notch's +20 at the brim, -70 near the floor).
+ */
+export function PondIcon({ levelMM }: { levelMM: number }) {
+  const y = 9.6 - 0.1 * Math.max(-75, Math.min(20, levelMM));
+  return (
+    <Icon>
+      <defs>
+        <clipPath id="care-pond-tank">
+          <path d="M5.4 5.6v10.6a2.6 2.6 0 0 0 2.6 2.6h8a2.6 2.6 0 0 0 2.6-2.6V5.6Z" />
+        </clipPath>
+      </defs>
+      <rect x="4" y={y} width="16" height={20 - y} fill="currentColor" stroke="none" opacity="0.45" clipPath="url(#care-pond-tank)" />
+      <path d={`M5.4 ${y.toFixed(2)}h13.2`} strokeWidth="1.1" clipPath="url(#care-pond-tank)" />
+      <path d="M5.4 5.6v10.6a2.6 2.6 0 0 0 2.6 2.6h8a2.6 2.6 0 0 0 2.6-2.6V5.6" />
+      <path d="M2.6 9.6h1.6M19.8 9.6h1.6" />
+    </Icon>
+  );
+}
+
+/** The jar chip: the jar's water, clear (a light wash) or clouding (denser). */
+export function JarWaterIcon({ clarity }: { clarity: number }) {
+  const murk = 1 - Math.max(0, Math.min(1, clarity));
+  return (
+    <Icon>
+      <defs>
+        <clipPath id="care-jar-water">
+          <path d="M5.8 12.4c2.1.9 4.1.9 6.2 0s4.1-.9 6.2 0v5.4a2.4 2.4 0 0 1-2.4 2.4H8.2a2.4 2.4 0 0 1-2.4-2.4Z" />
+        </clipPath>
+      </defs>
+      <rect x="5" y="11" width="14" height="10" fill="currentColor" stroke="none" opacity={0.18 + 0.5 * murk} clipPath="url(#care-jar-water)" />
+      <path d="M8.6 3.8h6.8" />
+      <path d="M9.2 3.8v2.4c-2.1.9-3.4 2.6-3.4 4.9v6.7a2.4 2.4 0 0 0 2.4 2.4h7.6a2.4 2.4 0 0 0 2.4-2.4v-6.7c0-2.3-1.3-4-3.4-4.9V3.8" />
+      <path d="M5.8 12.4c2.1.9 4.1.9 6.2 0s4.1-.9 6.2 0" />
+    </Icon>
+  );
+}
+
 export function SunIcon() {
   return (
     <Icon>

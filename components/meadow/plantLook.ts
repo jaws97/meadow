@@ -29,13 +29,19 @@ export const PLANT_SCALE = 1.3;
 /** A cheap stand-in's height at each stage, as a share of its species' full height (a seed is a mound with a shoot). */
 export const STAGE_SHARE: Record<Stage, number> = { seed: 0.07, sprout: 0.2, leafy: 0.5, bud: 0.86, bloom: 1, resting: 0.36 };
 
-/** A species' full height in the Meadow, metres. */
+/** A species' full height in the Meadow, metres (the lotus's: its urli and its plant in full bloom). */
 export function speciesHeight(id: SpeciesId): number {
+  if (id === "lotus") return HEIGHTS.lotus.bloom * PLANT_SCALE;
   return SPECIES[id].stem.height * PLANT_SCALE;
 }
 
+/** The lotus's urli from the soil to its rim (components/lotus/frame.ts VESSEL_OUTER, its foot on the soil), metres. */
+const URLI_HEIGHT = 0.1425 * PLANT_SCALE;
+
 /** Metres from the soil to the top of a plant drawn for this snapshot entry (before its own few percent of size). */
 export function plantHeight(p: Pick<MeadowPlot, "species" | "stage" | "bloom">): number {
+  // a lotus in its jar or at rest is its urli on the plot (Plants.tsx), the seed of light a little over the water
+  if (p.species === "lotus" && (p.stage === "seed" || p.stage === "resting")) return URLI_HEIGHT;
   if (p.stage === "seed") return 0.09 * PLANT_SCALE;
   const band = bandOf(p);
   return band ? HEIGHTS[p.species][band] * PLANT_SCALE : speciesHeight(p.species) * STAGE_SHARE[p.stage];

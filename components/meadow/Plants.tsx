@@ -13,6 +13,11 @@
 // Until its pictures have arrived (or if they never do) they are drawn here the old cheap way: the plant at its stage
 // in its species' leaf colour with the species' own bud or flower on top (a closed flower drawn as its bud).
 //
+// A lotus stands in a brass urli on its plot from the day it is planted (components/lotus/lod.ts makeLotusPlot): its
+// seed of light hovers over the urli's water while the seed is in its jar, its floating leaves lie browned on the water
+// while it rests, and until the pictures arrive a growing lotus is the urli with green floating leaves (never a stem
+// and head). Its urli stands level, turned to its plot's angle, as its detail levels and its full plant stand.
+//
 // Cost: about twenty draw calls here, whatever the Meadow's size. Seeds, resting plants, the stakes, the signs (one
 // texture of names, nameAtlas.ts) and the wildflowers are each one instanced mesh; instances are rewritten only when
 // the snapshot changes (or a plant is visited), never per frame, apart from the few seconds a new plant takes to
@@ -23,6 +28,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import * as THREE from "three";
 import { meadowData, useMeadowData } from "@/components/meadow/data";
 import { BED, type MeadowLayout } from "@/components/meadow/layout";
+import { plotSpin, SPINS } from "@/components/meadow/lod/bands";
 import { LodPlants, lodStatus } from "@/components/meadow/lod/LodPlants";
 import { NameAtlas, signMaterial, syncSignMaterial } from "@/components/meadow/nameAtlas";
 import { liveGlowMaterial, merge, paint } from "@/components/meadow/parts";
@@ -39,12 +45,19 @@ import {
   stakeGeometry,
   tallGeometry,
 } from "@/components/meadow/sprouts";
+import { URLI, waterY } from "@/components/lotus/frame";
+import { LOTUS_FOOT, makeLotusPlot, type LotusPlotKind } from "@/components/lotus/lod";
 import { lerp } from "@/lib/plant/prng";
-import { SPECIES, type SpeciesId } from "@/lib/plant/species";
+import { isLotus, SPECIES, type SpeciesId } from "@/lib/plant/species";
 
-const SPECIES_IDS: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine"];
+const SPECIES_IDS: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"];
 type Foliage = "sprout" | "leafy" | "tall" | "resting";
 const FOLIAGE: readonly Foliage[] = ["sprout", "leafy", "tall", "resting"];
+/** The species drawn as a stem and a head here (the lotus is drawn in its urli instead). */
+const HEADED = SPECIES_IDS.filter((id) => !isLotus(id));
+const LOTUS_KINDS: readonly LotusPlotKind[] = ["seed", "pads", "resting"];
+/** Where the urli's water stands above the soil in the Meadow (its seed's glow lies on it), metres. */
+const LOTUS_WATER_Y = BED.soilH + (LOTUS_FOOT + waterY(URLI.fillMM)) * PLANT_SCALE;
 /** How long a new plant takes to rise out of the soil, ms. */
 const RISE_MS = 1600;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -148,8 +161,9 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
     return {
       seed: seedGeometry(),
       foliage: { sprout: sproutGeometry(), leafy: leafyGeometry(), tall: tallGeometry(), resting: restingGeometry() } as Record<Foliage, THREE.BufferGeometry>,
-      bud: Object.fromEntries(SPECIES_IDS.map((id) => [id, budHeadGeometry(id)])) as Record<SpeciesId, THREE.BufferGeometry>,
-      bloom: Object.fromEntries(SPECIES_IDS.map((id) => [id, bloomHeadGeometry(id)])) as Record<SpeciesId, THREE.BufferGeometry>,
+      bud: Object.fromEntries(HEADED.map((id) => [id, budHeadGeometry(id)])) as Partial<Record<SpeciesId, THREE.BufferGeometry>>,
+      bloom: Object.fromEntries(HEADED.map((id) => [id, bloomHeadGeometry(id)])) as Partial<Record<SpeciesId, THREE.BufferGeometry>>,
+      lotus: Object.fromEntries(LOTUS_KINDS.map((k) => [k, makeLotusPlot(k)])) as Record<LotusPlotKind, THREE.BufferGeometry>,
       stake: stakeGeometry(),
       sign: signFaceGeometry(),
       wildLeaves: wild.leaves,
@@ -160,9 +174,8 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
   const atlas = useMemo(() => new NameAtlas(), []);
   const mats = useMemo(() => {
     const seed = liveGlowMaterial({ roughness: 0.9 }, "seed");
-    const heads = Object.fromEntries(SPECIES_IDS.map((id) => [id, liveGlowMaterial({ roughness: 0.6, side: THREE.DoubleSide }, `head-${id}`)])) as Record<
-      SpeciesId,
-      ReturnType<typeof liveGlowMaterial>
+    const heads = Object.fromEntries(HEADED.map((id) => [id, liveGlowMaterial({ roughness: 0.6, side: THREE.DoubleSide }, `head-${id}`)])) as Partial<
+      Record<SpeciesId, ReturnType<typeof liveGlowMaterial>>
     >;
     const wild = liveGlowMaterial({ roughness: 0.8, side: THREE.DoubleSide }, "wild");
     return {
@@ -187,6 +200,7 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
       for (const g of Object.values(geos.foliage)) g.dispose();
       for (const g of Object.values(geos.bud)) g.dispose();
       for (const g of Object.values(geos.bloom)) g.dispose();
+      for (const g of Object.values(geos.lotus)) g.dispose();
       geos.stake.dispose();
       geos.sign.dispose();
       geos.wildLeaves.dispose();
@@ -211,6 +225,7 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
   const foliageRefs = useRef<Partial<Record<Foliage, THREE.InstancedMesh | null>>>({});
   const budRefs = useRef<Partial<Record<SpeciesId, THREE.InstancedMesh | null>>>({});
   const bloomRefs = useRef<Partial<Record<SpeciesId, THREE.InstancedMesh | null>>>({});
+  const lotusRefs = useRef<Partial<Record<LotusPlotKind, THREE.InstancedMesh | null>>>({});
   const stakeRef = useRef<THREE.InstancedMesh>(null);
   const signRef = useRef<THREE.InstancedMesh>(null);
   const wildLeavesRef = useRef<THREE.InstancedMesh>(null);
@@ -232,7 +247,7 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
       counts.set(mesh, i + 1);
       return i;
     };
-    for (const m of [seedRef.current, haloRef.current, stakeRef.current, signRef.current, wildLeavesRef.current, wildBlossomsRef.current, ...Object.values(foliageRefs.current), ...Object.values(budRefs.current), ...Object.values(bloomRefs.current)]) {
+    for (const m of [seedRef.current, haloRef.current, stakeRef.current, signRef.current, wildLeavesRef.current, wildBlossomsRef.current, ...Object.values(foliageRefs.current), ...Object.values(budRefs.current), ...Object.values(bloomRefs.current), ...Object.values(lotusRefs.current)]) {
       if (m) {
         counts.set(m, 0);
         all.push(m);
@@ -286,6 +301,21 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
         cellAttr.setXY(gi, u, v);
       }
       if (p.plot === meadow.detailPlot) continue;
+
+      if (isLotus(p.species)) {
+        // the urli, level on the soil and turned to its plot's angle (as its detail levels stand)
+        const kind: LotusPlotKind | null = p.stage === "seed" ? "seed" : p.stage === "resting" ? "resting" : lod ? null : "pads";
+        if (!kind) continue;
+        m.compose(pos.set(plot.x, BED.soilH, plot.z), qSpin.setFromAxisAngle(UP, SPINS[plotSpin(p.plot)]), scl.set(PLANT_SCALE, PLANT_SCALE, PLANT_SCALE));
+        place(lotusRefs.current[kind], m, null);
+        // the seed's soft glow on the water, a little wider than the urli
+        if (kind === "seed") {
+          m.compose(pos.set(plot.x, LOTUS_WATER_Y + 0.004, plot.z), qSpin.identity(), scl.set(0.62, 1, 0.62));
+          place(haloRef.current, m, null);
+        }
+        if (rise) risingNow.push(rise);
+        continue;
+      }
 
       const h = speciesHeight(p.species) * (0.92 + 0.16 * hash(p.plot, 2));
       // a poorly plant leans and pales a little; a thriving one stands bright
@@ -387,12 +417,12 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
     const night = meadow.night;
     mats.seed.glow.value = (0.6 + 1.9 * night) * (0.9 + 0.1 * Math.sin(t * 1.7));
     mats.halo.opacity = (0.5 + 0.45 * night) * (0.9 + 0.1 * Math.sin(t * 1.7));
-    for (const id of SPECIES_IDS) {
+    for (const id of HEADED) {
       const f = SPECIES[id].flower;
       const pulse = SPECIES[id].fx.pulse ? 0.8 + 0.2 * Math.sin(t * 1.4) : 1;
       // a floor of the petals' own colour, so a flower seen from behind (its face turned to the far path) is a soft
       // shade of itself rather than a dark shape
-      mats.heads[id].glow.value = Math.max(0.24, lerp(f.emissiveDay * 1.5, f.emissiveNight * 0.9, night) * pulse);
+      mats.heads[id]!.glow.value = Math.max(0.24, lerp(f.emissiveDay * 1.5, f.emissiveNight * 0.9, night) * pulse);
     }
     mats.wild.glow.value = 0.1 + 0.6 * night;
     // new plants rise out of the soil
@@ -433,23 +463,36 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
         />
       ))}
       {/* the heads cast no shadow: a flower held high threw a dark disc onto the bed that read as a hole */}
-      {SPECIES_IDS.map((id) => (
+      {HEADED.map((id) => (
         <group key={id}>
           <instancedMesh
             ref={(el) => {
               budRefs.current[id] = el;
             }}
-            args={[geos.bud[id], mats.heads[id].material, cap]}
+            args={[geos.bud[id], mats.heads[id]!.material, cap]}
             frustumCulled={false}
           />
           <instancedMesh
             ref={(el) => {
               bloomRefs.current[id] = el;
             }}
-            args={[geos.bloom[id], mats.heads[id].material, cap]}
+            args={[geos.bloom[id], mats.heads[id]!.material, cap]}
             frustumCulled={false}
           />
         </group>
+      ))}
+      {/* the lotus's urli: its seed of light glows with the other seeds; its leaves are foliage */}
+      {LOTUS_KINDS.map((kind) => (
+        <instancedMesh
+          key={kind}
+          ref={(el) => {
+            lotusRefs.current[kind] = el;
+          }}
+          args={[geos.lotus[kind], kind === "seed" ? mats.seed.material : mats.foliage, cap]}
+          castShadow={plantShadows}
+          receiveShadow
+          frustumCulled={false}
+        />
       ))}
       <instancedMesh ref={stakeRef} args={[geos.stake, mats.stake, cap]} castShadow={plantShadows} frustumCulled={false} />
       <instancedMesh ref={signRef} args={[geos.sign, mats.sign, cap]} frustumCulled={false} />

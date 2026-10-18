@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { LOD_SPECIES } from "@/components/meadow/lod/bands";
 import { readSynthetic, syntheticFriend, syntheticSnapshot, SYNTHETIC_MAX } from "@/components/meadow/lod/synthetic";
+import type { PondVisual } from "@/lib/sim";
 
 describe("readSynthetic", () => {
   it("reads a count and an optional stage", () => {
@@ -25,7 +27,7 @@ describe("syntheticSnapshot", () => {
     const s = syntheticSnapshot({ count: 400 }, 0);
     expect(s.count).toBe(400);
     expect(s.plots.map((p) => p.plot)).toEqual(Array.from({ length: 400 }, (_, i) => i));
-    expect(new Set(s.plots.map((p) => p.species)).size).toBe(6);
+    expect(new Set(s.plots.map((p) => p.species)).size).toBe(LOD_SPECIES.length);
     expect(new Set(s.plots.map((p) => p.stage))).toEqual(new Set(["seed", "sprout", "leafy", "bud", "bloom", "resting"]));
     expect(new Set(s.plots.map((p) => p.health))).toEqual(new Set(["thriving", "fine", "poorly", "resting"]));
     for (const p of s.plots) {
@@ -58,5 +60,28 @@ describe("syntheticFriend", () => {
   it("finds nothing past the made-up Meadow", () => {
     expect(syntheticFriend(40, { count: 40 })).toBeNull();
     expect(syntheticFriend(-1, { count: 40 })).toBeNull();
+  });
+});
+
+describe("a made-up lotus", () => {
+  const opts = { count: 720 };
+  const plots = syntheticSnapshot(opts, 0).plots.filter((p) => p.species === "lotus");
+  const visual = (stage: string, health?: string) => {
+    const p = plots.find((q) => q.stage === stage && (!health || q.health === health))!;
+    return syntheticFriend(p.plot, opts)!.visual as PondVisual;
+  };
+
+  it("is answered with a lotus's numbers at every stage", () => {
+    expect(new Set(plots.map((p) => p.stage))).toEqual(new Set(["seed", "sprout", "leafy", "bud", "bloom", "resting"]));
+    for (const p of plots) expect(syntheticFriend(p.plot, opts)!.visual).toMatchObject({ medium: "pond" });
+    expect(visual("seed").stage).toBe("jar");
+    expect(visual("sprout")).toMatchObject({ stage: "pond", aerialLeaves: 0 });
+    expect(visual("leafy").aerialLeaves).toBeGreaterThan(0);
+    expect(visual("resting").alive).toBe(false);
+  });
+
+  it("has fallen below its pot when it is poorly", () => {
+    expect(visual("leafy", "poorly")).toMatchObject({ potIsolated: true, potDry: false });
+    expect(visual("leafy", "thriving").potIsolated).toBe(false);
   });
 });

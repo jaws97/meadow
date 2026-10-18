@@ -14,8 +14,13 @@
 // stamens, a little for the bud, nothing for the foliage), which also tells flower from foliage, so a poorly plant's
 // leaves can pale while its flower keeps its colour.
 //
+// The lotus is the exception: its light plant is the urli with the plant in it for each band, built by
+// components/lotus/lod.ts (the plant in its pond and urli is not the procedural flower), handed over here in the same
+// form, its foot on the soil.
+//
 // Pure (three.js maths and the plant library): the atlas script runs it in Node.
 import * as THREE from "three";
+import { LOTUS_FOOT, lodLotusHead, makeLodLotus } from "@/components/lotus/lod";
 import { BAND_LOOK, LOD_SEEDS, type Band } from "@/components/meadow/lod/bands";
 import { bakeMorph, posePlant, type PartMaterials, type PoseDetail } from "@/components/meadow/lod/pose";
 import { smoothstep } from "@/lib/plant/prng";
@@ -226,6 +231,7 @@ const TAGS: PartMaterials<Tag> = {
 
 /** Poses `species` in `band` at the light tessellation and merges it into one vertex-coloured mesh. */
 export function bakeLodPlant(species: SpeciesId, band: Band): BakedPlant {
+  if (species === "lotus") return bakeLodLotus(band);
   const sp = SPECIES[species];
   const look = BAND_LOOK[band];
   const posed = posePlant(
@@ -290,4 +296,15 @@ export function bakeLodPlant(species: SpeciesId, band: Band): BakedPlant {
   geometry.computeBoundingSphere();
   geometry.computeBoundingBox();
   return { geometry, height, head: posed.head, triangles: idx.length / 3 };
+}
+
+/** The lotus in its urli for a band (components/lotus/lod.ts), lifted so the urli's foot stands on the soil. */
+function bakeLodLotus(band: Band): BakedPlant {
+  const geometry = makeLodLotus(band);
+  geometry.translate(0, LOTUS_FOOT, 0);
+  geometry.computeBoundingSphere();
+  geometry.computeBoundingBox();
+  const head = lodLotusHead(band);
+  head.y += LOTUS_FOOT;
+  return { geometry, height: geometry.boundingBox!.max.y, head, triangles: geometry.attributes.position.count / 3 };
 }

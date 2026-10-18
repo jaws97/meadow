@@ -31,17 +31,34 @@
 // of the view, easing up as the card grows for a question and back as it
 // shrinks. The framing itself is untouched, and with nothing docked there is
 // no shift at all.
+// A lotus's courtyard has its own framing (components/lotus/product/camera):
+// the concepts page's signed-off pond shot for the screen's shape, from the
+// landing at the tank's front, leaning in a little toward what matters now
+// (the seed's jar, the seedling gliding to its pot, the flower), which the
+// courtyard names every frame (product/stage courtSubject). Everything else is
+// the same rig: the eased target, the idle drift, the opening's push-in, a
+// viewer's zoom kept as a share, their orbit respected, and the lens shift for
+// the care card, which keeps the pond (the subject's top down to the front
+// coping, or while the seed is in its jar, the jar) in the open part of the
+// view. When a plant gives way to the other kind (behind the swap's dim) the
+// camera goes straight to the new framing.
+// The orbit's target is handed to the controls once, as they mount; from then
+// on the rig alone moves it (an orbit target re-applied as a prop on every new
+// screen shape would jump it to the flower garden's aim, away from the pond).
 import { OrbitControls } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useCallback, useLayoutEffect, useMemo, useRef, type ComponentRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ComponentRef } from "react";
 import * as THREE from "three";
 import { sidePanel } from "@/lib/client/dock";
 import { HERO_GROUND_Y } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { framingFor, LAYOUT, type Framing } from "@/lib/garden/layout";
 import { opening } from "@/lib/garden/opening";
-import { garden } from "@/lib/garden/store";
+import { garden, useGarden } from "@/lib/garden/store";
+import { isLotus } from "@/lib/plant/species";
 import { lerp, smoothstep } from "@/lib/plant/prng";
+import { courtLensPoints, courtShot, type CourtShot } from "@/components/lotus/product/camera";
+import { courtSubject } from "@/components/lotus/product/stage";
 
 type Controls = ComponentRef<typeof OrbitControls>;
 
@@ -53,6 +70,8 @@ const TARGET_MIN = 0.2;
 const TARGET_MAX = 1.0;
 const EASE_RATE = 1.5;
 const MIN_DISTANCE = 0.8;
+/** A lotus's close look at its jar comes nearer than the flower garden's camera ever does. */
+const MIN_DISTANCE_LOTUS = 0.45;
 const MAX_DISTANCE = 7;
 const MIN_POLAR = 0.75;
 /**
@@ -148,6 +167,11 @@ const released = new THREE.Vector3();
 const lensHead = new THREE.Vector3();
 const lensFoot = new THREE.Vector3();
 const lensCap = new THREE.Vector3();
+/** The subject the lens shift keeps in view, in world space: its top, its foot, and what must stay clear of the name pill. */
+const subjectTop = new THREE.Vector3();
+const subjectFoot = new THREE.Vector3();
+const subjectCap = new THREE.Vector3();
+const court: CourtShot = { target: new THREE.Vector3(), distance: 2, elevation: 0.4, azimuth: 0, fov: 45 };
 
 interface Drift {
   /** drift currently applied to the camera, so each frame moves it by the difference */
@@ -223,23 +247,33 @@ function framingOffset(f: Framing, out: THREE.Vector3): THREE.Vector3 {
 }
 
 /**
- * Eases the lens shift (CSS px, content moved left and up) toward keeping the plant in the part of the view the care
- * layer leaves open: head to foot centred above a bottom card, the head kept clear of the name pill; centred left of
- * a narrow side panel. Nothing docked, and once the shift has eased away, the view offset is cleared. For the bed
- * shot (`bed`, its share) the subject is the bed, from the lantern's lamp down to the front kerb, and what must stay
- * clear of the name pill is its back kerb.
+ * The flower garden's subject for the lens shift, into subjectTop, subjectFoot and subjectCap: the plant (head to foot,
+ * the head kept clear of the name pill), or for the bed shot (`bed`, its share) the bed, from the lantern's lamp down to
+ * the front kerb, with its back kerb kept clear of the name pill.
  */
-function shiftLens(camera: THREE.Camera, L: { x: number; y: number }, width: number, height: number, dt: number, bed: number) {
+function gardenLensPoints(bed: number) {
+  subjectTop.copy(env.headPos).lerp(BED_TOP, bed);
+  subjectFoot.set(env.headPos.x, HERO_GROUND_Y, env.headPos.z).lerp(BED_FOOT, bed);
+  subjectCap.copy(env.headPos).lerp(BED_BACK, bed);
+}
+
+/**
+ * Eases the lens shift (CSS px, content moved left and up) toward keeping the subject (subjectTop to subjectFoot) in
+ * the part of the view the care layer leaves open: centred above a bottom card, never so far up that subjectCap goes
+ * under the name pill; centred left of a narrow side panel. Nothing docked, and once the shift has eased away, the view
+ * offset is cleared.
+ */
+function shiftLens(camera: THREE.Camera, L: { x: number; y: number }, width: number, height: number, dt: number) {
   if (!(camera instanceof THREE.PerspectiveCamera)) return;
   const { dockBottom, dockRight } = garden.get();
   let wantX = 0;
   let wantY = 0;
   if ((dockBottom > 0 || dockRight > 0) && width > 0 && height > 0) {
     camera.updateMatrixWorld();
-    // where the head and the plant's foot fall without the shift (it moves the picture by whole pixels: ndc + 2 px / size)
-    lensHead.copy(env.headPos).lerp(BED_TOP, bed).project(camera);
-    lensFoot.set(env.headPos.x, HERO_GROUND_Y, env.headPos.z).lerp(BED_FOOT, bed).project(camera);
-    lensCap.copy(env.headPos).lerp(BED_BACK, bed).project(camera);
+    // where the subject's top and foot fall without the shift (it moves the picture by whole pixels: ndc + 2 px / size)
+    lensHead.copy(subjectTop).project(camera);
+    lensFoot.copy(subjectFoot).project(camera);
+    lensCap.copy(subjectCap).project(camera);
     const headY = ((1 - (lensHead.y - (2 * L.y) / height)) / 2) * height;
     const footY = ((1 - (lensFoot.y - (2 * L.y) / height)) / 2) * height;
     const capY = ((1 - (lensCap.y - (2 * L.y) / height)) / 2) * height;
@@ -267,6 +301,80 @@ function shiftLens(camera: THREE.Camera, L: { x: number; y: number }, width: num
   camera.setViewOffset(width, height, L.x, L.y, width, height);
 }
 
+/** The lens for the framing (the flower garden's for the screen's shape, or the courtyard's), changed only when it differs. */
+function setFov(camera: THREE.Camera, fov: number) {
+  if (!(camera instanceof THREE.PerspectiveCamera) || Math.abs(camera.fov - fov) <= 0.01) return;
+  camera.fov = fov;
+  camera.updateProjectionMatrix();
+}
+
+/** The idle drift: a slow handheld wander once nobody has touched the camera for a few seconds (both gardens). */
+function drifting(camera: THREE.Camera, c: Controls, d: Drift, f: Framing) {
+  const t = env.time;
+  const idle = d.interacting ? 0 : smoothstep(DRIFT_RESUME_AFTER, DRIFT_RESUME_AFTER + DRIFT_EASE, t - d.lastGesture);
+  const phase = (t / DRIFT_PERIOD) * Math.PI * 2;
+  const wantYaw = Math.sin(phase) * DRIFT_YAW * idle;
+  // the handheld bob shrinks with the dolly, so a close seedling shot does not bob out of frame
+  const reach = Math.min(1, Math.max(0.3, camera.position.distanceTo(c.target) / f.distance));
+  const wantLift = Math.sin(phase * 2 + 1.1) * DRIFT_LIFT * idle * reach;
+  const dYaw = wantYaw - d.yaw;
+  const dLift = wantLift - d.lift;
+  d.yaw = wantYaw;
+  d.lift = wantLift;
+  if (dYaw !== 0 || dLift !== 0) {
+    // OrbitControls rebuilds its spherical from the camera each update, so a
+    // direct move of the camera about the target is kept, not fought.
+    offset.copy(camera.position).sub(c.target);
+    offset.applyAxisAngle(UP, dYaw);
+    offset.y += dLift;
+    camera.position.copy(c.target).add(offset);
+  }
+}
+
+/** The courtyard's shot now, placed at once (a first frame, a new screen shape, the swap to a lotus). */
+function placeCourt(camera: THREE.Camera, c: Controls | null, aspect: number) {
+  courtShot(aspect, courtSubject, court);
+  const flat = Math.cos(court.elevation) * court.distance;
+  offset.set(Math.sin(court.azimuth) * flat, Math.sin(court.elevation) * court.distance, Math.cos(court.azimuth) * flat);
+  if (c) {
+    c.target.copy(court.target);
+    camera.position.copy(court.target).add(offset);
+    c.update();
+  } else {
+    camera.position.copy(court.target).add(offset);
+    camera.lookAt(court.target);
+  }
+}
+
+/**
+ * The courtyard's frame: the target eases toward the shot's aim (the wide framing leaning toward the subject); the
+ * distance follows the shot's, as a share the viewer's zoom keeps, and the opening's push rides on it; until the viewer
+ * first moves the camera the elevation eases to the shot's too, otherwise their angle is kept.
+ */
+function courtFrame(camera: THREE.Camera, c: Controls, d: Drift, dt: number, k: number, aspect: number) {
+  courtShot(aspect, courtSubject, court);
+  prevTarget.copy(c.target);
+  c.target.lerp(court.target, k);
+  if (d.interacting) return;
+  const want = Math.min(MAX_DISTANCE, Math.max(MIN_DISTANCE_LOTUS + 0.05, court.distance * d.zoom));
+  const ease = 1 - Math.exp(-dt * DOLLY_RATE);
+  const push = d.pushOff ? 1 : opening.push(performance.now());
+  offset.copy(camera.position).sub(prevTarget).sub(driftLift.set(0, d.lift, 0));
+  const dist = offset.length() / d.push || want;
+  const next = dist + (want - dist) * ease;
+  if (d.lastGesture === -Infinity) {
+    const flat = Math.hypot(offset.x, offset.z) || 1e-6;
+    const elev = Math.atan2(offset.y, flat);
+    const e = elev + (court.elevation - elev) * ease;
+    const s = (Math.cos(e) * next * push) / flat;
+    offset.set(offset.x * s, Math.sin(e) * next * push, offset.z * s);
+  } else {
+    offset.setLength(next * push);
+  }
+  d.push = push;
+  camera.position.copy(c.target).add(offset).add(driftLift);
+}
+
 export function CameraRig() {
   const controls = useRef<Controls>(null);
   const camera = useThree((s) => s.camera);
@@ -284,6 +392,11 @@ export function CameraRig() {
     live.current = framing;
     liveAspect.current = aspect;
   }, [framing, aspect]);
+  /** whether the plant on show is a lotus (its courtyard's framing), as the frame loop last saw it */
+  const lotusShown = useRef(isLotus(garden.get().speciesId));
+  const lotus = useGarden((s) => isLotus(s.speciesId));
+  // the controls' first target only (see the header): the frame loop moves it from then on
+  const [startTarget] = useState((): [number, number, number] => [TARGET[0], targetY(HERO_GROUND_Y + FULL_HEIGHT, framing), TARGET[2]]);
 
   // Open on the framing for this screen's shape, and re-frame when the phone
   // turns or the window changes shape, unless the viewer has already moved
@@ -292,8 +405,12 @@ export function CameraRig() {
   // re-frame on a young plant keeps the authored angle; the dolly then sets the distance.
   useLayoutEffect(() => {
     if (drift.current.lastGesture !== -Infinity || drift.current.interacting) return;
-    framingOffset(framing, offset);
     const c = controls.current;
+    if (lotusShown.current) {
+      placeCourt(camera, c, aspect);
+      return;
+    }
+    framingOffset(framing, offset);
     if (c) {
       camera.position.copy(c.target).add(offset);
       c.update();
@@ -302,16 +419,7 @@ export function CameraRig() {
       camera.position.set(TARGET[0] + offset.x, ty + offset.y, TARGET[2] + offset.z);
       camera.lookAt(TARGET[0], ty, TARGET[2]);
     }
-  }, [camera, framing]);
-
-  useLayoutEffect(() => {
-    if (!(camera instanceof THREE.PerspectiveCamera)) return;
-    if (Math.abs(camera.fov - framing.fov) > 0.01) {
-      // eslint-disable-next-line react-hooks/immutability -- the camera is a three.js object, configured imperatively
-      camera.fov = framing.fov;
-      camera.updateProjectionMatrix();
-    }
-  }, [camera, framing]);
+  }, [camera, framing, aspect]);
 
   // A gesture takes over the camera wherever the drift has left it: the drift
   // is forgotten rather than unwound, so nothing snaps under the hand.
@@ -342,8 +450,8 @@ export function CameraRig() {
         opening.stopPush();
       }
       // Keep the viewer's zoom as a share of the dolly, so the plant keeps its size in frame as it grows (without the
-      // push-in, while that is still running).
-      const auto = autoDistance(live.current, liveAspect.current, env.headPos.y);
+      // push-in, while that is still running); in the courtyard, of its shot's distance.
+      const auto = lotusShown.current ? court.distance : autoDistance(live.current, liveAspect.current, env.headPos.y);
       d.zoom = Math.min(3, Math.max(0.3, off.length() / d.push / auto));
     }
   }, [camera]);
@@ -355,6 +463,29 @@ export function CameraRig() {
     const k = 1 - Math.exp(-dt * EASE_RATE);
     const f = live.current;
     const d = drift.current;
+    const lotus = isLotus(garden.get().speciesId);
+    if (lotus !== lotusShown.current) {
+      // the other kind of garden (behind the swap's dim): straight to its framing, the viewer's zoom and orbit forgotten
+      lotusShown.current = lotus;
+      d.yaw = 0;
+      d.lift = 0;
+      d.zoom = 1;
+      d.lastGesture = -Infinity;
+      if (lotus) placeCourt(camera, c, liveAspect.current);
+      else {
+        framingOffset(f, offset);
+        c.target.set(TARGET[0], targetY(HERO_GROUND_Y + FULL_HEIGHT, f), TARGET[2]);
+        camera.position.copy(c.target).add(offset);
+      }
+    }
+    setFov(camera, lotus ? courtShot(liveAspect.current, courtSubject, court).fov : f.fov);
+    if (lotus) {
+      courtFrame(camera, c, d, dt, k, liveAspect.current);
+      drifting(camera, c, d, f);
+      courtLensPoints(courtSubject, env.headPos.y, subjectTop, subjectFoot, subjectCap);
+      shiftLens(camera, lens.current, width, height, dt);
+      return;
+    }
     const headY = env.headPos.y;
     const bed = bedShare(headY);
     // the bed shot's lower look from the left is for a landscape screen with a panel actually at the right; without
@@ -397,36 +528,18 @@ export function CameraRig() {
       camera.position.copy(c.target).add(offset).add(driftLift);
     }
 
-    const t = env.time;
-    const idle = d.interacting ? 0 : smoothstep(DRIFT_RESUME_AFTER, DRIFT_RESUME_AFTER + DRIFT_EASE, t - d.lastGesture);
-    const phase = (t / DRIFT_PERIOD) * Math.PI * 2;
-    const wantYaw = Math.sin(phase) * DRIFT_YAW * idle;
-    // the handheld bob shrinks with the dolly, so a close seedling shot does not bob out of frame
-    const reach = Math.min(1, Math.max(0.3, camera.position.distanceTo(c.target) / f.distance));
-    const wantLift = Math.sin(phase * 2 + 1.1) * DRIFT_LIFT * idle * reach;
-    const dYaw = wantYaw - d.yaw;
-    const dLift = wantLift - d.lift;
-    d.yaw = wantYaw;
-    d.lift = wantLift;
-    if (dYaw !== 0 || dLift !== 0) {
-      // OrbitControls rebuilds its spherical from the camera each update, so a
-      // direct move of the camera about the target is kept, not fought.
-      offset.copy(camera.position).sub(c.target);
-      offset.applyAxisAngle(UP, dYaw);
-      offset.y += dLift;
-      camera.position.copy(c.target).add(offset);
-    }
-
-    shiftLens(camera, lens.current, width, height, dt, bed);
+    drifting(camera, c, d, f);
+    gardenLensPoints(bed);
+    shiftLens(camera, lens.current, width, height, dt);
   });
 
   return (
     <OrbitControls
       ref={controls}
       makeDefault
-      target={[TARGET[0], targetY(HERO_GROUND_Y + FULL_HEIGHT, framing), TARGET[2]]}
+      target={startTarget}
       enablePan={false}
-      minDistance={MIN_DISTANCE}
+      minDistance={lotus ? MIN_DISTANCE_LOTUS : MIN_DISTANCE}
       maxDistance={MAX_DISTANCE}
       minPolarAngle={MIN_POLAR}
       maxPolarAngle={MAX_POLAR}
