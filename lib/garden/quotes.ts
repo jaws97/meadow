@@ -1,5 +1,5 @@
 // The lines the loading veils show while a garden wakes, one per opening and a second if the wait runs long
-// (components/garden/VeilQuote). Most are Lijas's own picks; the calm garden lines are original to the app.
+// (components/garden/VeilQuote). They are Lijas's own picks, motivational lines for the wait.
 // A name is shown only where the source is certain: many of these sayings travel without a reliable author,
 // and a guessed name is worse than none.
 
@@ -16,12 +16,6 @@ export const QUOTES: readonly Quote[] = Object.freeze([
   { text: "If you're going through hell, keep going." },
   { text: "Not all treasure is silver and gold, mate.", by: "Captain Jack Sparrow" },
   { text: "Don't tell me the sky's the limit when there are footprints on the moon." },
-  { text: "A garden grows at the speed of care." },
-  { text: "Small care, every day, becomes a garden." },
-  { text: "Rain does half the work. Patience does the rest." },
-  { text: "Nothing in a garden is late. Everything blooms in its own time." },
-  { text: "The roots work quietly long before the flower is seen." },
-  { text: "Tend it a little each day, and one morning it will bloom." },
 ]);
 
 /**
