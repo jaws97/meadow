@@ -896,6 +896,63 @@ function fireflyPaths(count: number, seed: number) {
 }
 
 /**
+ * The trolley's geometry, textures and materials, built once per tier and kept for the page: the glider's trolley
+ * mounts while the cart's is still drawn (MeadowCanvas swaps them in plain sight), and building these again then was
+ * one long frame (about a tenth of a second on an office laptop). Never disposed; they are small (one 512 px texture,
+ * about 9.2k triangles). Only one trolley is live at a time, so they share the jar's uniforms too: each writes them
+ * every frame, the one mounted last (the live one) last.
+ */
+interface TrolleyParts {
+  tin: THREE.CanvasTexture;
+  jar: JarLight;
+  body: THREE.BufferGeometry;
+  wheel: THREE.BufferGeometry;
+  jarCopper: THREE.BufferGeometry;
+  glass: THREE.BufferGeometry;
+  glint: THREE.BufferGeometry;
+  poolGeo: THREE.BufferGeometry;
+  poolMat: THREE.MeshBasicMaterial;
+  painted: THREE.MeshStandardMaterial;
+  glassMat: THREE.MeshStandardMaterial;
+  glintMat: THREE.MeshBasicMaterial;
+  fliesMat: THREE.PointsMaterial;
+}
+
+const built: { lite?: TrolleyParts; full?: TrolleyParts } = {};
+
+function trolleyParts(lite: boolean): TrolleyParts {
+  const key = lite ? "lite" : "full";
+  const cached = built[key];
+  if (cached) return cached;
+  const tin = tinTexture();
+  const jar: JarLight = { position: { value: new THREE.Vector3() }, glow: { value: 0 }, color: { value: new THREE.Color(JAR_LIGHT) }, lift: { value: 0 } };
+  const made: TrolleyParts = {
+    tin,
+    jar,
+    body: bodyGeometry(),
+    wheel: wheelGeometry(),
+    jarCopper: jarCopperGeometry(),
+    glass: lathe(GLASS, 14),
+    glint: glintGeometry(),
+    poolGeo: new THREE.PlaneGeometry(1, 1),
+    poolMat: new THREE.MeshBasicMaterial({
+      map: lite ? poolTexture() : null,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      blending: THREE.AdditiveBlending,
+      opacity: 0,
+    }),
+    painted: trolleyMaterial(tin, jar, lite),
+    glassMat: new THREE.MeshStandardMaterial({ color: "#eef7ef", emissive: "#d6ec8a", transparent: true, opacity: 0.3, roughness: 0.06, depthWrite: false }),
+    glintMat: new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.32, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
+    fliesMat: fireflyMaterial(),
+  };
+  built[key] = made;
+  return made;
+}
+
+/**
  * The scene's light for the guardian jar, mounted once for the whole visit (MeadowEnvironment, and the concept stage)
  * so the light count never changes: it stands wherever the live trolley last published its jar, and is dark while
  * there is none. Never mounted on the lite tier.
@@ -936,9 +993,9 @@ export function FireflyTrolley({ wheels, lite: liteProp, groundY = 0.03 }: Troll
   const wheelMesh = useRef<THREE.InstancedMesh>(null);
   const pool = useRef<THREE.Mesh>(null);
   const pivot = useSwing(0.36, calm ? 0.012 : 0.03, JAR_PRIORITY - 0.01);
-  const res = useAssets(() => {
-    const tin = tinTexture();
-    const jar: JarLight = { position: { value: new THREE.Vector3() }, glow: { value: 0 }, color: { value: new THREE.Color(JAR_LIGHT) }, lift: { value: 0 } };
+  const shared = trolleyParts(lite);
+  // the fireflies' buffer is rewritten by this trolley every frame, so it is its own; the rest is shared (trolleyParts)
+  const own = useAssets(() => {
     const counts = FLIES[lite ? "lite" : "full"];
     const inJar = calm ? Math.round(counts.jar * 0.7) : counts.jar;
     const loose = calm ? Math.ceil(counts.loose / 2) : counts.loose;
@@ -949,32 +1006,17 @@ export function FireflyTrolley({ wheels, lite: liteProp, groundY = 0.03 }: Troll
     const sizes = new Float32Array(n * 2);
     for (let i = 0; i < n; i++) sizes.set(i < inJar ? FLY_SIZE.jar : FLY_SIZE.loose, i * 2);
     fliesGeo.setAttribute("flySize", new THREE.BufferAttribute(sizes, 2));
-    const poolGeo = new THREE.PlaneGeometry(1, 1);
-    const poolTex = lite ? poolTexture() : null;
     return {
-      tin,
-      jar,
       inJar,
       loose,
-      body: bodyGeometry(),
-      wheel: wheelGeometry(),
-      jarCopper: jarCopperGeometry(),
-      glass: lathe(GLASS, 14),
-      glint: glintGeometry(),
       fliesGeo,
       jarPaths: fireflyPaths(inJar, 51),
       loosePaths: fireflyPaths(loose, 97),
-      poolGeo,
-      poolTex,
-      poolMat: new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending, opacity: 0 }),
-      painted: trolleyMaterial(tin, jar, lite),
-      glassMat: new THREE.MeshStandardMaterial({ color: "#eef7ef", emissive: "#d6ec8a", transparent: true, opacity: 0.3, roughness: 0.06, depthWrite: false }),
-      glintMat: new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.32, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
-      fliesMat: fireflyMaterial(),
       // where the loose fireflies are circling, trailing the cart a little (world space), once it is known
       trail: { centre: new THREE.Vector3(), primed: false },
     };
   });
+  const res = { ...shared, ...own };
 
   useEffect(
     () => () => {

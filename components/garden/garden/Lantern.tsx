@@ -16,7 +16,6 @@
 // lampUniforms, so the leaves round the lamp are lit with the ground rather
 // than standing black against a painted pool of light.
 import { useEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { lampUniforms, makeLantern } from "@/lib/garden/dressing";
 import { LAYOUT } from "@/lib/garden/layout";
@@ -25,6 +24,7 @@ import type { Quality } from "@/lib/garden/store";
 import { makeCanvas } from "@/lib/plant/textures";
 import { gardenMaterials } from "@/components/garden/garden/materials";
 import { weather } from "@/components/garden/garden/weather";
+import { useLayerFrame } from "@/components/garden/TierLayers";
 
 /** Candela at full flame; with decay 2 this lifts the bed a metre away to a warm glow at night. */
 const LIGHT_INTENSITY = 1.7;
@@ -99,7 +99,7 @@ export function Lantern({ quality }: { quality: Quality }) {
 
   /* eslint-disable react-hooks/immutability -- the memoised halo material and the shared lamp uniforms are
      three.js objects the frame loop drives imperatively; React never re-renders on them. */
-  useFrame(() => {
+  useLayerFrame(() => {
     const lit = weather.lit;
     const glow = lit * weather.flicker;
     if (light.current) light.current.intensity = LIGHT_INTENSITY * glow;

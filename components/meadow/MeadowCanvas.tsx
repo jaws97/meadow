@@ -425,31 +425,46 @@ export default function MeadowCanvas() {
 
   const quality = QUALITY[deviceKind];
   const lite = quality === "lite";
+  // The Meadow and the physics world do not change with the mover, so their elements are kept: the swap (and the
+  // retiring of the physics world three frames later) re-renders only the movers. Re-rendered, the whole Meadow and
+  // every collider went through React again, most of a long frame at the swap.
+  const scenery = useMemo(
+    () => (
+      <>
+        <MeadowEnvironment shadowSize={phone ? 1024 : 2048} />
+        <group key={layoutKey}>
+          <MeadowScene layout={layout} shadows={!phone} />
+          <Plants layout={layout} shadows={!phone} />
+        </group>
+        <DaisRose quality={quality} />
+        <VisitedPlant quality={quality} />
+        <Bursts />
+        <Fireflies />
+        <GuideMarkers />
+      </>
+    ),
+    [phone, layoutKey, layout, quality],
+  );
+  const physicsWorld = useMemo(
+    () => (
+      <PhysicsBoundary onFail={onFail}>
+        <Suspense fallback={null}>
+          <PhysicsWorld onFail={onFail} lite={lite} />
+        </Suspense>
+      </PhysicsBoundary>
+    ),
+    // layoutKey: PhysicsWorld reads the plan as it renders, so a grown Meadow must re-render it for fresh colliders
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [onFail, lite, layoutKey],
+  );
   return (
     <Canvas shadows={SHADOWS} dpr={dpr} gl={GL} camera={CAMERA} style={STYLE}>
       <PerfProbe watch={kind === "physics" && auto} onSlow={onSlow} onSag={onSag} />
       <PixelStep askRef={stepAsk} dpr={dpr} next={nextDpr} onStep={onStep} />
       <Controls controller={controller} fallBack={fallBack} />
-      <MeadowEnvironment shadowSize={phone ? 1024 : 2048} />
-      <group key={layoutKey}>
-        <MeadowScene layout={layout} shadows={!phone} />
-        <Plants layout={layout} shadows={!phone} />
-      </group>
-      <DaisRose quality={quality} />
-      <VisitedPlant quality={quality} />
-      <Bursts />
-      <Fireflies />
-      <GuideMarkers />
+      {scenery}
       {kind === "glide" && <GlideMover lite={lite} />}
-      {physics && (
-        <group visible={kind === "physics"}>
-          <PhysicsBoundary onFail={onFail}>
-            <Suspense fallback={null}>
-              <PhysicsWorld onFail={onFail} lite={lite} />
-            </Suspense>
-          </PhysicsBoundary>
-        </group>
-      )}
+      {physics && <group visible={kind === "physics"}>{physicsWorld}</group>}
       {physics && kind === "glide" && <AfterFrames frames={RETIRE_FRAMES} onDone={retire} />}
       <CameraRig />
     </Canvas>

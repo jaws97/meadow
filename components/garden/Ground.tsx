@@ -16,7 +16,6 @@
 // its mulch and the puddle live in Garden.tsx.
 import * as THREE from "three";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
 import { withHaze, type HazeOptions } from "@/components/garden/haze";
 import { grassTexture } from "@/lib/garden/groundTextures";
 import {
@@ -35,6 +34,7 @@ import { LAYOUT } from "@/lib/garden/layout";
 import { Rng, clamp01, lerp, smoothstep, vnoise2 } from "@/lib/plant/prng";
 import { env } from "@/lib/garden/env";
 import { useGarden, type Quality } from "@/lib/garden/store";
+import { useLayerFrame, useTier } from "@/components/garden/TierLayers";
 
 /** Instances per tier. Blades split 45/35/20 across the three shapes. */
 interface Budget {
@@ -567,7 +567,7 @@ interface Smoothed {
 }
 
 export function Ground() {
-  const quality = useGarden((s) => s.quality);
+  const quality = useTier();
   const seed = useGarden((s) => s.seed);
   const budget = BUDGET[quality];
   const bladeCounts = useMemo(() => BLADE_SPLIT.map((f) => Math.round(budget.blades * f)), [budget]);
@@ -655,7 +655,7 @@ export function Ground() {
 
   /* eslint-disable react-hooks/immutability -- the memoised materials are three.js
      objects the frame loop drives imperatively; React never re-renders on them. */
-  useFrame((_, delta) => {
+  useLayerFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
     const s = smooth.current;
     if (!s.primed) {

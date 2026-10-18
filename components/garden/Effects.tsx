@@ -29,7 +29,7 @@ import {
   ToneMapping,
   Vignette,
 } from "@react-three/postprocessing";
-import { useFrame, useThree } from "@react-three/fiber";
+import { useThree } from "@react-three/fiber";
 import {
   BlendFunction,
   ToneMappingMode,
@@ -40,8 +40,8 @@ import { createRef, useCallback, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { env } from "@/lib/garden/env";
 import { LAYOUT } from "@/lib/garden/layout";
+import { useLayerFrame, useLayerLive, useTier } from "@/components/garden/TierLayers";
 import { quality as budget } from "@/lib/garden/quality";
-import { useGarden } from "@/lib/garden/store";
 
 /**
  * The ACES curve sits the mid-tones a touch dark at unit exposure; lifted
@@ -79,6 +79,12 @@ const DOF_SCALE = { balanced: 0.4, cinematic: 0.55 } as const;
  * passes before the first frame.
  */
 export const composerHandle = createRef<EffectComposerImpl>();
+/**
+ * The post chain of a tier being prepared out of sight (TierLayers): built,
+ * never drawn, so TierPreparer (RenderBudget) can compile its passes before
+ * the swap. At the swap it goes live and takes composerHandle.
+ */
+export const preparedComposer = createRef<EffectComposerImpl>();
 
 /** Three reads the exposure from the renderer for every program, the tone-mapping pass included. */
 function useExposure() {
@@ -111,7 +117,10 @@ function softenFarBokeh(effect: DepthOfFieldEffect) {
 }
 
 export function Effects() {
-  const quality = useGarden((s) => s.quality);
+  const quality = useTier();
+  // a tier prepared out of sight builds its chain but never draws it
+  const live = useLayerLive();
+  const handle = live ? composerHandle : preparedComposer;
   const dof = useRef<DepthOfFieldEffect>(null);
   // A callback ref: the effect is built only once the composer exists, and the
   // far fill must be changed before the opening compiles the post chain.
@@ -127,7 +136,7 @@ export function Effects() {
   // since switching it later recompiles the pass.
   const aoHalfRes = useMemo(() => budget.get().dpr >= 0.8 || quality === "lite", [quality]);
 
-  useFrame((state) => {
+  useLayerFrame((state) => {
     // the renderer is three.js state, driven imperatively from the frame loop
     state.gl.toneMappingExposure =
       quality === "lite" ? EXPOSURE + (LITE_NIGHT_EXPOSURE - EXPOSURE) * env.nightness : EXPOSURE;
@@ -150,7 +159,7 @@ export function Effects() {
     // The canvas has MSAA off and the composer runs without multisampling, so
     // without an AA effect this tier would have no anti-aliasing at all.
     return (
-      <EffectComposer ref={composerHandle} multisampling={0}>
+      <EffectComposer ref={handle} enabled={live} multisampling={0}>
         <SMAA />
         <Bloom luminanceThreshold={LITE_BLOOM_THRESHOLD} luminanceSmoothing={0.3} intensity={0.65} mipmapBlur />
         <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
@@ -161,7 +170,7 @@ export function Effects() {
 
   const cinematic = quality === "cinematic";
   return (
-    <EffectComposer ref={composerHandle} multisampling={0}>
+    <EffectComposer ref={handle} enabled={live} multisampling={0}>
       <N8AO
         halfRes={aoHalfRes}
         aoRadius={AO_RADIUS}

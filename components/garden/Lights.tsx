@@ -18,6 +18,12 @@
 //
 // On the lite tier the night lift comes from the sky bounce and the fill
 // rather than the tone-mapping exposure, which would also lift every emissive.
+//
+// The lights themselves depend on the tier (the lite tier's sun casts no
+// shadow), so the garden draws them in its tier layer (TierLights,
+// TierLayers.tsx); the environment map, the fog and the light sets are the
+// scene's own and shared (SceneLighting). The party screen mounts both
+// together (Lights).
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Environment, Lightformer } from "@react-three/drei";
@@ -27,7 +33,6 @@ import { composerHandle } from "@/components/garden/Effects";
 import {
   applySet,
   canSwitchSets,
-  compilePinned,
   isReadySet,
   lightSet,
   markReady,
@@ -36,9 +41,9 @@ import {
   upcomingSet,
   wantedFullSet,
 } from "@/components/garden/lightSets";
-import { compileShadowCasters, compileTransmissionBackfaces, type Compile } from "@/components/garden/warmup";
+import { useLayerFrame, useTier } from "@/components/garden/TierLayers";
 import { env } from "@/lib/garden/env";
-import { useGarden, type Quality } from "@/lib/garden/store";
+import type { Quality } from "@/lib/garden/store";
 import { clamp01, lerp } from "@/lib/plant/prng";
 
 /**
@@ -174,23 +179,72 @@ function LightSets() {
     const next = want !== lightSet.full ? want : upcomingSet(lightSet.full, alt);
     if (next === null || isReadySet(next)) return;
     lightSet.preparing = true;
+    // a tier built meanwhile has materials this preparation never saw: it is then dropped
+    const generation = lightSet.generation;
     const target = composerHandle.current?.inputBuffer ?? null;
-    const pinned: Compile = (s, c, t) => compilePinned(gl, s, c, t);
-    prepareSet(gl, scene, camera, next, target, () =>
-      Promise.all([
-        compileShadowCasters(gl, scene, camera, target, pinned),
-        compileTransmissionBackfaces(gl, scene, camera, target, pinned),
-      ]),
-    ).then(() => {
-      markReady(next);
+    void prepareSet(gl, scene, camera, next, target, () => lightSet.generation !== generation).then((ok) => {
+      if (ok && lightSet.generation === generation) markReady(next);
       lightSet.preparing = false;
     });
   }, -9);
   return null;
 }
 
+/** The scene's own lighting, the same in every tier: the light sets, the environment map and the fog. */
+export function SceneLighting() {
+  return (
+    <>
+      <LightSets />
+      <Environment resolution={128} frames={1}>
+        <Lightformer form="ring" intensity={2} color="#fff2d8" position={[-3, 3, -3]} scale={4} target={[0, 0, 0]} />
+        <Lightformer
+          form="rect"
+          intensity={0.8}
+          color="#bcd3ff"
+          position={[4, 2, 2]}
+          scale={[6, 3, 1]}
+          target={[0, 0, 0]}
+        />
+        {/* Lightformer only honours a whole `rotation` prop; a dashed rotation-x is
+            reset by its lookAt in a layout effect. +90° about x turns the plane's
+            normal to -y, so the panel faces down onto the garden. */}
+        <Lightformer
+          form="rect"
+          intensity={0.5}
+          color="#dfe9ff"
+          position={[0, 5, 0]}
+          rotation={[Math.PI / 2, 0, 0]}
+          scale={[8, 8, 1]}
+        />
+        {/* A faint warm bounce from below, the lawn's colour on the underside of leaves and petals. */}
+        <Lightformer
+          form="rect"
+          intensity={0.25}
+          color="#9fb86a"
+          position={[0, -3, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          scale={[8, 8, 1]}
+        />
+      </Environment>
+
+      <fog attach="fog" args={["#cfe1f4", 5, 45]} />
+    </>
+  );
+}
+
+/** Every light and the scene's lighting together, for a scene without tier layers (the party screen). */
 export function Lights() {
-  const quality = useGarden((s) => s.quality);
+  return (
+    <>
+      <SceneLighting />
+      <TierLights />
+    </>
+  );
+}
+
+/** The lights, built for the tier (the lite tier's sun casts no shadow) and driven by the sun every frame. */
+export function TierLights() {
+  const quality = useTier();
 
   const sunRef = useRef<THREE.DirectionalLight>(null);
   const leakRef = useRef<THREE.DirectionalLight>(null);
@@ -202,7 +256,7 @@ export function Lights() {
 
   const shadowSize = SHADOW_SIZE[quality];
 
-  useFrame((state) => {
+  useLayerFrame((state) => {
     const alt = env.sun.altitude;
     // 1 while the sun is just up and low, gone by mid-morning and back by late afternoon
     const low = THREE.MathUtils.smoothstep(alt, -0.03, 0.04) * (1 - THREE.MathUtils.smoothstep(alt, 0.04, LOW_SUN_GONE));
@@ -319,7 +373,6 @@ export function Lights() {
         shadow-camera-top={SHADOW_TOP}
         shadow-camera-bottom={-SHADOW_HALF}
       />
-      <LightSets />
       <directionalLight ref={leakRef} intensity={0} userData={OPTIONAL_LIGHT} />
       <directionalLight ref={moonRef} color={MOON_COLOR} intensity={0} userData={OPTIONAL_LIGHT} />
       <hemisphereLight ref={hemiRef} intensity={0.6} />
@@ -335,40 +388,6 @@ export function Lights() {
         distance={RIM_DISTANCE * 2}
         decay={2}
       />
-
-      <Environment resolution={128} frames={1}>
-        <Lightformer form="ring" intensity={2} color="#fff2d8" position={[-3, 3, -3]} scale={4} target={[0, 0, 0]} />
-        <Lightformer
-          form="rect"
-          intensity={0.8}
-          color="#bcd3ff"
-          position={[4, 2, 2]}
-          scale={[6, 3, 1]}
-          target={[0, 0, 0]}
-        />
-        {/* Lightformer only honours a whole `rotation` prop; a dashed rotation-x is
-            reset by its lookAt in a layout effect. +90° about x turns the plane's
-            normal to -y, so the panel faces down onto the garden. */}
-        <Lightformer
-          form="rect"
-          intensity={0.5}
-          color="#dfe9ff"
-          position={[0, 5, 0]}
-          rotation={[Math.PI / 2, 0, 0]}
-          scale={[8, 8, 1]}
-        />
-        {/* A faint warm bounce from below, the lawn's colour on the underside of leaves and petals. */}
-        <Lightformer
-          form="rect"
-          intensity={0.25}
-          color="#9fb86a"
-          position={[0, -3, 0]}
-          rotation={[-Math.PI / 2, 0, 0]}
-          scale={[8, 8, 1]}
-        />
-      </Environment>
-
-      <fog attach="fog" args={["#cfe1f4", 5, 45]} />
     </>
   );
 }

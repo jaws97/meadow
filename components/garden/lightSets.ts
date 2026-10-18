@@ -10,11 +10,13 @@
 // stands high: above 30 degrees none of them can be lit (the low-sun
 // treatment is gone by 28, the moon and the candles need night). Before the
 // set changes, the other set's programs are compiled in the background with
-// KHR_parallel_shader_compile, and the switch is made only once they are
-// ready, so it never stalls a frame; the sun takes about eight minutes to
-// sink from 30 to 28 degrees, ample time. Where the extension is missing the
-// garden keeps every light all day, as before.
+// KHR_parallel_shader_compile and the garden is pre-drawn under it (each step
+// in a stand-in scene, so the live one never sees the other set), and the
+// switch is made only once that is done, so it never stalls a frame; the sun
+// takes about eight minutes to sink from 30 to 28 degrees, ample time. Where
+// the extension is missing the garden keeps every light all day, as before.
 import * as THREE from "three";
+import { compileSliced, predraw, unchecked, withStandIn } from "@/components/garden/warmup";
 import { garden } from "@/lib/garden/store";
 import { istDateAt, istNow, sunInfo } from "@/lib/sky/sun";
 
@@ -27,14 +29,17 @@ export const OPTIONAL_LIGHT = { optionalLight: true } as const;
 /**
  * The live set, shared by the opening (which compiles for it) and the frame
  * loop (which changes it), and which sets have their programs ready. A tier
- * change rebuilds the materials, so the opening resets `ready`.
+ * change rebuilds the materials, so the opening (or a prepared tier's swap,
+ * RenderBudget) resets `ready` and bumps `generation`, and a preparation
+ * begun before it never marks a set ready.
  */
-export const lightSet = { full: true, preparing: false, ready: { full: false, day: false } };
+export const lightSet = { full: true, preparing: false, ready: { full: false, day: false }, generation: 0 };
 
 /** The other set starts preparing when the sun comes within this much of the threshold. */
 const PREPARE_AHEAD = THREE.MathUtils.degToRad(4);
-/** Main-thread time per preparation slice, with a frame drawn between slices. */
-const SLICE_MS = 5;
+/** Its pre-draw: groups a frame or more apart, and at most this long (ms) in all. */
+const PREDRAW_GROUPS = 8;
+const PREDRAW_MAX_MS = 6000;
 
 const isOptional = (o: THREE.Object3D) => (o as THREE.Light).isLight === true && o.userData.optionalLight === true;
 
@@ -141,63 +146,35 @@ export function compilePinned(
 }
 
 /**
- * Prepares a set's programs in small slices, a frame apart, so the work
- * never shows as a stall: each slice compiles a few objects with the lights
- * switched to that set (and back), then the shadow and transmission variants
- * (`extras`), and the promise settles once the driver reports every program
- * ready.
+ * Prepares a set without ever stalling a frame: its programs compile a few
+ * objects a frame, in parallel (warmup.compileSliced, the shadow pass's and
+ * the leaves' back faces included), then the garden is pre-drawn under it a
+ * group per frame, so the switch has no first draws left to make. Every step
+ * runs in a stand-in for the scene (warmup.withStandIn) with the optional
+ * lights switched to that set and back, in one task, so the live scene never
+ * sees the set and its light state never changes. Settles true once done,
+ * false when `cancelled` (a tier built meanwhile has materials this never saw).
  */
-export function prepareSet(
+export async function prepareSet(
   gl: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
   full: boolean,
   target: THREE.WebGLRenderTarget | null,
-  extras: () => Promise<unknown>,
-): Promise<void> {
-  const objects: THREE.Object3D[] = [];
-  scene.traverse((o) => {
-    if ((o as THREE.Mesh).material) objects.push(o);
-  });
-  const programs: ProgramLike[] = [];
-  let i = 0;
-  return new Promise((resolve) => {
-    const finish = () => {
-      let pending: Promise<unknown> = Promise.resolve();
-      withSet(scene, full, () => {
-        pending = extras();
-      });
-      pending
-        .catch(() => undefined)
-        .then(() => {
-          const check = () => {
-            if (programs.every((p) => p.isReady())) resolve();
-            else window.setTimeout(check, 32);
-          };
-          check();
-        });
-    };
-    const slice = () => {
-      const t0 = performance.now();
-      withSet(scene, full, () => {
-        const previous = gl.getRenderTarget();
-        try {
-          gl.setRenderTarget(target);
-          while (i < objects.length && performance.now() - t0 < SLICE_MS) {
-            const o = objects[i++];
-            if (!o.parent) continue;
-            for (const m of gl.compile(o, camera, scene)) {
-              const p = (gl.properties.get(m) as { currentProgram?: ProgramLike }).currentProgram;
-              if (p) programs.push(p);
-            }
-          }
-        } finally {
-          gl.setRenderTarget(previous);
-        }
-      });
-      if (i < objects.length) window.setTimeout(slice, 16);
-      else finish();
-    };
-    window.setTimeout(slice, 0);
-  });
+  cancelled: () => boolean,
+): Promise<boolean> {
+  const under = (step: (stand: THREE.Scene) => void) => {
+    withStandIn(scene, (stand) => withSet(stand, full, () => step(stand)));
+    return true;
+  };
+  if (!(await compileSliced(gl, camera, target, under, cancelled))) return false;
+  const until = performance.now() + PREDRAW_MAX_MS;
+  try {
+    await predraw(gl, scene, camera, PREDRAW_GROUPS, () => cancelled() || performance.now() > until, (step) => {
+      under(unchecked(gl, step));
+    });
+  } catch {
+    // whatever was not pre-drawn is drawn for the first time at the switch, as before
+  }
+  return !cancelled();
 }

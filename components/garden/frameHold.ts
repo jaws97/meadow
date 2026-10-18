@@ -1,9 +1,10 @@
-// A still of the garden laid over the live canvas while a tier change
-// rebuilds the scene behind it, then dissolved into the new tier. Once the
-// garden has been revealed it never goes back behind the loading veil: a
-// change of tier (the governor's, after a sustained drop, or one picked in
-// the development panel) holds the last frame instead, so the garden simply
-// pauses for a moment and eases into its new look. A change of pixel ratio
+// A still of the garden laid over the live canvas while a tier change swaps
+// the scene behind it (a tier prepared out of sight, TierLayers.tsx, or one
+// rebuilt in place where it cannot be), then dissolved into the new tier.
+// Once the garden has been revealed it never goes back behind the loading
+// veil: a change of tier (the governor's, after a sustained drop, or one
+// picked in the development panel) holds the last frame instead, so the
+// garden simply pauses for a moment and eases into its new look. A change of pixel ratio
 // on a showing canvas (the garden's budget, the Meadow's calm step-down) is
 // held the same way, briefly: resizing clears the drawing buffer, which on
 // screen is a blink of the whole picture.

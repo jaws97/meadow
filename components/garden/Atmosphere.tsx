@@ -30,13 +30,14 @@
 // the hedges for a moment, and flies off when it rains or the light goes.
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { useFrame, useThree } from "@react-three/fiber";
+import { useThree } from "@react-three/fiber";
 import { env } from "@/lib/garden/env";
 import { LAYOUT } from "@/lib/garden/layout";
 import { garden, useGarden, type GardenState, type Quality } from "@/lib/garden/store";
 import { Rng } from "@/lib/plant/prng";
 import { SPECIES, SPECIES_LIST, type SpeciesId } from "@/lib/plant/species";
 import { makeCanvas, rgba, toTexture } from "@/lib/plant/textures";
+import { useLayerFrame, useTier } from "@/components/garden/TierLayers";
 
 type Env = typeof env;
 
@@ -433,6 +434,23 @@ function spawnAt(spawn: Spawn, rng: Rng, bx: number, by: number, bz: number, out
   }
 }
 
+/**
+ * The largest point size a context rasterises, read once per context: the
+ * query waits for the GPU to finish its work (a tenth of a second on a busy
+ * one), and a tier built out of sight on a showing garden (TierLayers) would
+ * otherwise wait on it again, in the open.
+ */
+const pointSizes = new WeakMap<object, number>();
+function pointSizeMax(ctx: WebGLRenderingContext | WebGL2RenderingContext): number {
+  let max = pointSizes.get(ctx);
+  if (max === undefined) {
+    const range = ctx.getParameter(ctx.ALIASED_POINT_SIZE_RANGE) as Float32Array | null;
+    max = range && range.length > 1 ? range[1] : 64;
+    pointSizes.set(ctx, max);
+  }
+  return max;
+}
+
 function ParticleField({ spec, count }: { spec: FieldSpec; count: number }) {
   const gl = useThree((s) => s.gl);
   const pointsRef = useRef<THREE.Points>(null);
@@ -511,11 +529,7 @@ function ParticleField({ spec, count }: { spec: FieldSpec; count: number }) {
 
   // The largest sprite this GPU will rasterise; the shader clamps to it so a
   // mist puff degrades to a smaller puff instead of vanishing.
-  const hardwareMax = useMemo(() => {
-    const ctx = gl.getContext();
-    const range = ctx.getParameter(ctx.ALIASED_POINT_SIZE_RANGE) as Float32Array | null;
-    return range && range.length > 1 ? range[1] : 64;
-  }, [gl]);
+  const hardwareMax = useMemo(() => pointSizeMax(gl.getContext()), [gl]);
 
   // The static uniforms follow the props. Layout effect so they are in place
   // before the render loop's first tick after mount.
@@ -532,7 +546,7 @@ function ParticleField({ spec, count }: { spec: FieldSpec; count: number }) {
     uniforms.uColor.value.set(color);
   }, [uniforms, gl, hardwareMax, size, maxSize, fall, coc, bokeh, bx, by, bz, color]);
 
-  useFrame((state) => {
+  useLayerFrame((state) => {
     const s = garden.get();
     const o = spec.opacity(env, s);
     const points = pointsRef.current;
@@ -952,6 +966,19 @@ function paintBody(ctx: CanvasRenderingContext2D) {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+let wingAtlas: THREE.CanvasTexture | null = null;
+
+/**
+ * The wings' atlas, painted once for the page and kept, never disposed: it is
+ * the same in every tier, and Chrome rasterises a 2D canvas on the GPU, so
+ * painting it again for a tier built out of sight on a showing garden
+ * (TierLayers) stalled the live garden's frames for half a second.
+ */
+function wingTexture(): THREE.CanvasTexture {
+  wingAtlas ??= toTexture(paintWingAtlas());
+  return wingAtlas;
 }
 
 function paintWingAtlas(): HTMLCanvasElement {
@@ -1454,8 +1481,8 @@ function Butterflies({ count, seed, shadows }: { count: number; seed: string; sh
   }, [count, swarm]);
   useEffect(() => () => geometry.dispose(), [geometry]);
 
-  const { material, depthMaterial, uniforms, texture } = useMemo(() => {
-    const tex = toTexture(paintWingAtlas());
+  const { material, depthMaterial, uniforms } = useMemo(() => {
+    const tex = wingTexture();
     const u: WingUniforms = {
       uTime: { value: 0 },
       uMap: { value: tex },
@@ -1482,20 +1509,19 @@ function Butterflies({ count, seed, shadows }: { count: number; seed: string; sh
       fragmentShader: WING_DEPTH_FRAGMENT,
       side: THREE.DoubleSide,
     });
-    return { material: m, depthMaterial: d, uniforms: u, texture: tex };
+    return { material: m, depthMaterial: d, uniforms: u };
   }, []);
   useEffect(
     () => () => {
       material.dispose();
       depthMaterial.dispose();
-      texture.dispose();
     },
-    [material, depthMaterial, texture],
+    [material, depthMaterial],
   );
 
   /* eslint-disable react-hooks/immutability -- the memoised uniforms, attributes and
      flyers are three.js and plain objects the frame loop drives imperatively. */
-  useFrame(() => {
+  useLayerFrame(() => {
     const mesh = meshRef.current;
     if (!mesh) return;
     const s = garden.get();
@@ -1553,7 +1579,7 @@ function Butterflies({ count, seed, shadows }: { count: number; seed: string; sh
 const BUTTERFLIES: Record<Quality, number> = { cinematic: 10, balanced: 7, lite: 0 };
 
 export function Atmosphere() {
-  const quality = useGarden((s) => s.quality);
+  const quality = useTier();
   const seed = useGarden((s) => s.seed);
   const k = COUNT_SCALE[quality];
   const butterflies = BUTTERFLIES[quality];

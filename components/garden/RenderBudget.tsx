@@ -27,18 +27,26 @@
 // wait is capped short (STEP_COMPILE_WAIT_MS), and whatever the driver has not
 // finished compiles on the first frames, still behind the veil.
 //
-// Once the garden has been seen it never goes back behind the veil. A tier
-// change after that (the governor's, only a step down after a sustained drop
-// while nobody is touching the screen, or one picked in the development
-// panel) holds a still of the last frame over the canvas (frameHold.ts), runs
-// the same opening behind it, and dissolves the still into the new tier. That
-// freeze is kept short: the new tier's shaders compile behind the still
-// (nothing can be drawn before they are ready), then the pre-draw and the
-// settling get only what is left of HELD_FREEZE_MS, and whatever they have
-// not done happens on the first frames, under the dissolve. The compile is
-// the driver's and can take seconds on a busy GPU, which is why the governor
-// never climbs a tier on a showing garden: room for the tier above is
-// remembered, and the next visit opens on it, under the veil. A change of
+// Once the garden has been seen it never goes back behind the veil, and a
+// tier change (the governor's, only a step down after a sustained drop while
+// nobody is touching the screen, or one picked in the development panel) is
+// prepared before anyone sees it: the new tier is mounted as a hidden second
+// layer beside the live one (TierLayers.tsx), built in a React transition a
+// part at a time between frames, and TierPreparer compiles its programs in
+// parallel a few objects a frame (under its own lights, in a stand-in scene
+// where it takes the live layer's place, as lightSets.prepareSet prepares the
+// light sets), uploads its textures and pre-draws it. Only then is the swap
+// made, behind a still of the last frame (frameHold.ts) held for a few frames
+// while the prepared layer goes live (and the canvas takes the new tier's
+// pixel budget), dissolving into it. Nothing is built or compiled in that
+// moment.
+// Without parallel compiling (no KHR_parallel_shader_compile) the change is
+// made in place instead: the still goes up, the new tier is built and its
+// programs compile behind it, then the pre-draw and the settling get only what
+// is left of HELD_FREEZE_MS, and whatever they have not done happens on the
+// first frames, under the dissolve. The governor never climbs a tier on a
+// showing garden: room for the tier above is remembered, and the next visit
+// opens on it, under the veil. A change of
 // pixel budget does the same in miniature: resizing the canvas clears its
 // drawing buffer and reallocates the effect composer's, which on screen is a
 // blink of the whole picture, so the still covers the canvas while it
@@ -52,7 +60,8 @@
 // it also keeps a small still for next time (poster.ts).
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
-import { composerHandle } from "@/components/garden/Effects";
+import type * as THREE from "three";
+import { composerHandle, preparedComposer } from "@/components/garden/Effects";
 import { holdFrame, isHolding, releaseFrame, RESIZE_HOLD } from "@/components/garden/frameHold";
 import { GpuTimer } from "@/components/garden/gpuTimer";
 import {
@@ -65,18 +74,21 @@ import {
   wantedFullSet,
   withSet,
 } from "@/components/garden/lightSets";
+import { tierLayerGroups, tierStage, withHiddenLayer } from "@/components/garden/TierLayers";
 import { lookOf, savePoster } from "@/components/garden/poster";
 import {
   compilePost,
   compileShadowCasters,
+  compileSliced,
   compileTransmissionBackfaces,
   predraw,
+  unchecked,
   uploadTextures,
   type Compile,
 } from "@/components/garden/warmup";
 import { rememberTier } from "@/lib/garden/device";
 import { garden, useGarden, type Quality } from "@/lib/garden/store";
-import { Governor, quality, stepTier, type Phase } from "@/lib/garden/quality";
+import { Governor, quality, stepTier, type Phase, type QualityState } from "@/lib/garden/quality";
 
 /**
  * Seconds of frames under the veil before it lifts: at least the first, then
@@ -131,6 +143,19 @@ const PREDRAW_MAX_MS = 4000;
 const STEP_PREDRAW_MAX_MS = 2000;
 /** At most this many tier changes a session: each is a deliberate fade, not a habit. */
 const MAX_TIER_CHANGES = 3;
+/**
+ * A tier prepared out of sight (TierPreparer): how long its hidden layer and
+ * post chain may take to mount, its compile to finish and its pre-draw to run
+ * (ms). It is never in a hurry, the live garden carries on meanwhile; what it
+ * has not done by then is done behind the still at the swap.
+ */
+const PREPARE_MOUNT_WAIT_MS = 20000;
+const PREPARE_COMPILE_WAIT_MS = 25000;
+const PREPARE_PREDRAW_MAX_MS = 6000;
+/** Its pre-draw is split finer than the opening's: each group's first draws are a stall the live garden would show. */
+const PREPARE_PREDRAW_GROUPS = 8;
+/** The still over a prepared swap stays until the new tier has drawn this many frames at its pixel ratio, or this long (ms). */
+const SWAP_HOLD = { frames: 3, maxMs: 1500 } as const;
 /** The still kept for next time: first this long into a live visit, then refreshed this often (ms). */
 const POSTER_AFTER_MS = 5000;
 const POSTER_EVERY_MS = 120000;
@@ -191,6 +216,7 @@ export function Opening() {
       if (canSwitchSets(gl)) {
         lightSet.full = wantedFullSet(true);
         lightSet.ready = { full: lightSet.full, day: !lightSet.full };
+        lightSet.generation++;
         applySet(scene, lightSet.full);
       }
       const target = composer ? composer.inputBuffer : null;
@@ -266,6 +292,121 @@ export function Opening() {
   return null;
 }
 
+/** TierPreparers mounted now: a canvas without one (the party screen) has no hidden layer to prepare. */
+let preparers = 0;
+
+/** A tier change on a showing garden is prepared out of sight when the driver compiles in parallel (TierLayers). */
+function canPrepare(gl: THREE.WebGLRenderer, q: QualityState): boolean {
+  return preparers > 0 && !q.veiled && (q.phase === "live" || q.phase === "revealing") && canSwitchSets(gl);
+}
+
+/** The light sets the prepared tier's programs were compiled for, handed to lightSets at the swap. */
+const preparedSets = { full: false, day: false };
+
+/** Resolves with the hidden layer once it is mounted and its post chain has its passes, or after `ms` with what there is. */
+async function hiddenLayerReady(ms: number, cancelled: () => boolean) {
+  const until = performance.now() + ms;
+  for (;;) {
+    if (cancelled()) return null;
+    const layer = tierLayerGroups[tierStage.get().slot === 0 ? 1 : 0];
+    const composer = preparedComposer.current;
+    if (layer && composer && composer.passes.length > 1) return { layer, composer };
+    if (performance.now() > until) return layer ? { layer, composer } : null;
+    await wait(32);
+  }
+}
+
+/**
+ * Prepares the hidden layer's tier for the swap, as the opening prepares the
+ * first one, but never stopping the live garden: its programs (the scene's,
+ * the shadow pass's and the leaves' back faces, under its own lights; and
+ * when the day/night switch is near, under the other light set too) compile
+ * in parallel a few objects per frame (warmup.compileSliced), its post
+ * chain's with them, its textures upload a few at a time, and it is
+ * pre-drawn a group per frame into a tiny target. Each synchronous step runs
+ * with the hidden layer standing in for the live one (withHiddenLayer), in
+ * one task, so no frame sees it.
+ */
+async function prepareTier(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, cancelled: () => boolean) {
+  mark("prepare-start");
+  const hidden = await hiddenLayerReady(PREPARE_MOUNT_WAIT_MS, cancelled);
+  if (!hidden || cancelled()) return false;
+  const { layer, composer } = hidden;
+  mark("prepare-mounted");
+  const target = composer ? composer.inputBuffer : null;
+  const live = lightSet.full;
+  const sets = { full: live, day: !live };
+  // the hidden layer in the live one's place, under the live light set or the other one
+  const under = (set: boolean | null) => (step: (stand: THREE.Scene) => void) =>
+    withHiddenLayer(scene, (stand) => (set === null ? step(stand) : withSet(stand, set, () => step(stand))));
+  const compiled = compileSliced(gl, camera, target, under(null), cancelled).then(async (ok) => {
+    // near the day/night switch the other set is prepared too, as the opening does
+    if (!ok || !switchIsNear()) return ok;
+    if (await compileSliced(gl, camera, target, under(!live), cancelled)) {
+      if (live) sets.day = true;
+      else sets.full = true;
+    }
+    return ok;
+  });
+  const jobs: Promise<unknown>[] = [attempt(() => compiled)];
+  if (composer) jobs.push(attempt(() => wait(0).then(() => compilePost(gl, composer))));
+  jobs.push(attempt(() => wait(0).then(() => uploadTextures(gl, layer))));
+  await Promise.race([Promise.all(jobs), wait(PREPARE_COMPILE_WAIT_MS)]);
+  if (cancelled()) return false;
+  mark("prepare-compiled");
+  const until = performance.now() + PREPARE_PREDRAW_MAX_MS;
+  // its programs' first draws, done here so the swap has none left (warmup.unchecked)
+  await attempt(() =>
+    predraw(gl, scene, camera, PREPARE_PREDRAW_GROUPS, () => cancelled() || performance.now() > until, (step) => {
+      withHiddenLayer(scene, unchecked(gl, step));
+    }),
+  );
+  if (cancelled()) return false;
+  preparedSets.full = sets.full;
+  preparedSets.day = sets.day;
+  mark("prepare-ready");
+  return true;
+}
+
+/** Prepares each tier TierLayers mounts out of sight, and marks it ready for the swap (RenderGovernor). */
+export function TierPreparer() {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+
+  useEffect(() => {
+    let job: { tier: Quality; cancelled: boolean } | null = null;
+    const follow = () => {
+      const s = tierStage.get();
+      if (job && job.tier !== s.preparing) {
+        job.cancelled = true;
+        job = null;
+      }
+      if (job || s.preparing === null || s.ready) return;
+      const j = { tier: s.preparing, cancelled: false };
+      job = j;
+      const cancelled = () => j.cancelled || tierStage.get().preparing !== j.tier;
+      void prepareTier(gl, scene, camera, cancelled).then((ok) => {
+        if (job === j) job = null;
+        if (cancelled()) return;
+        // a preparation that could not finish is dropped, so the governor can ask again in its next window
+        if (ok) tierStage.markReady(j.tier);
+        else tierStage.cancel();
+      });
+    };
+    preparers++;
+    follow();
+    const off = tierStage.subscribe(follow);
+    return () => {
+      preparers--;
+      off();
+      if (job) job.cancelled = true;
+    };
+  }, [gl, scene, camera]);
+
+  return null;
+}
+
 /**
  * Swaps the tier and lets the opening run again: under the veil if it is
  * still up, otherwise behind a still of the frame just drawn (call it from
@@ -280,12 +421,54 @@ function changeTier(next: Quality, canvas: HTMLCanvasElement, governor: Governor
     heldAt = performance.now();
     mark("held");
   }
+  // a change made in place replaces any tier being prepared out of sight
+  tierStage.cancel();
   ownTier.current = next;
   quality.adoptTier(next);
   const after = quality.get();
   governor.reset(after.range, after.budget, q.veiled ? undefined : performance.now());
   quality.set({ phase: "compiling", tierChanges: q.tierChanges + 1 });
   garden.set({ quality: next });
+}
+
+/** A prepared swap's still: when it went up, and the frames drawn since at the new tier's pixel ratio. */
+interface SwapHold {
+  at: number;
+  dpr: number;
+  frames: number;
+  held: boolean;
+}
+
+/**
+ * The prepared tier goes live (TierLayers, TierPreparer): a still of the
+ * frame just drawn goes up (call it from the frame loop, after the composer),
+ * the budget restarts in the new tier's range, and the hidden layer is
+ * shown in the commit before the next frame. Nothing is built or compiled
+ * here; the still dissolves once the new tier has drawn a few frames.
+ */
+function swapTier(
+  next: Quality,
+  byGovernor: boolean,
+  canvas: HTMLCanvasElement,
+  governor: Governor,
+  ownTier: RefObject<Quality>,
+  now: number,
+): SwapHold {
+  const held = isHolding() || holdFrame(canvas);
+  mark("held");
+  ownTier.current = next;
+  quality.adoptTier(next);
+  const q = quality.get();
+  governor.reset(q.range, q.budget, now);
+  // its first frames are its own start-up (the post chain sizing its buffers, the last draw variants), not the device
+  governor.beginGrace(now, GRACE_MS);
+  if (byGovernor) quality.set({ tierChanges: q.tierChanges + 1 });
+  // the new tier's materials are compiled for the light sets its preparation saw; a preparation still running is stale
+  lightSet.ready = { ...preparedSets };
+  lightSet.generation++;
+  if (garden.get().quality !== next) garden.set({ quality: next });
+  tierStage.swapped();
+  return { at: now, dpr: q.dpr, frames: 0, held };
 }
 
 /** When a finger, mouse, wheel or key last moved the garden (performance.now() ms). */
@@ -337,6 +520,8 @@ export function RenderGovernor() {
     roomNoted: false,
     /** A budget change being drawn behind the still: the pixel ratio it waits for, since when, and frames drawn at it. */
     resize: null as { dpr: number; at: number; frames: number } | null,
+    /** A prepared tier just swapped in behind the still (swapTier). */
+    swap: null as SwapHold | null,
   });
   const lastInput = useLastInput(gl.domElement.parentElement);
 
@@ -352,8 +537,18 @@ export function RenderGovernor() {
       garden.subscribe(() => {
         const tier = garden.get().quality;
         if (tier === ownTier.current) return;
+        const from = ownTier.current;
         ownTier.current = tier;
         const before = quality.get();
+        // On a showing garden the new tier is built and compiled out of sight
+        // first (TierLayers, TierPreparer); the frame loop swaps it in once it
+        // is ready, and the budget restarts then.
+        if (canPrepare(gl, before)) {
+          quality.set({ pinned: true });
+          tierStage.prepare(from, tier, false);
+          return;
+        }
+        tierStage.cancel();
         // The garden has been seen: hold a still of it while the new tier
         // builds. React has not re-rendered the scene yet (the store only
         // schedules that), so one more frame of the old tier is drawn here
@@ -387,12 +582,17 @@ export function RenderGovernor() {
     w.__gardenBudget = quality;
     w.__gardenComposer = composerHandle;
     (window as unknown as { __gardenLights?: unknown }).__gardenLights = lightSet;
+    // `__gardenTiers.prepare(from, to, true)` rehearses the governor's prepared step down
+    (window as unknown as { __gardenTiers?: unknown }).__gardenTiers = tierStage;
     w.__gardenQuality = () => {
       const q = quality.get();
       return {
         phase: q.phase,
         veiled: q.veiled,
         tier: garden.get().quality,
+        drawn: tierStage.get().hold ?? garden.get().quality,
+        preparing: tierStage.get().preparing,
+        prepared: tierStage.get().ready,
         kind: q.device?.kind,
         gpu: q.device?.gpu,
         budget: +q.budget.toFixed(2),
@@ -452,6 +652,32 @@ export function RenderGovernor() {
       }
     }
 
+    // A prepared tier swapped in behind the still: once it has drawn a few
+    // frames at its pixel ratio, the still dissolves into it. A tier change
+    // made in place meanwhile owns the still now.
+    const w = c.swap;
+    if (w) {
+      if (!showing) c.swap = null;
+      else {
+        if (Math.abs(gl.getPixelRatio() - w.dpr) < 1e-6) w.frames++;
+        if (w.frames >= SWAP_HOLD.frames || now - w.at > SWAP_HOLD.maxMs) {
+          c.swap = null;
+          mark("revealed");
+          if (w.held) releaseFrame(HELD_REVEAL_MS);
+        }
+      }
+    }
+
+    // A tier prepared out of sight is ready: it goes live now, behind a still
+    // of the frame just drawn, unless the governor asked for it and someone is
+    // touching the garden (a tier picked by hand goes at once).
+    const stage = tierStage.get();
+    const touched = now - lastInput.current < INPUT_QUIET_MS;
+    if (stage.ready && stage.preparing !== null && showing && !c.resize && !c.swap && !(stage.byGovernor && touched)) {
+      c.swap = swapTier(stage.preparing, stage.byGovernor, gl.domElement, governor, ownTier, now);
+      return;
+    }
+
     if (q.phase === "warming") {
       // The first frame has been drawn (and its leftover shaders compiled).
       mark("first-frame");
@@ -461,12 +687,13 @@ export function RenderGovernor() {
     if (q.phase === "compiling" || q.phase === "boot") return;
 
     const calibrating = q.phase === "calibrating";
-    const tier = garden.get().quality;
+    // the tier on screen (another may be being prepared out of sight)
+    const tier = stage.hold ?? garden.get().quality;
     const canStep = !q.pinned && q.tierChanges < MAX_TIER_CHANGES && q.plan !== null;
     const lowest = !canStep || stepTier(tier, -1, q.plan?.maxTier ?? tier) === null;
     // Room above is only ever noted for the next visit, so the session's tier changes do not limit it.
     const highest = q.pinned || stepTier(tier, 1, q.plan?.maxTier ?? tier) === null;
-    const interacting = now - lastInput.current < INPUT_QUIET_MS;
+    const interacting = touched;
     // Sampled even when frozen (?governor=off), so the readout still reports the frame.
     const sampled = governor.sample(delta * 1000, gpuMs, now, { calibrating, lowest, highest, interacting });
     const decision = q.auto ? sampled : { kind: "none" as const };
@@ -492,9 +719,18 @@ export function RenderGovernor() {
       const quiet = calibrating || !interacting;
       const next = stepTier(tier, decision.dir, q.plan.maxTier);
       if (next && quiet) {
-        if (decision.dir < 0) governor.slowTierUp();
-        changeTier(next, gl.domElement, governor, ownTier);
-        return;
+        if (canPrepare(gl, q)) {
+          // On a showing garden the step is prepared out of sight first and
+          // made once it is ready; asked again meanwhile, it simply waits.
+          if (stage.preparing === null) {
+            if (decision.dir < 0) governor.slowTierUp();
+            tierStage.prepare(tier, next, true);
+          }
+        } else {
+          if (decision.dir < 0) governor.slowTierUp();
+          changeTier(next, gl.domElement, governor, ownTier);
+          return;
+        }
       }
     }
 

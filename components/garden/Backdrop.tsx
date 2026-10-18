@@ -15,7 +15,6 @@
 // alpha-tested, moving shadows, so the dappled light under the trees drifts.
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { useFrame } from "@react-three/fiber";
 import { lightState, withGardenLight } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { useGarden, type Quality } from "@/lib/garden/store";
@@ -35,6 +34,7 @@ import {
   type BloomPalette,
   type Instanced,
 } from "@/lib/garden/backdropGeometry";
+import { useLayerFrame, useTier } from "@/components/garden/TierLayers";
 
 // ---------------------------------------------------------------------------
 // Foliage shader patch
@@ -299,7 +299,7 @@ const CANOPY_CORE_TINT: Record<Quality, THREE.Color> = {
 
 export function Backdrop() {
   const seed = useGarden((s) => s.seed);
-  const quality = useGarden((s) => s.quality);
+  const quality = useTier();
   const speciesId = useGarden((s) => s.speciesId);
   const heroHex = SPECIES[speciesId].flower.colorMid;
 
@@ -405,7 +405,7 @@ export function Backdrop() {
 
   /* eslint-disable react-hooks/immutability -- the memoised uniforms are three.js
      objects the frame loop drives imperatively; React never re-renders on them. */
-  useFrame((state) => {
+  useLayerFrame((state) => {
     wind.uTime.value = env.time;
     wind.uWind.value = env.wind;
     backGain.value = 1 + BACKLIGHT_GOLDEN_GAIN * lightState.golden;

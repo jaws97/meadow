@@ -18,7 +18,6 @@
 // yellowing (lib/client/plant, through the store) reach the bush as they
 // reach the hero.
 import { useEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { GeoBuilder, HERO_GROUND_Y, makeBudGeometry } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
@@ -30,6 +29,7 @@ import { droopOf, fadeOf, leafDropped, leafHealth, quantize, type PlantVisual } 
 import { Rng, clamp01, easeOutCubic, lerp, smoothstep } from "@/lib/plant/prng";
 import { SPECIES, type Species, type SpeciesId } from "@/lib/plant/species";
 import { leafMaterial, petioleMaterial, sepalMaterial, stemMaterial } from "@/components/garden/materials";
+import { useLayerFrame } from "@/components/garden/TierLayers";
 
 /** One unlit-looking crimson per species for the side buds: no emissive, so they stay quiet at night. */
 const sideBudMaterials = new Map<SpeciesId, THREE.MeshStandardMaterial>();
@@ -264,7 +264,7 @@ export function HeroBush({ speciesId, seed, quality }: { speciesId: SpeciesId; s
   const plantKey = `${speciesId}|${seed}`;
   const visKey = useRef(plantKey);
 
-  useFrame((_, delta) => {
+  useLayerFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
     const k = 1 - Math.exp(-dt * 2.5);
     const s = garden.get();

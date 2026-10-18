@@ -19,7 +19,6 @@
 // uniforms): while the owner's flower is young the companions stand low and
 // in leaf, their flowers closed to small green buds, and they come into
 // flower as the hero's own bud swells, so they never upstage it.
-import { useFrame } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import {
@@ -48,6 +47,7 @@ import { env } from "@/lib/garden/env";
 import type { Quality } from "@/lib/garden/store";
 import { smoothstep } from "@/lib/plant/prng";
 import { leafTexture, petalTexture } from "@/lib/plant/textures";
+import { useLayerFrame } from "@/components/garden/TierLayers";
 
 /** One sway program for every companion part: full bend at half a metre of world height. */
 const SWAY: SwayOptions = { height: 0.5, amount: 1.4, world: true };
@@ -197,7 +197,7 @@ export function Companions({ seed, quality }: { seed: string; quality: Quality }
   const mats = useMemo(() => makeMaterials(palette), [palette]);
   // Cream heads catch every scrap of the night's fill and bounce and stayed
   // nearly self-lit after dark; their brightness eases down as night falls.
-  useFrame(() => {
+  useLayerFrame(() => {
     mats.alyssum.color.setScalar(1 - ALYSSUM_NIGHT_DIM * smoothstep(0.3, 0.9, env.nightness));
   });
   useEffect(

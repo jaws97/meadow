@@ -5,7 +5,6 @@
 // 0.03, its first leaves from 0.04), and settles away as the shoot comes up through it. A grown plant never shows
 // it, so the owner's rose is drawn exactly as before.
 import { useEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { HERO_GROUND_Y, withGardenLight } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
@@ -13,6 +12,7 @@ import { LAYOUT } from "@/lib/garden/layout";
 import { garden, type Quality } from "@/lib/garden/store";
 import { gardenMaterials } from "@/components/garden/garden/materials";
 import { smoothstep } from "@/lib/plant/prng";
+import { useLayerFrame } from "@/components/garden/TierLayers";
 
 /** Growth at which the mound starts to settle, and by which it is gone (the shoot is up through it by then). */
 const SETTLE_FROM = 0.03;
@@ -121,7 +121,7 @@ export function SeedMound({ quality }: { quality: Quality }) {
   const group = useRef<THREE.Group>(null);
   const sprite = useRef<THREE.Sprite>(null);
 
-  useFrame(() => {
+  useLayerFrame(() => {
     const g = group.current;
     if (!g) return;
     const { growth } = garden.get();

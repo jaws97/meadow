@@ -5,12 +5,12 @@
 // gathers in the saucer in the rain (or when the bed is drowned) and drains
 // away slowly after; the sheet is hidden whenever it has dried.
 import { useEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
 import type * as THREE from "three";
 import { COMPANION_BUDGET, makeBedGeometry, makePuddleGeometry } from "@/lib/garden/dressing";
 import type { Quality } from "@/lib/garden/store";
 import { gardenMaterials } from "@/components/garden/garden/materials";
 import { weather } from "@/components/garden/garden/weather";
+import { useLayerFrame } from "@/components/garden/TierLayers";
 
 export function Bed({ quality }: { quality: Quality }) {
   const { bedRings, bedSegs } = COMPANION_BUDGET[quality];
@@ -21,7 +21,7 @@ export function Bed({ quality }: { quality: Quality }) {
   useEffect(() => () => puddle.dispose(), [puddle]);
 
   const water = useRef<THREE.Mesh>(null);
-  useFrame(() => {
+  useLayerFrame(() => {
     if (water.current) water.current.visible = weather.puddle > 0.02;
   });
 

@@ -13,12 +13,12 @@
 // through. When both are up the cover stands just outside the cloth. The tunnel stands a little behind the plant, so
 // its legs stay inside the bed's kerb.
 import { useEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { HERO_GROUND_Y } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { LAYOUT } from "@/lib/garden/layout";
 import { garden, type Quality } from "@/lib/garden/store";
+import { useLayerFrame, useLayerLive } from "@/components/garden/TierLayers";
 
 /** The unit tunnel: a half-ellipse arch this wide either side for a height of 1, and this deep front to back. */
 const HALF_WIDTH = 0.44;
@@ -222,11 +222,15 @@ export function BedCovers({ quality }: { quality: Quality }) {
   const cover = useRef<Cover>({ group: null, cloth: null, up: 0 });
   const size = useRef(0);
   const quick = useRef(false);
+  // built out of sight for a tier change (TierLayers): it goes live already standing as the store has it, as the
+  // covers it replaces did, rather than rising again from the mulch
+  const builtHidden = !useLayerLive();
+  const snap = useRef(builtHidden);
   useEffect(() => {
     quick.current = reducedMotion();
   }, []);
 
-  useFrame((_, delta) => {
+  useLayerFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
     const s = garden.get();
     const mats = live.current;
@@ -250,6 +254,11 @@ export function BedCovers({ quality }: { quality: Quality }) {
       g.scale.set(k, k * (0.55 + 0.45 * e), k);
       mat.opacity = opacity * e * e;
     };
+    if (snap.current) {
+      snap.current = false;
+      shade.current.up = s.shade > 0.5 ? 1 : 0;
+      cover.current.up = s.cover > 0.5 ? 1 : 0;
+    }
     step(shade.current, s.shade > 0.5 ? 1 : 0, 1, SHADE_OPACITY, mats.shadeMat);
     step(cover.current, s.cover > 0.5 ? 1 : 0, COVER_OVER, COVER_OPACITY, mats.coverMat);
     // the hoops fade in over the first half of the rise and out over the last half of the fall

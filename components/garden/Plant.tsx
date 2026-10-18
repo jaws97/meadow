@@ -18,7 +18,6 @@
 // it was.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { useFrame } from "@react-three/fiber";
 import { SPECIES } from "@/lib/plant/species";
 import {
   buildBlueprint,
@@ -66,6 +65,7 @@ import {
   heroStemFraction,
   heroStemGirth,
 } from "@/components/garden/garden/heroGrowth";
+import { useLayerFrame, useTier } from "@/components/garden/TierLayers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -548,7 +548,7 @@ function Segment({ i }: { i: number }) {
 export function Plant() {
   const speciesId = useGarden((s) => s.speciesId);
   const seed = useGarden((s) => s.seed);
-  const quality = useGarden((s) => s.quality);
+  const quality = useTier();
   const sp = SPECIES[speciesId];
   // The species blueprint, re-dressed for the hero: a fuller run of leaves up
   // the cane (see heroGrowth) and a cane a touch sturdier under its bloom.
@@ -618,7 +618,7 @@ export function Plant() {
   // A different plant (a colleague's seed replacing the owner's rose) starts from its own numbers, not eased from the last one's.
   const visKey = useRef(key);
 
-  useFrame((state, delta) => {
+  useLayerFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
     const k = 1 - Math.exp(-dt * 2.5);
     const s = garden.get();

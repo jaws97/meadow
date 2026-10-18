@@ -15,7 +15,6 @@
 // fresh soil while the seed has not come up (SeedMound), and the shade cloth
 // and rain cover on their hoops (BedCovers); neither draws for a grown plant
 // with both folded away, as the owner's rose always is.
-import { useFrame } from "@react-three/fiber";
 import { swayUniforms } from "@/lib/garden/dressing";
 import { garden, useGarden } from "@/lib/garden/store";
 import { Bed } from "@/components/garden/garden/Bed";
@@ -30,6 +29,7 @@ import { WateringCan } from "@/components/garden/garden/WateringCan";
 import { driveGardenMaterials, gardenMaterials } from "@/components/garden/garden/materials";
 import { stepWeather, weather } from "@/components/garden/garden/weather";
 import { companionGrow, companionOpen } from "@/components/garden/garden/heroGrowth";
+import { useLayerFrame, useTier } from "@/components/garden/TierLayers";
 
 /**
  * The hero's growth as the companions follow it, eased like the plant's own (Plant.tsx) so both move together, and
@@ -39,10 +39,10 @@ const staged = { primed: false, growth: 1, seed: "" };
 
 export function Garden() {
   const seed = useGarden((s) => s.seed);
-  const quality = useGarden((s) => s.quality);
+  const quality = useTier();
   const speciesId = useGarden((s) => s.speciesId);
 
-  useFrame((_, delta) => {
+  useLayerFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
     stepWeather(dt);
     driveGardenMaterials(gardenMaterials(), weather);

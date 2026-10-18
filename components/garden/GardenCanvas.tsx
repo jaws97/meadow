@@ -12,7 +12,7 @@
 import { Canvas, type CanvasProps } from "@react-three/fiber";
 import { Suspense, useLayoutEffect } from "react";
 import * as THREE from "three";
-import { Opening, RenderGovernor } from "@/components/garden/RenderBudget";
+import { Opening, RenderGovernor, TierPreparer } from "@/components/garden/RenderBudget";
 import { Scene } from "@/components/garden/Scene";
 import { garden } from "@/lib/garden/store";
 import { env } from "@/lib/garden/env";
@@ -68,6 +68,7 @@ export default function GardenCanvas() {
       <Suspense fallback={null}>
         <Scene />
         <Opening />
+        <TierPreparer />
       </Suspense>
     </Canvas>
   );

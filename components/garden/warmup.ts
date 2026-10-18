@@ -29,6 +29,20 @@ const asyncCompile = (gl: THREE.WebGLRenderer): Compile => (s, c, t) => gl.compi
 const isDrawable = (o: THREE.Object3D): o is Drawable =>
   (o as THREE.Mesh).isMesh === true || (o as THREE.Points).isPoints === true || (o as THREE.Line).isLine === true;
 
+/** userData key marking a tier layer's group (TierLayers.tsx). */
+export const TIER_LAYER = "tierLayer";
+
+/**
+ * Like Object3D.traverse, but never enters a hidden tier layer: a tier being
+ * prepared out of sight (TierLayers) has its own lights, and compiling its
+ * parts under the live layer's would only build programs nothing draws.
+ */
+export function traverseShown(root: THREE.Object3D, visit: (o: THREE.Object3D) => void): void {
+  if (root.userData[TIER_LAYER] === true && !root.visible) return;
+  visit(root);
+  for (const c of root.children) traverseShown(c, visit);
+}
+
 /**
  * The depth programs the sun's shadow pass will need: for each shadow caster
  * its custom depth material, or a stand-in for three's internal one, given
@@ -54,7 +68,7 @@ export function compileShadowCasters(
   const rounds: Use[][] = [];
   const variants = new Map<THREE.Material, string[]>();
   const standIns = new Map<string, THREE.MeshDepthMaterial>();
-  scene.traverse((o) => {
+  traverseShown(scene, (o) => {
     if (!isDrawable(o) || !o.castShadow || Array.isArray(o.material)) return;
     const m = o.material as THREE.Material & {
       map?: THREE.Texture | null;
@@ -145,7 +159,7 @@ export function compileTransmissionBackfaces(
   const previous = gl.getRenderTarget();
   try {
     gl.setRenderTarget(target);
-    scene.traverse((o) => {
+    traverseShown(scene, (o) => {
       if (!isDrawable(o) || Array.isArray(o.material)) return;
       const m = o.material as THREE.MeshPhysicalMaterial;
       if (!(m.transmission > 0) || m.side !== THREE.DoubleSide) return;
@@ -159,6 +173,169 @@ export function compileTransmissionBackfaces(
     gl.setRenderTarget(previous);
   }
   return Promise.all(jobs);
+}
+
+/** The stand-in scene withStandIn lends out, and whether it is lent right now. */
+let stand: THREE.Scene | null = null;
+let lent = false;
+
+/**
+ * Runs `f` on a stand-in for `scene`: a scene of its own holding the same
+ * objects (they keep their parent), all but `leaveOut`, with the scene's fog
+ * and environment. Compiles and draws in it see whatever lights the caller
+ * has switched in for the moment (another light set, a tier prepared out of
+ * sight), and being another scene it has its own light state in the
+ * renderer: the live scene's never changes, so the live garden's lit
+ * materials never have to look their programs up again on the next frame.
+ */
+export function withStandIn(scene: THREE.Scene, f: (stand: THREE.Scene) => void, leaveOut?: THREE.Object3D): void {
+  const s = lent ? new THREE.Scene() : (stand ??= new THREE.Scene());
+  const own = s === stand;
+  s.children = leaveOut ? scene.children.filter((c) => c !== leaveOut) : scene.children.slice();
+  s.fog = scene.fog;
+  s.environment = scene.environment;
+  s.environmentIntensity = scene.environmentIntensity;
+  s.environmentRotation.copy(scene.environmentRotation);
+  if (own) lent = true;
+  try {
+    f(s);
+  } finally {
+    s.children = [];
+    if (own) lent = false;
+  }
+}
+
+/**
+ * Wraps a draw done ahead of time (a tier or a light set prepared in the
+ * background) so three skips its shader error check: a program's first draw
+ * reads its compile logs back, a round trip that waits for the GPU to finish
+ * everything queued before it, tens of milliseconds a program on a busy GPU,
+ * which the live garden would show. The check is left to the opening, which
+ * draws the same shaders under the veil.
+ */
+export function unchecked<A extends unknown[]>(gl: THREE.WebGLRenderer, draw: (...args: A) => void): (...args: A) => void {
+  return (...args) => {
+    const check = gl.debug.checkShaderErrors;
+    gl.debug.checkShaderErrors = false;
+    try {
+      draw(...args);
+    } finally {
+      gl.debug.checkShaderErrors = check;
+    }
+  };
+}
+
+/** Main-thread time per compile slice (ms), with a frame drawn between slices. */
+const SLICE_MS = 5;
+
+interface ProgramLike {
+  isReady(): boolean;
+  /** three sets this to undefined when it destroys the program */
+  program?: WebGLProgram;
+}
+
+const lightIn = (o: THREE.Object3D): boolean => (o as THREE.Light).isLight === true || o.children.some(lightIn);
+
+/**
+ * The scene's programs compiled a few objects at a time, a frame apart, so
+ * the work never shows as a stall (as lightSets.prepareSet prepares a light
+ * set): each slice compiles some objects for `target`, in the scene `around`
+ * hands it (which may stand other lights in, synchronously, and says whether
+ * it could), and
+ * the last one also the shadow pass's depth programs and the leaves' back
+ * faces. Settles true once the driver reports every program these compiles
+ * produced ready (pinned, as lightSets.compilePinned is: a frame drawn
+ * meanwhile under other lights changes a material's current program), false
+ * when cancelled or `around` could not run. An object holding a light is left
+ * out (compiled on its own it would count that light twice) and compiles on
+ * first use instead; the garden has none.
+ *
+ * A compile leaves each material pointing at the program it just built. A lit
+ * material looks its program up again when it is next drawn under other
+ * lights; an unlit one (basic, sprites, depth, an unlit shader) does not, so
+ * one the live scene shares would be drawn with the new program, still
+ * compiling, and that draw would wait for the driver. After each slice those
+ * go back to the program they were drawn with.
+ */
+export function compileSliced(
+  gl: THREE.WebGLRenderer,
+  camera: THREE.Camera,
+  target: THREE.WebGLRenderTarget | null,
+  around: (step: (scene: THREE.Scene) => void) => boolean,
+  cancelled: () => boolean,
+): Promise<boolean> {
+  const objects: THREE.Object3D[] = [];
+  const collected = around((scene) =>
+    traverseShown(scene, (o) => {
+      if ((isDrawable(o) || (o as THREE.Sprite).isSprite === true) && !lightIn(o)) objects.push(o);
+    }),
+  );
+  if (!collected) return Promise.resolve(false);
+  type Props = { currentProgram?: ProgramLike; needsLights?: boolean };
+  const props = (m: THREE.Material) => gl.properties.get(m) as Props;
+  const programs: ProgramLike[] = [];
+  // the program each material compiled in this slice had before it
+  const drawnWith = new Map<THREE.Material, ProgramLike | undefined>();
+  const remember = (root: THREE.Object3D) =>
+    root.traverse((o) => {
+      const mats = (o as THREE.Mesh).material;
+      for (const m of Array.isArray(mats) ? mats : [mats]) if (m && !drawnWith.has(m)) drawnWith.set(m, props(m).currentProgram);
+    });
+  const compile = (root: THREE.Object3D, c: THREE.Camera, t: THREE.Scene | null) => {
+    remember(root);
+    for (const m of gl.compile(root, c, t)) {
+      const p = props(m).currentProgram;
+      if (p) programs.push(p);
+    }
+  };
+  const restore = () => {
+    for (const [m, p] of drawnWith) {
+      const pr = props(m);
+      if (p && !pr.needsLights) pr.currentProgram = p;
+    }
+    drawnWith.clear();
+  };
+  const pinned: Compile = (s, c, t) => {
+    compile(s, c, t);
+    return Promise.resolve();
+  };
+  let i = 0;
+  return new Promise((resolve) => {
+    const slice = () => {
+      if (cancelled()) return resolve(false);
+      const t0 = performance.now();
+      const ran = around((scene) => {
+        const previous = gl.getRenderTarget();
+        try {
+          gl.setRenderTarget(target);
+          while (i < objects.length && performance.now() - t0 < SLICE_MS) {
+            const o = objects[i++];
+            if (o.parent) compile(o, camera, scene);
+          }
+        } finally {
+          gl.setRenderTarget(previous);
+        }
+        if (i >= objects.length) {
+          void compileShadowCasters(gl, scene, camera, target, pinned);
+          void compileTransmissionBackfaces(gl, scene, camera, target, pinned);
+        }
+        restore();
+      });
+      if (!ran) return resolve(false);
+      if (i < objects.length) {
+        window.setTimeout(slice, 16);
+        return;
+      }
+      const check = () => {
+        if (cancelled()) resolve(false);
+        // a program destroyed while linking (its material was disposed) reads not-ready forever: count it as done
+        else if (programs.every((p) => p.program === undefined || p.isReady())) resolve(true);
+        else window.setTimeout(check, 32);
+      };
+      check();
+    };
+    window.setTimeout(slice, 0);
+  });
 }
 
 /** Back-references that would lead the walk out of the post chain and into the garden or React. */
@@ -281,7 +458,10 @@ async function gpuCaughtUp(gl: WebGL2RenderingContext, maxMs: number): Promise<v
  * (round an orbit) are ready too. The leaves' transmissive materials join
  * every group, so each group's opaque parts are also drawn into the
  * transmission buffer as they will be. Best effort: a group that throws is
- * skipped and will simply be built on first use, as before.
+ * skipped and will simply be built on first use, as before. `around` runs
+ * each synchronous step on the scene to draw (TierLayers' withHiddenLayer
+ * hands it a stand-in, to draw a tier being prepared out of sight under its
+ * own lights).
  */
 export async function predraw(
   gl: THREE.WebGLRenderer,
@@ -289,6 +469,7 @@ export async function predraw(
   camera: THREE.Camera,
   groups: number,
   cancelled: () => boolean,
+  around: (step: (scene: THREE.Scene) => void) => void = (step) => step(scene),
 ): Promise<void> {
   const parts: Drawable[] = [];
   const always: Drawable[] = [];
@@ -301,7 +482,7 @@ export async function predraw(
     }
     for (const c of o.children) visit(c);
   };
-  visit(scene);
+  around((s) => visit(s));
   if (parts.length === 0) return;
   const all = [...parts, ...always];
   const everyGroup = new Set<THREE.Object3D>(always);
@@ -313,24 +494,26 @@ export async function predraw(
     for (let g = 0; g * size < parts.length; g++) {
       if (cancelled()) return;
       const batch = new Set<THREE.Object3D>(parts.slice(g * size, (g + 1) * size));
-      const previous = gl.getRenderTarget();
-      try {
-        for (const s of saved) {
-          s.o.visible = batch.has(s.o) || everyGroup.has(s.o);
-          s.o.frustumCulled = false;
+      around((drawn) => {
+        const previous = gl.getRenderTarget();
+        try {
+          for (const s of saved) {
+            s.o.visible = batch.has(s.o) || everyGroup.has(s.o);
+            s.o.frustumCulled = false;
+          }
+          gl.setRenderTarget(target);
+          gl.shadowMap.needsUpdate = true;
+          gl.render(drawn, camera);
+        } catch {
+          // this group is built on first use instead
+        } finally {
+          gl.setRenderTarget(previous);
+          for (const s of saved) {
+            s.o.visible = s.visible;
+            s.o.frustumCulled = s.culled;
+          }
         }
-        gl.setRenderTarget(target);
-        gl.shadowMap.needsUpdate = true;
-        gl.render(scene, camera);
-      } catch {
-        // this group is built on first use instead
-      } finally {
-        gl.setRenderTarget(previous);
-        for (const s of saved) {
-          s.o.visible = s.visible;
-          s.o.frustumCulled = s.culled;
-        }
-      }
+      });
       await gpuCaughtUp(ctx, 2500);
     }
   } finally {
@@ -343,7 +526,7 @@ export async function predraw(
  * does not stall on them (the garden's leaves, petals, bark and ground are
  * canvas-painted textures, several of them large). Spread over a few tasks.
  */
-export async function uploadTextures(gl: THREE.WebGLRenderer, scene: THREE.Scene): Promise<void> {
+export async function uploadTextures(gl: THREE.WebGLRenderer, scene: THREE.Object3D): Promise<void> {
   const textures = new Set<THREE.Texture>();
   const take = (v: unknown) => {
     if (v instanceof THREE.Texture && !(v as THREE.CubeTexture).isCubeTexture && !v.isRenderTargetTexture) textures.add(v);
