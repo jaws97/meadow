@@ -12,6 +12,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { WAKING_LINE } from "@/components/garden/LoadingVeil";
 import { lightNow } from "@/components/garden/poster";
+import { VeilQuote } from "@/components/garden/VeilQuote";
 import { quality, useQuality, type Phase } from "@/lib/garden/quality";
 
 const isLive = (s: { veiled: boolean; phase: Phase }) => !s.veiled || s.phase === "revealing" || s.phase === "live";
@@ -58,6 +59,7 @@ export function GiftVeil() {
         <div className="gift-veil-track">
           <div className="gift-veil-fill" style={{ transform: `scaleX(${progress})`, ["--t" as string]: duration }} />
         </div>
+        <VeilQuote />
       </div>
     </div>
   );

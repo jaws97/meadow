@@ -10,6 +10,7 @@
 import { useParty } from "@/components/party/store";
 import { OWNER } from "@/components/party/logic";
 import { useQuality, type Phase } from "@/lib/garden/quality";
+import { VeilQuote } from "@/components/garden/VeilQuote";
 import "@/components/garden/LoadingVeil.css";
 
 const LINES: Record<Phase, string> = {
@@ -117,6 +118,7 @@ export function PartyVeil() {
           <div className="garden-veil-track">
             <div className="garden-veil-fill" style={{ transform: `scaleX(${progress})`, ["--t" as string]: duration }} />
           </div>
+          <VeilQuote className="veil-quote-large" />
         </div>
       </div>
     </div>

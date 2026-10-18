@@ -26,6 +26,7 @@ import { useSyncExternalStore } from "react";
 import { lookOf, readPoster } from "@/components/garden/poster";
 import { garden } from "@/lib/garden/store";
 import { useQuality, type Phase } from "@/lib/garden/quality";
+import { VeilQuote } from "@/components/garden/VeilQuote";
 import "@/components/garden/LoadingVeil.css";
 
 /** The one loading line, wherever the garden is loading (the gift's first look says it too). */
@@ -135,6 +136,7 @@ export function LoadingVeil() {
         <div className="garden-veil-track">
           <div className="garden-veil-fill" style={{ transform: `scaleX(${progress})`, ["--t" as string]: duration }} />
         </div>
+        <VeilQuote />
       </div>
     </div>
   );

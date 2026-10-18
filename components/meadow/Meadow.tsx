@@ -19,6 +19,7 @@ import { meadow } from "@/components/meadow/runtime";
 import { ui, useUi } from "@/components/meadow/ui";
 import { VisitCard } from "@/components/meadow/VisitCard";
 import { primaryTouch } from "@/lib/garden/device";
+import { VeilQuote } from "@/components/garden/VeilQuote";
 import "@/components/meadow/meadow.css";
 
 const MeadowCanvas = dynamic(() => import("@/components/meadow/MeadowCanvas"), { ssr: false, loading: () => null });
@@ -110,6 +111,7 @@ function MeadowVeil() {
         <p className="meadow-veil-line" role="status" aria-live="polite">
           {line}
         </p>
+        <VeilQuote />
       </div>
     </div>
   );
