@@ -21,17 +21,43 @@
 //
 // The pure helpers (words for the soil and the weather, the overlays, the bloom outlook) are exported for the care layer
 // and the tests; nothing here touches the DOM until startPlantSync runs, apart from reading that one cached look.
+//
+// The lotus (lib/sim/pond.ts) comes through the same doors with its own words and a pond for the scene. Its water action
+// freshens the jar, then plants the seedling in its pot ("Plant in the pond"), then pours a bucket ("Top up the pond");
+// "Tend the pond" gives the koi a pinch and rinses aphids; it has four care buttons (no shade cloth, no rain cover). Its
+// pond numbers reach the garden store as PondShown (pondShownOf), eased like the rest, with the moments this device's
+// own top-up, pinch and planting began, so the scene can play each once. Everything lotus-only is keyed on isLotus() or
+// isPondVisual(); the six soil flowers read exactly as before.
 import { useSyncExternalStore } from "react";
 import { getJson, newEventId, postJson, type ApiFail } from "@/lib/client/api";
 import { rememberGarden } from "@/lib/client/gardens";
-import { garden, type GardenState } from "@/lib/garden/store";
-import { quality } from "@/lib/garden/quality";
-import { SPECIES, type SpeciesId } from "@/lib/plant/species";
+import { flowerSizeOf, pondShownOf } from "@/lib/client/plantShown";
+import { garden, type GardenState, type PondShown } from "@/lib/garden/store";
+import { underVeil } from "@/lib/garden/quality";
+import { swapSettled } from "@/lib/garden/swapGate";
+import { SPECIES, isLotus, type SpeciesId } from "@/lib/plant/species";
 import type { CareResult, MeView } from "@/lib/server/garden";
 import type { CareKind } from "@/lib/server/validate";
-import { BED, IST_OFFSET_MIN, PLANT_OPEN_H, dateOfHour, hod, hourIndexOf, rainSoon, type Visual } from "@/lib/sim";
+import {
+  BED,
+  IST_OFFSET_MIN,
+  JAR,
+  PLANT_OPEN_H,
+  POND,
+  POND_GEO,
+  dateOfHour,
+  hod,
+  hourIndexOf,
+  isPondVisual,
+  rainSoon,
+  type PondVisual,
+  type SoilVisual,
+  type Visual,
+} from "@/lib/sim";
 
 export type { CareKind, MeView };
+// pure, in their own module so a friend's garden can use them without this one's remembered look (lib/client/plantShown)
+export { developmentOf, flowerSizeOf, pondShownOf } from "@/lib/client/plantShown";
 
 // ---- shapes ------------------------------------------------------------------------------------------------------------
 
@@ -113,8 +139,23 @@ export interface PlantSnapshot {
   now: number;
 }
 
-/** The model's Visual as the care layer shows it: glow eases, so it is a number, and a can earns a local thank-you line. */
-export type ShownVisual = Omit<Visual, "glow" | "says"> & { glow: number; says: string };
+/**
+ * The model's Visual as the care layer shows it: glow eases, so it is a number, and a can earns a local thank-you line.
+ * Spelled out per model, because TypeScript's Omit on the union Visual would keep only the keys both share.
+ */
+export type ShownSoilVisual = Omit<SoilVisual, "glow" | "says"> & { glow: number; says: string };
+export type ShownPondVisual = Omit<PondVisual, "glow" | "says"> & { glow: number; says: string };
+export type ShownVisual = ShownSoilVisual | ShownPondVisual;
+
+/** The shown visual is a lotus's. */
+export function isPondShown(v: ShownVisual): v is ShownPondVisual {
+  return (v as Partial<ShownPondVisual>).medium === "pond";
+}
+
+/** A lotus's visual (the model's or the shown one), or null for a soil flower. */
+function pondOf(v: Visual | ShownVisual | undefined): ShownPondVisual | PondVisual | null {
+  return v && "medium" in v && v.medium === "pond" ? v : null;
+}
 
 // ---- small helpers -------------------------------------------------------------------------------------------------------
 
@@ -153,6 +194,7 @@ const NOUNS: Record<SpeciesId, string> = {
   marigold: "marigold",
   island: "flower",
   jasmine: "jasmine",
+  lotus: "lotus",
 };
 
 /** What the copy calls the plant: "your rose", "your marigold". */
@@ -189,6 +231,23 @@ export function soilWord(v: Pick<Visual, "alive" | "canAdvice" | "moisture" | "p
     default:
       return "just right";
   }
+}
+
+export type PondWord = "full" | "at its line" | "could use a top-up" | "low" | "below the pot" | "the pot is drying" | "clear" | "clouding" | "cloudy";
+
+/**
+ * A lotus's water in words, for the Pond chip: in the jar, how clear its water is (it hazes at JAR.haze and clouds at
+ * JAR.cloudy, as the model's lines say); in the pond, its level as the model's advice reads it (full from 9 mm over the
+ * line, where a bucket would spill and the top-up asks first; could use a top-up 10 mm under the line, low at 18, below
+ * the pot's rim at 25), and the pot drying once the pond has left it.
+ */
+export function pondWord(v: Pick<PondVisual, "stage" | "jarClarity" | "waterMM" | "potIsolated" | "potDry">): PondWord {
+  if (v.stage === "jar") return v.jarClarity > 1 - JAR.haze ? "clear" : v.jarClarity > 1 - JAR.cloudy ? "clouding" : "cloudy";
+  if (v.potDry) return "the pot is drying";
+  if (v.potIsolated) return "below the pot";
+  if (v.waterMM <= -POND.thirstyMM) return "low";
+  if (v.waterMM <= -POND.readyMM) return "could use a top-up";
+  return v.waterMM >= POND.fullMM ? "full" : "at its line";
 }
 
 export type Sky = "sun" | "moon" | "rain" | "soft";
@@ -262,9 +321,12 @@ export function rainLead(r: RainHint, nowH: number): string {
   return `Heavy rain ${day} ${at < 12 ? "morning" : "afternoon"}`;
 }
 
-/** The rain hint as the water prompt says it: "Heavy rain tonight; skip the can." */
-export function rainHintText(r: RainHint, nowH: number): string {
-  return `${rainLead(r, nowH)}; skip the can.`;
+/**
+ * The rain hint as the water prompt says it: "Heavy rain tonight; skip the can.", or for a lotus, whose pond only gains
+ * from rain, "Heavy rain tonight; it will top up the pond."
+ */
+export function rainHintText(r: RainHint, nowH: number, species?: SpeciesId): string {
+  return species && isLotus(species) ? `${rainLead(r, nowH)}; it will top up the pond.` : `${rainLead(r, nowH)}; skip the can.`;
 }
 
 /** "Planted today", "Planted yesterday", "Planted 5 days ago" (IST calendar days). */
@@ -314,8 +376,12 @@ export function friendsText(names: readonly string[]): string | null {
   return names.length === 1 ? `A sprinkle from ${list} today` : `Sprinkles from ${list} today`;
 }
 
-/** The warm line in the slot, once a day for each friend: "Asha left a sprinkle for your jasmine today." */
-export function friendsLine(names: readonly string[], noun: string): string | null {
+/**
+ * The warm line in the slot, once a day for each friend: "Asha left a sprinkle for your jasmine today." A sprinkle cannot
+ * top up a pond, so a lotus's (`pond`) is thanked as the kind thought it is: "Asha left a sprinkle by your pond today, a
+ * kind thought for your lotus."
+ */
+export function friendsLine(names: readonly string[], noun: string, pond = false): string | null {
   if (names.length === 0) return null;
   const named = names.filter((n) => n !== "A friend");
   const anon = names.length - named.length;
@@ -324,6 +390,7 @@ export function friendsLine(names: readonly string[], noun: string): string | nu
   else if (anon > 1) parts.push(`${anon} friends`);
   const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
   const who = list[0].toUpperCase() + list.slice(1);
+  if (pond) return names.length === 1 ? `${who} left a sprinkle by your pond today, a kind thought for your ${noun}.` : `${who} left sprinkles by your pond today, kind thoughts for your ${noun}.`;
   return names.length === 1 ? `${who} left a sprinkle for your ${noun} today.` : `${who} left sprinkles for your ${noun} today.`;
 }
 
@@ -331,23 +398,53 @@ export function friendsLine(names: readonly string[], noun: string): string | nu
 
 /** The model's lines that ask for water (the can's cue), as the plant says them. */
 const THIRSTY_LINES = new Set<string>(["very tired, would love water today", "drooping in the afternoon heat", "a little thirsty", "ready for a drink"]);
+/** A lotus's lines that ask for a top-up: the pond's level, and the pot left high and dry. Rain answers these. */
+const POND_WATER_LINES = new Set<string>([
+  "the pond could use a top-up",
+  "the pond is low",
+  "the pond has dropped below the rim of my pot; a top-up or two, please",
+  "the water in my pot is gone; the mud is drying",
+  "my pot has dried out; my leaves are crisping",
+]);
+/** A lotus's lines that ask for fresh jar water: only its owner can give it, rain cannot. */
+const JAR_WATER_LINES = new Set<string>([
+  "my seed is rotting in murky water; fresh water, please",
+  "my water has been cloudy for a while; fresh water, please",
+  "time for fresh water",
+  "fresh water would be lovely",
+  "that food clouded my water",
+]);
+/** A lotus's lines that ask for a pinch for the koi. */
+const KOI_LINES = new Set<string>([
+  "the koi are hungry",
+  "the koi keep eating my young leaves, so I cannot grow; feed them, please",
+  "the koi have nibbled many of my floating leaves; they are hungry",
+  "the koi are nibbling my young leaves; they are hungry",
+  "the koi are nosing at my bud; they are hungry",
+]);
+/** A seed calm in its jar, which the narrator speaks for. */
+const JAR_CALM_LINES = new Set<string>(["a seed in clear water, waking up", "my first root is showing"]);
 
-/** Whether the plant's own line already asks for water, so the chips need not say it again. */
+/** Whether the plant's own line already asks for water (or a lotus's for a top-up or fresh jar water), so the chips need not say it again. */
 export function lineAsksForWater(says: string): boolean {
-  return THIRSTY_LINES.has(says);
+  return THIRSTY_LINES.has(says) || POND_WATER_LINES.has(says) || JAR_WATER_LINES.has(says);
 }
 
 export const SEED_LINE = "Your seed is settling into the bed. The first shoot shows in a few hours.";
+export const JAR_LINE = "Your seed is waking in its glass of water by the pond. Keep the water fresh; in a day or two it goes into its pot.";
 export const RAIN_DRINK_LINE = "The rain is giving me a drink.";
 export const COVERED_RAIN_LINE = "The cover is keeping the rain off me.";
+export const RAIN_POND_LINE = "The rain is topping up the pond.";
 export const RAIN_SOON_LINE = "The rain is on its way.";
 
 /**
  * A seed not yet up: its stem shows from growth 0.03 (about nine hours after planting in the model, its first leaves
  * about three hours later), so before then the bed is bare but for the seed's mound. Read from growth rather than the
- * stage, which stays "seed" until D 0.05, some hours after the first leaves are out.
+ * stage, which stays "seed" until D 0.05, some hours after the first leaves are out. A lotus is a seed while it is in its
+ * jar.
  */
-export function isSeed(me: Pick<MeView, "state">, v: Pick<Visual, "growth">): boolean {
+export function isSeed(me: Pick<MeView, "state">, v: Pick<Visual, "growth"> & { medium?: "pond"; stage?: "jar" | "pond" }): boolean {
+  if (v.medium === "pond") return me.state.alive && v.stage === "jar";
   return me.state.alive && v.growth < 0.03;
 }
 
@@ -360,17 +457,20 @@ export function isSeed(me: Pick<MeView, "state">, v: Pick<Visual, "growth">): bo
  */
 export function plantLine(
   me: Pick<MeView, "state">,
-  v: Pick<Visual, "growth" | "mood" | "alive"> & { says: string },
+  v: Pick<Visual, "growth" | "mood" | "alive"> & { says: string; medium?: "pond"; stage?: "jar" | "pond" },
   rain: RainHint | null,
   cover = false,
 ): { text: string; voice: "plant" | "narrator"; mood: Visual["mood"] } | null {
   if (!v.alive || !me.state.alive) return null;
-  if (isSeed(me, v) && v.mood === "content") return { text: SEED_LINE, voice: "narrator", mood: v.mood };
-  if (rain?.when === "now" && THIRSTY_LINES.has(v.says)) {
-    return { text: cover ? COVERED_RAIN_LINE : RAIN_DRINK_LINE, voice: "plant", mood: v.mood === "thirsty" ? "content" : v.mood };
+  const pond = v.medium === "pond";
+  if (isSeed(me, v) && v.mood === "content" && (!pond || JAR_CALM_LINES.has(v.says))) return { text: pond ? JAR_LINE : SEED_LINE, voice: "narrator", mood: v.mood };
+  // the lines rain answers: a soil flower's thirst, a lotus's pond level (never its jar: rain cannot freshen a jar)
+  const rainAnswers = pond ? POND_WATER_LINES.has(v.says) : THIRSTY_LINES.has(v.says);
+  if (rain?.when === "now" && rainAnswers) {
+    return { text: pond ? RAIN_POND_LINE : cover ? COVERED_RAIN_LINE : RAIN_DRINK_LINE, voice: "plant", mood: v.mood === "thirsty" ? "content" : v.mood };
   }
   // heavy rain due: the plant still says what it feels, and that the rain is coming to see to it
-  if (rain?.when === "soon" && THIRSTY_LINES.has(v.says)) return { text: `${sayLine(v.says)} ${RAIN_SOON_LINE}`, voice: "plant", mood: v.mood };
+  if (rain?.when === "soon" && rainAnswers) return { text: `${sayLine(v.says)} ${RAIN_SOON_LINE}`, voice: "plant", mood: v.mood };
   return { text: sayLine(v.says), voice: "plant", mood: v.mood };
 }
 
@@ -416,23 +516,68 @@ export interface OverlayEvent {
   on: boolean | null;
   /** when it happened (ms); for an action this page did not send, the start of its hour */
   t: number;
+  /** this page sent it (its moment is exact, and the scene may play it) */
+  mine: boolean;
+  /**
+   * a lotus's tend: whether it also gave the koi a pinch (one counts every POND.koiGapH hours; a tend always rinses the
+   * aphids). Absent reads as a pinch.
+   */
+  pinch?: boolean;
 }
 
 /**
  * The care that is not yet inside the server's state: this page's own actions (with their exact times) and the
  * server's pending list for anything else (another device, an earlier visit), without counting an action twice.
+ * A lotus's tends are marked with whether each was also the koi's pinch (koiPinches).
  */
-export function overlayEvents(me: Pick<MeView, "pending" | "state">, local: readonly LocalAction[]): OverlayEvent[] {
+export function overlayEvents(me: Pick<MeView, "pending" | "state"> & { care?: Pick<MeView["care"], "koi"> }, local: readonly LocalAction[]): OverlayEvent[] {
   const out: OverlayEvent[] = [];
   const mine = local.filter((a) => hourIndexOf(new Date(a.at)) >= me.state.h);
   const used = new Set<LocalAction>();
+  const fromServer = new Set<OverlayEvent>();
   for (const p of me.pending) {
     const a = mine.find((x) => !used.has(x) && x.kind === p.kind && hourIndexOf(new Date(x.at)) === p.h);
     if (a) used.add(a);
-    out.push({ kind: p.kind, on: p.on, t: a ? a.at : dateOfHour(p.h).getTime() });
+    const e: OverlayEvent = { kind: p.kind, on: p.on, t: a ? a.at : dateOfHour(p.h).getTime(), mine: !!a };
+    fromServer.add(e);
+    out.push(e);
   }
-  for (const a of mine) if (!used.has(a)) out.push({ kind: a.kind, on: a.on, t: a.at });
+  for (const a of mine) if (!used.has(a)) out.push({ kind: a.kind, on: a.on, t: a.at, mine: true });
+  const koi = me.care?.koi;
+  if (koi) koiPinches(out, fromServer, koi);
   return out;
+}
+
+/**
+ * Marks which of a lotus's tends were also the koi's pinch, as the server counts them (lib/server/rules lastPinchH): the
+ * view's last pinch already folds in the server's pending tends, so of those only the one in that hour was a pinch; a
+ * tend the view does not hold yet is a pinch when it comes POND.koiGapH or more after the last one that was.
+ */
+function koiPinches(events: OverlayEvent[], fromServer: ReadonlySet<OverlayEvent>, koi: NonNullable<MeView["care"]["koi"]>) {
+  const lastH = koi.lastAt ? hourIndexOf(new Date(koi.lastAt)) : null;
+  let last = lastH ?? -Infinity;
+  for (const e of [...events].filter((x) => x.kind === "tend").sort((a, b) => a.t - b.t)) {
+    const h = hourIndexOf(new Date(e.t));
+    if (fromServer.has(e)) e.pinch = h === lastH;
+    else {
+      e.pinch = h - last >= POND.koiGapH;
+      if (e.pinch) last = h;
+    }
+  }
+}
+
+/** The latest tend that was also the koi's pinch (ms), or null. */
+function lastPinchOf(events: readonly OverlayEvent[]): number | null {
+  let t: number | null = null;
+  for (const e of events) if (e.kind === "tend" && e.pinch !== false && (t === null || e.t > t)) t = e.t;
+  return t;
+}
+
+/** Whether a tend given now would also be the koi's pinch (a lotus; true when the view says nothing of the koi). */
+export function tendIsPinch(me: Pick<MeView, "pending" | "state" | "care">, local: readonly LocalAction[], now: number): boolean {
+  const probe: LocalAction = { id: "", kind: "tend", on: null, at: now, status: "sending", confirmedAt: 0 };
+  const e = overlayEvents(me, [...local, probe]).find((x) => x.kind === "tend" && x.t === now && x.mine);
+  return e?.pinch !== false;
 }
 
 /**
@@ -443,12 +588,9 @@ export function overlayEvents(me: Pick<MeView, "pending" | "state">, local: read
  * too much water when it was exactly what was asked; a can given on damp soil anyway reads damp, honestly.
  */
 export function withCare(base: Visual, events: readonly OverlayEvent[], now: number, settled = false): ShownVisual {
-  let v: ShownVisual = { ...base };
-  const last = (k: OverlayEvent["kind"]) => {
-    let t: number | null = null;
-    for (const e of events) if (e.kind === k && (t === null || e.t > t)) t = e.t;
-    return t;
-  };
+  if (isPondVisual(base)) return withPondCare(base, events, now);
+  let v: ShownSoilVisual = { ...base };
+  const last = (k: OverlayEvent["kind"]) => lastOf(events, k);
   const water = last("water");
   if (water !== null && base.alive) {
     const since = Math.max(0, now - water);
@@ -477,6 +619,128 @@ export function withCare(base: Visual, events: readonly OverlayEvent[], now: num
   return v;
 }
 
+/** The latest overlay event of a kind (ms), or null. */
+function lastOf(events: readonly OverlayEvent[], k: OverlayEvent["kind"]): number | null {
+  let t: number | null = null;
+  for (const e of events) if (e.kind === k && (t === null || e.t > t)) t = e.t;
+  return t;
+}
+
+/** One 15 L bucket on the open pond, mm (11.5). */
+const TOP_UP_MM = POND.can / POND_GEO.Ap;
+/** The overflow notch, mm above the fill line (20): the pond never stands higher. */
+const NOTCH_MM = 1000 * POND.over;
+/** The pot's rim, mm against the fill line (-25), and its pebbles' top (-50). */
+const RIM_MM = 1000 * POND_GEO.rim;
+const STONES_MM = 1000 * POND.stoneTop;
+
+/**
+ * A lotus's pending care, shown at once: the water action freshens a cloudy jar (it clears), or plants a ready seedling
+ * in its pot (the stage turns to pond), or pours a bucket (the level rises 11.5 mm, never past the notch); a tend rinses
+ * the aphids, and when it is also the koi's pinch it feeds them (their hunger falls away, they gather); a kind word
+ * brings the glow. What the server says next takes over through the same easing.
+ */
+function withPondCare(base: PondVisual, events: readonly OverlayEvent[], now: number): ShownPondVisual {
+  let v: ShownPondVisual = { ...base };
+  const water = lastOf(events, "water");
+  if (water !== null && base.alive) {
+    const calm = base.mood === "thirsty" ? "content" : base.mood;
+    if (base.stage === "jar" && base.moveReady) {
+      v = { ...v, stage: "pond", moveReady: false, jarClarity: 1, canAdvice: "ok", says: "I have settled into my pot in the pond", mood: calm };
+    } else if (base.stage === "jar") {
+      v = { ...v, jarClarity: 1 - JAR.J0, canAdvice: "damp", says: JAR_WATER_LINES.has(base.says) ? "thank you for the fresh water" : base.says, mood: calm };
+    } else {
+      const level = Math.min(NOTCH_MM, base.waterMM + TOP_UP_MM);
+      const over = level >= RIM_MM;
+      v = {
+        ...v,
+        waterMM: level,
+        pondMM: level,
+        stonesMM: over ? level - STONES_MM : base.stonesMM,
+        potIsolated: !over,
+        potDry: over ? false : base.potDry,
+        water: clamp01((level - STONES_MM) / 70),
+        canAdvice: level >= POND.fullMM ? "damp" : "ok",
+        says: POND_WATER_LINES.has(base.says) ? "thank you for the top-up" : base.says,
+        mood: calm,
+      };
+    }
+  }
+  const tend = lastOf(events, "tend");
+  if (tend !== null) {
+    const k = 1 - 0.9 * smooth01((now - tend) / 8000);
+    v = { ...v, pests: v.pests * k, aphids: v.aphids * k, says: /^aphids on my/.test(v.says) ? "the aphids are rinsed into the pond" : v.says };
+  }
+  const pinch = lastPinchOf(events);
+  if (pinch !== null) {
+    v = {
+      ...v,
+      koiHunger: v.koiHunger * (1 - smooth01((now - pinch) / 4000)),
+      koiGather: 1,
+      koiAdvice: "fed",
+      says: KOI_LINES.has(v.says) ? "the koi are fed" : v.says,
+    };
+  }
+  const talk = lastOf(events, "talk");
+  if (talk !== null && base.alive) v = { ...v, glow: Math.max(v.glow, smooth01((now - talk) / 2500)) };
+  return v;
+}
+
+/**
+ * When this page's own pending top-up, pinch for the koi and planting began (ms, 0 for none), read against the plant
+ * before them: a water action on a ready seedling plants it, in the pond it pours a bucket. The scene plays each once.
+ */
+export function pondStamps(base: Pick<PondVisual, "stage" | "moveReady">, events: readonly OverlayEvent[]): Pick<PondShown, "topUpAt" | "pinchAt" | "plantedAt"> {
+  let topUpAt = 0, pinchAt = 0, plantedAt = 0;
+  for (const e of events) {
+    if (!e.mine) continue;
+    if (e.kind === "tend" && e.pinch !== false) pinchAt = Math.max(pinchAt, e.t);
+    else if (e.kind === "water" && base.stage === "pond") topUpAt = Math.max(topUpAt, e.t);
+    else if (e.kind === "water" && base.moveReady) plantedAt = Math.max(plantedAt, e.t);
+  }
+  return { topUpAt, pinchAt, plantedAt };
+}
+
+/** Seconds each eased pond number takes to cover most of the way (levels over 3 s); the rest (counts, flags, stamps) step. */
+const POND_EASE = {
+  waterMM: 3, stonesMM: 3, jarClarity: 3, algae: 8, floatBrown: 8, nibbled: 6, koiHunger: 3, koiGather: 2, aphids: 3,
+  podDry: 10, bud2: 6, petalDrop: 3, warmth: 4,
+} as const satisfies Partial<Record<keyof PondShown, number>>;
+const POND_EASED = Object.keys(POND_EASE) as (keyof typeof POND_EASE)[];
+
+/** One easing step of a lotus's shown pond toward its target, dt seconds on. */
+export function easePond(shown: PondShown, target: PondShown, dt: number): PondShown {
+  const next: PondShown = { ...target };
+  for (const k of POND_EASED) {
+    const d = target[k] - shown[k];
+    next[k] = Math.abs(d) < 5e-4 ? target[k] : shown[k] + d * (1 - Math.exp(-dt / (POND_EASE[k] / 3)));
+  }
+  return next;
+}
+
+const POND_NUMBERS: readonly (keyof PondShown)[] = [
+  "waterMM", "stonesMM", "jarClarity", "algae", "floatLeaves", "aerialLeaves", "floatBrown", "nibbled", "koiHunger", "koiGather", "aphids",
+  "flowerDay", "flowers", "pods", "podDry", "bud2", "petalDrop", "warmth", "topUpAt", "pinchAt", "plantedAt",
+];
+/** A remembered pond (localStorage) that still has every field, or null. */
+function validPond(p: unknown): PondShown | null {
+  if (!p || typeof p !== "object") return null;
+  const o = p as Record<string, unknown>;
+  if (o.stage !== "jar" && o.stage !== "pond") return null;
+  for (const k of POND_NUMBERS) if (typeof o[k] !== "number" || !Number.isFinite(o[k])) return null;
+  for (const k of ["moveReady", "potIsolated", "potDry", "koiGasp"]) if (typeof o[k] !== "boolean") return null;
+  return o as unknown as PondShown;
+}
+
+function samePond(a: PondShown | null, b: PondShown | null): boolean {
+  if (a === null || b === null) return a === b;
+  for (const k of Object.keys(b) as (keyof PondShown)[]) {
+    const x = a[k], y = b[k];
+    if (typeof x === "number" && typeof y === "number" ? Math.abs(x - y) > 2e-4 : x !== y) return false;
+  }
+  return true;
+}
+
 /** The plant this page last showed for an action kind: on/off for the shade cloth and the rain cover. */
 export function toggleShown(snap: Pick<PlantSnapshot, "me" | "meAt" | "local">, kind: "shade" | "cover"): boolean {
   const me = snap.me;
@@ -489,22 +753,6 @@ export function toggleShown(snap: Pick<PlantSnapshot, "me" | "meAt" | "local">, 
 }
 
 // ---- what the renderer is given ------------------------------------------------------------------------------------------
-
-/** Undo the model's growth mapping (toVisual) to recover development D. */
-export function developmentOf(growth: number): number {
-  return growth <= 0.9 ? (growth * 0.85) / 0.9 : 0.85 + (growth - 0.9) * 1.5;
-}
-
-/**
- * The flower against a full one: the model's flower head divided by its growth ramp (so only the stress and the replant
- * cap are left). Before buds form there is nothing to measure, so a second-chance sprout reads its cap and a first seed 1.
- */
-export function flowerSizeOf(v: Pick<Visual, "growth" | "flower" | "alive">, generation: number): number {
-  const cap = generation > 1 ? 0.7 : 1;
-  if (!v.alive || v.flower <= 0) return cap;
-  const ramp = 0.3 + 0.7 * smooth01((developmentOf(v.growth) - 0.64) / (0.95 - 0.64));
-  return clamp(v.flower / ramp, 0.4, 1);
-}
 
 const RENDER_KEYS = [
   "growth", "bloom", "health", "moisture", "scorch", "droop", "chlorosis", "rot", "pests", "mushrooms", "snails", "flowerSize",
@@ -576,8 +824,20 @@ export function easeToward(shown: RenderTarget, target: RenderTarget, dt: number
  * The calm word that greets a care action: at once for the can, the food, tending and talk (their effect shows at once),
  * and once the server has said yes for the shade cloth, the rain cover, the Fairy Dust and the sprout, so the card never
  * promises what did not happen. A seed not yet up (`seed`) is spoken of as a seed: there are no leaves to firm or glow.
+ * A lotus's tend thanks the koi only when it was also their pinch (`pinch`, tendIsPinch); otherwise it only rinses.
  */
-export function thanksFor(kind: CareKind, on: boolean | null, noun: string, pestsBefore: number, n: number, seed = false): string {
+export function thanksFor(
+  kind: CareKind,
+  on: boolean | null,
+  noun: string,
+  pestsBefore: number,
+  n: number,
+  seed = false,
+  v?: Visual | ShownVisual,
+  pinch = true,
+): string {
+  const pond = pondOf(v);
+  if (pond) return lotusThanks(kind, noun, pestsBefore, n, seed, pond, pinch);
   switch (kind) {
     case "water":
       return seed ? "A good drink. The seed soaks it in." : "A good drink. The leaves will firm up over the next hour.";
@@ -604,12 +864,62 @@ export function thanksFor(kind: CareKind, on: boolean | null, noun: string, pest
   }
 }
 
+/**
+ * A lotus's calm words for its care, by what the action did to it (v: the lotus before the action). A bucket on a pond
+ * already at its line (asked first, POND_FULL_PROMPT) spills through the notch, and says so.
+ */
+function lotusThanks(
+  kind: CareKind,
+  noun: string,
+  pestsBefore: number,
+  n: number,
+  seed: boolean,
+  v: Pick<PondVisual, "stage" | "moveReady" | "waterMM">,
+  pinch: boolean,
+): string {
+  switch (kind) {
+    case "water":
+      if (v.stage === "jar") return v.moveReady ? "Into its pot in the pond it goes. The seedling settles under the water." : "Fresh water for the jar. Your seed rests easy.";
+      if (v.waterMM >= POND.fullMM) return "A bucket for the pond. It was at its line, so the extra spills through the notch.";
+      if (v.waterMM >= 0) return "A bucket for the pond. It rises a little above its line.";
+      return v.waterMM + TOP_UP_MM >= 0 ? "A bucket for the pond. The water is back at its line." : "A bucket for the pond. The water rises a little toward its line.";
+    case "feed":
+      return "A lotus tablet, pressed into the mud of its pot.";
+    case "tend":
+      if (!pinch) return pestsBefore > 0.15 ? "The aphids rinsed into the pond, a treat for the koi. Their next pinch comes a little later." : "The pond is tidy. The koi had their pinch not long ago.";
+      return pestsBefore > 0.15 ? "A pinch for the koi, and the aphids rinsed into the pond for them." : "A pinch for the koi. They gather at once.";
+    case "talk":
+      if (seed) return ["Your seed hears you.", "A kind word. Your seed rests easy in its jar.", "Your seed is listening, snug in its jar."][n % 3];
+      return [`Your ${noun} glows a little brighter.`, `A kind word. Your ${noun} glows softly.`, `Your ${noun} seems to lean toward your voice.`][n % 3];
+    case "revive":
+      return `A pinch of Fairy Dust. Your ${noun} will wake within the hour.`;
+    case "replant":
+      return "A second-chance seedling goes into the pot. It will be settled within the hour.";
+    case "shade":
+    case "cover":
+      // never offered for a pond; the server declines them
+      return "A lotus needs neither shade cloth nor rain cover.";
+  }
+}
+
 /** Kinds whose word waits for the server's yes (see thanksFor). */
 const THANKS_AFTER_YES: ReadonlySet<CareKind> = new Set<CareKind>(["shade", "cover", "revive", "replant"]);
 
-/** Why the can or the plant food has to wait, in the server's own words. */
-export function notReadyText(kind: "water" | "feed", nextAt: string | null, noun: string, nowMs: number): string {
+/**
+ * Why the can or the plant food has to wait, in the server's own words (a lotus's: its jar, its planting, its pond).
+ * `planted`: the lotus's last water was its planting (the server's care.water.planted), so no bucket has been poured yet.
+ */
+export function notReadyText(kind: "water" | "feed", nextAt: string | null, noun: string, nowMs: number, v?: Visual | ShownVisual, planted = false): string {
   const when = nextAt ? `${istWhen(nextAt, nowMs)} IST` : "a little later";
+  const pond = pondOf(v);
+  if (pond) {
+    if (kind === "feed") return `Your ${noun} had a lotus tablet recently; tablets are best every two days at most. The next one is welcome from ${when}.`;
+    if (planted) return `Your seedling is settling into its pot; the pond's first top-up is welcome from ${when}.`;
+    if (pond.stage === "pond") return `The pond had a bucket not long ago; the next top-up is welcome from ${when}.`;
+    return pond.moveReady
+      ? `Your seedling had fresh water not long ago; it can go into its pot in the pond from ${when}.`
+      : `Your seed had fresh water not long ago; the next fresh water is welcome from ${when}.`;
+  }
   return kind === "water"
     ? `Your ${noun} had a can of water not long ago; the next one is welcome from ${when}.`
     : `Your ${noun} was fed recently; plant food is best every two days. The next feed is welcome from ${when}.`;
@@ -619,14 +929,58 @@ const CARE_WORDS: Record<CareKind, string> = {
   water: "The water", shade: "The shade cloth", cover: "The rain cover", feed: "The plant food",
   tend: "The tending", talk: "Your words", revive: "The Fairy Dust", replant: "The sprout",
 };
+const LOTUS_CARE_WORDS: Record<CareKind, string> = {
+  ...CARE_WORDS, feed: "The lotus tablet", tend: "The pinch for the koi", replant: "The seedling",
+};
 
 /** A declined action's message: the server's own calm words, or, when it could not be reached, a kind fallback. */
-export function declinedText(kind: CareKind, f: ApiFail): string {
+export function declinedText(kind: CareKind, f: ApiFail, species?: SpeciesId): string {
   if (f.code === "offline" || f.code === "server_error" || f.code === "unexpected") {
-    return `${CARE_WORDS[kind]} did not reach the garden just now. Please try again in a moment.`;
+    return `${(species && isLotus(species) ? LOTUS_CARE_WORDS : CARE_WORDS)[kind]} did not reach the garden just now. Please try again in a moment.`;
   }
   return f.message;
 }
+
+// ---- the care buttons -------------------------------------------------------------------------------------------------
+
+export type CareKey = "water" | "shade" | "cover" | "feed" | "tend" | "talk";
+const SOIL_KEYS: readonly CareKey[] = ["water", "shade", "cover", "feed", "tend", "talk"];
+const POND_KEYS: readonly CareKey[] = ["water", "feed", "tend", "talk"];
+
+/** The care buttons a plant has, in order: six for a soil flower; four for a lotus (a pond has no shade cloth or rain cover). */
+export function careKeysFor(species: SpeciesId): readonly CareKey[] {
+  return isLotus(species) ? POND_KEYS : SOIL_KEYS;
+}
+
+/**
+ * The words on the two buttons that change with the plant: the water button ("Water"; for a lotus "Fresh water" in the
+ * jar, "Plant in the pond" once the seedling is ready, then "Top up the pond") and the tend button ("Tend"; "Tend the
+ * pond" for a lotus).
+ */
+export function careLabels(v: Visual | ShownVisual): { water: string; tend: string } {
+  const pond = pondOf(v);
+  if (!pond) return { water: "Water", tend: "Tend" };
+  return { water: pond.stage === "pond" ? "Top up the pond" : pond.moveReady ? "Plant in the pond" : "Fresh water", tend: "Tend the pond" };
+}
+
+/** "The koi are hungry", "Koi fed at 08:00", "Koi fed yesterday at 18:00", or null (a soil flower, or nothing to say). */
+export function koiLine(me: Pick<MeView, "care" | "visual" | "state">, nowMs: number): string | null {
+  const koi = me.care.koi ?? null;
+  if (!koi || !isPondVisual(me.visual) || !me.state.alive) return null;
+  if (me.visual.koiAdvice === "hungry") return "The koi are hungry";
+  if (!koi.lastAt) return null;
+  const ms = Date.parse(koi.lastAt), d = new Date(ms + IST_OFFSET_MIN * 60_000);
+  const hm = `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`, days = istDay(nowMs) - istDay(ms);
+  if (days <= 0) return `Koi fed at ${hm}`;
+  if (days === 1) return `Koi fed yesterday at ${hm}`;
+  return `Koi last fed on ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}
+
+/** The question before a top-up the pond does not need. */
+export const POND_FULL_PROMPT = { title: "The pond is at its line. Top up anyway?", body: "The extra will spill through the notch." } as const;
+
+/** The seed picker's honest line for the lotus. */
+export const LOTUS_PICKER_LINE = "A lotus in a pond needs you most in its first days; after that the pond looks after it, but the koi still want feeding.";
 
 // ---- the store -----------------------------------------------------------------------------------------------------------
 
@@ -700,6 +1054,8 @@ interface Look {
   seed: string;
   target: RenderTarget;
   at: number;
+  /** a lotus's pond (absent from looks remembered before the lotus, and for a soil flower) */
+  pond?: PondShown | null;
 }
 
 function readLook(): Look | null {
@@ -714,18 +1070,21 @@ function readLook(): Look | null {
       if (!OPTIONAL_KEYS.has(k)) return null;
       l.target[k] = 0;
     }
+    l.pond = isLotus(l.speciesId) ? validPond(l.pond) : null;
     return l;
   } catch {
     return null;
   }
 }
 
-function saveLook(speciesId: SpeciesId, seed: string, target: RenderTarget) {
+function saveLook(speciesId: SpeciesId, seed: string, target: RenderTarget, pond: PondShown | null) {
   const now = Date.now();
   if (now - lookSavedAt < 60_000) return;
   lookSavedAt = now;
   try {
-    window.localStorage.setItem(LOOK_KEY, JSON.stringify({ speciesId, seed, target, at: now } satisfies Look));
+    // the pond's moments are this visit's only: a remembered look never replays a top-up or a planting
+    const kept = pond ? { ...pond, topUpAt: 0, pinchAt: 0, plantedAt: 0 } : null;
+    window.localStorage.setItem(LOOK_KEY, JSON.stringify({ speciesId, seed, target, at: now, pond: kept } satisfies Look));
   } catch {
     // a convenience only: without it the garden opens on the owner's rose and swaps
   }
@@ -748,10 +1107,12 @@ function gardenPatch(t: RenderTarget): Partial<GardenState> {
 // looks for its poster), so a returning visitor's own plant goes in before anything is drawn. /api/me confirms it, or
 // puts the owner's rose back.
 // Only while the loading veil still covers the garden: once it is showing, a new plant comes in through the dissolve.
-if (typeof window !== "undefined" && quality.get().veiled) {
+// (This module loads with the care layer, which may be after the canvas has begun its opening on the owner's rose: a
+// remembered lotus then has the opening start again for its courtyard, RenderBudget reopenUnderVeil.)
+if (typeof window !== "undefined" && underVeil()) {
   const look = readLook();
   if (look) {
-    garden.set({ speciesId: look.speciesId, seed: look.seed, ...gardenPatch(look.target) });
+    garden.set({ speciesId: look.speciesId, seed: look.seed, ...gardenPatch(look.target), pond: look.pond ?? null });
     primed = true;
   }
 }
@@ -759,18 +1120,22 @@ if (typeof window !== "undefined" && quality.get().veiled) {
 // ---- the bridge to the garden store --------------------------------------------------------------------------------------
 
 let shown: RenderTarget | null = null;
+let shownPond: PondShown | null = null;
 let lastStep = 0;
 let bridgeTimer: ReturnType<typeof setInterval> | undefined;
 let swapTimers: ReturnType<typeof setTimeout>[] = [];
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-function currentTarget(me: MeView, now: number): RenderTarget {
-  const v = withCare(me.visual, overlayEvents(me, snap.local), now);
-  return renderTarget(v, me.plant.generation, snap.weather, { shade: toggleShown(snap, "shade"), cover: toggleShown(snap, "cover") });
+function currentTarget(me: MeView, now: number): { target: RenderTarget; pond: PondShown | null } {
+  const events = overlayEvents(me, snap.local);
+  const v = withCare(me.visual, events, now);
+  const target = renderTarget(v, me.plant.generation, snap.weather, { shade: toggleShown(snap, "shade"), cover: toggleShown(snap, "cover") });
+  const pond = isPondVisual(me.visual) && isPondShown(v) ? pondShownOf(v, pondStamps(me.visual, events)) : null;
+  return { target, pond };
 }
 
-function writeTarget(t: RenderTarget, identity?: { speciesId: SpeciesId; seed: string }) {
+function writeTarget(t: RenderTarget, pond: PondShown | null, identity?: { speciesId: SpeciesId; seed: string }) {
   const g = garden.get();
   const p: Partial<GardenState> = identity ? { ...identity } : {};
   let changed = !!identity;
@@ -780,6 +1145,10 @@ function writeTarget(t: RenderTarget, identity?: { speciesId: SpeciesId; seed: s
       p[k] = t[k];
       changed = true;
     }
+  }
+  if (!samePond(g.pond, pond)) {
+    p.pond = pond;
+    changed = true;
   }
   if (changed) garden.set(p);
 }
@@ -806,34 +1175,54 @@ function setDim(state: "in" | "out" | "none") {
   dim.dataset.state = state;
 }
 
-/** Dims the garden, swaps the plant under it, and lets the garden back; immediate while the loading veil covers it. */
+/**
+ * The longest the dim waits for a new scene to be ready (lib/garden/swapGate), from the moment the plant is swapped:
+ * longer than a lotus courtyard's own preparation may take from its mount (LotusGarden PREPARE_MAX_MS, 7 s), so a
+ * courtyard that mounts promptly is always shown before the dim lifts; one that is later still is told to show itself
+ * when this runs out (swapGate onSwapOverdue). Nothing holds a soil flower's swap, so it lifts after the usual moment.
+ */
+const SWAP_HOLD_MS = 9000;
+let swapToken = 0;
+
+/**
+ * Dims the garden, swaps the plant under it, and lets the garden back; immediate while the loading veil covers it (and
+ * the opening compiles the new garden: RenderBudget reopenUnderVeil), dimmed from the veil's fade on. After the usual
+ * moment, the dim also waits for whatever the scene is still preparing (a lotus's courtyard compiling behind it holds the
+ * swap through lib/garden/swapGate), for up to SWAP_HOLD_MS in all.
+ */
 function swapTo(apply: () => void) {
   swapTimers.forEach(clearTimeout);
   swapTimers = [];
-  if (quality.get().veiled) {
+  const token = ++swapToken;
+  if (underVeil()) {
     apply();
     setDim("none");
     patch({ swap: "none" });
     return;
   }
   const quick = reducedMotion();
+  const moment = quick ? 500 : 1300;
   setDim("in");
   patch({ swap: "in" });
   swapTimers.push(
     setTimeout(() => {
       apply();
-      // a moment for the new plant's materials to compile behind the dim, then the garden comes back
+      // a moment for the new plant's materials to compile behind the dim (by then a new scene has said what it still
+      // needs), then the garden comes back
       swapTimers.push(
         setTimeout(() => {
-          setDim("out");
-          patch({ swap: "out" });
-        }, quick ? 500 : 1300),
-      );
-      swapTimers.push(
-        setTimeout(() => {
-          setDim("none");
-          patch({ swap: "none" });
-        }, quick ? 1000 : 2600),
+          void swapSettled(SWAP_HOLD_MS - moment).then(() => {
+            if (token !== swapToken) return;
+            setDim("out");
+            patch({ swap: "out" });
+            swapTimers.push(
+              setTimeout(() => {
+                setDim("none");
+                patch({ swap: "none" });
+              }, moment),
+            );
+          });
+        }, moment),
       );
     }, quick ? 160 : 480),
   );
@@ -843,29 +1232,34 @@ function bridgeStep() {
   const me = snap.me;
   if (!me || snap.swap === "in") return;
   const now = Date.now();
-  const target = currentTarget(me, now);
+  const { target, pond } = currentTarget(me, now);
   const identity = { speciesId: me.plant.species, seed: me.plant.seed };
   const g = garden.get();
   if (g.speciesId !== identity.speciesId || g.seed !== identity.seed) {
     shown = null;
+    shownPond = null;
     swapTo(() => {
-      const fresh = snap.me ? currentTarget(snap.me, Date.now()) : target;
-      shown = fresh;
+      const fresh = snap.me ? currentTarget(snap.me, Date.now()) : { target, pond };
+      shown = fresh.target;
+      shownPond = fresh.pond;
       lastStep = Date.now();
-      writeTarget(fresh, identity);
+      writeTarget(fresh.target, fresh.pond, identity);
     });
     return;
   }
   if (!shown) {
     // the first view of a plant already on screen (a remembered look): ease from what the store shows
     shown = Object.fromEntries(RENDER_KEYS.map((k) => [k, typeof g[k] === "number" ? (g[k] as number) : target[k]])) as RenderTarget;
+    shownPond = g.pond;
     lastStep = now;
   }
   const dt = Math.min(5, (now - lastStep) / 1000);
   lastStep = now;
   shown = easeToward(shown, target, dt);
-  writeTarget(shown);
-  saveLook(identity.speciesId, identity.seed, target);
+  // a pond eases from what is shown; a stage change (the jar to the pond) or a first pond steps straight in
+  shownPond = pond && shownPond && shownPond.stage === pond.stage ? easePond(shownPond, pond, dt) : pond;
+  writeTarget(shown, shownPond);
+  saveLook(identity.speciesId, identity.seed, target, pond);
 }
 
 function startBridge() {
@@ -880,6 +1274,7 @@ function stopBridge() {
 /** Back to the owner's rose (the garden everyone sees when nobody is signed in here). */
 function restoreOwnersGarden() {
   shown = null;
+  shownPond = null;
   primed = false;
   swapTo(() => garden.reset());
 }
@@ -1150,10 +1545,12 @@ export async function sendCare(kind: CareKind, on?: boolean): Promise<void> {
   const me = snap.me;
   if (!me) return;
   const now = Date.now();
+  // a lotus's tend is the koi's pinch only once every few hours (it always rinses): known before this one is counted
+  const pinch = kind === "tend" && isLotus(me.plant.species) ? tendIsPinch(me, snap.local, now) : true;
   const action: LocalAction = { id: newEventId(), kind, on: on ?? null, at: now, status: "sending", confirmedAt: 0 };
   patch({ local: [...snap.local, action], failure: null, now });
   bridgeStep();
-  const thanks = thanksFor(kind, on ?? null, plantNoun(me.plant.species), me.visual.pests, talkCount++, isSeed(me, me.visual));
+  const thanks = thanksFor(kind, on ?? null, plantNoun(me.plant.species), me.visual.pests, talkCount++, isSeed(me, me.visual), me.visual, pinch);
   const afterYes = THANKS_AFTER_YES.has(kind);
   if (!afterYes) say(thanks);
   const seq = ++meSeq;
@@ -1162,7 +1559,9 @@ export async function sendCare(kind: CareKind, on?: boolean): Promise<void> {
     updateLocal(action.id, { status: "sent", confirmedAt: Date.now() });
     if (seq > appliedSeq) applyMe(res.data.me, seq, now);
     const e = res.data.event;
-    if (e.duplicate && !e.unchanged && kind === "tend") say("Tended this hour already; the leaves are tidy.");
+    if (e.duplicate && !e.unchanged && kind === "tend") {
+      say(isLotus(me.plant.species) ? "Tended this hour already; the koi have had their pinch and the leaves are rinsed." : "Tended this hour already; the leaves are tidy.");
+    }
     else if (afterYes) say(thanks);
     return;
   }
@@ -1172,7 +1571,7 @@ export async function sendCare(kind: CareKind, on?: boolean): Promise<void> {
     signedOut("signed-out", true);
     return;
   }
-  const text = declinedText(kind, res);
+  const text = declinedText(kind, res, me.plant.species);
   patch({ failure: { id: ++failureId, kind, text } });
   say(text, "gentle");
 }

@@ -10,7 +10,8 @@
 // seed mass BED.B0, made non-decreasing); B_pot is its mass when the bud matures (D = 1).
 // The numbers are copied verbatim from the locked model.js (fitted for SIM_VERSION 5 and unchanged in 6 and 7, whose changes do
 // not touch development) and are checked against golden-v7.json, so the port reproduces the prototype exactly. Refitting means a new SIM_VERSION and a regenerated golden file.
-import type { SpeciesId } from "@/lib/plant/species";
+// The six soil species only; the lotus's twin is pond.ts's POND_TWIN.
+import type { SoilSpeciesId } from "@/lib/plant/species";
 
 export interface TwinEntry {
   /** twin biomass (g) when its bud matures (D = 1) */
@@ -19,7 +20,7 @@ export interface TwinEntry {
   readonly tab: readonly number[];
 }
 
-export const TWIN: Readonly<Record<SpeciesId, TwinEntry>> = Object.freeze({
+export const TWIN: Readonly<Record<SoilSpeciesId, TwinEntry>> = Object.freeze({
   rose: Object.freeze({
     Bpot: 0.228,
     tab: Object.freeze([0.03, 0.03, 0.0364, 0.0422, 0.0431, 0.0511, 0.0574, 0.0585, 0.0692, 0.0793, 0.0809, 0.0949, 0.1073, 0.1119, 0.1327, 0.15, 0.1559, 0.1789, 0.1969, 0.2042, 0.228]),

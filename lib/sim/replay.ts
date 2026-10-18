@@ -15,8 +15,10 @@
 // - Weather is never invented: replay stops at the first hour the weather lookup cannot supply, and the returned state's
 //   h says where (h < toH). Backfill that hour (forecast past_days, or the archive) and call again from the result.
 // - Stepping in chunks gives exactly the same state as stepping in one go, so checkpoints can be saved at any hour.
+// - A soil flower and a lotus replay alike: plant.ts steps each state in the model that wrote it.
 import type { SpeciesId } from "@/lib/plant/species";
-import { createPlant, step, type HourWeather, type PlantState, type SimEvent } from "./model";
+import type { HourWeather, SimEvent } from "./model";
+import { createPlant, step, type PlantState } from "./plant";
 
 /** A player event and the game hour it happened in. */
 export type TimedEvent = SimEvent & { h: number };
@@ -41,14 +43,15 @@ function bucketByHour(events: readonly TimedEvent[], fromH: number, toH: number)
  * Steps a checkpoint through every completed hour up to toH (exclusive), applying events by hour bucket. Stops early,
  * without inventing weather, at the first hour weather(h) returns undefined. Never mutates its inputs.
  */
-export function catchUp(checkpoint: PlantState, events: readonly TimedEvent[], weather: WeatherAt, toH: number): PlantState {
+export function catchUp<S extends PlantState>(checkpoint: S, events: readonly TimedEvent[], weather: WeatherAt, toH: number): S {
   if (!(checkpoint.h < toH)) return checkpoint;
   const buckets = bucketByHour(events, checkpoint.h, toH);
   let s = checkpoint;
   while (s.h < toH) {
     const h = s.h, wx = weather(h);
     if (!wx) break;
-    const next = step(s, { h, wx }, buckets.get(h) ?? NO_EVENTS);
+    // a state steps in the model that wrote it, so a soil state stays soil and a pond state stays pond
+    const next = step(s as PlantState, { h, wx }, buckets.get(h) ?? NO_EVENTS) as S;
     if (next.h !== h + 1) break;          // a checkpoint from before its own planting hour: nothing can advance it
     s = next;
   }

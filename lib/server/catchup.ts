@@ -4,11 +4,13 @@
 // version) is never saved. A loser reloads and tries again, or simply returns what it computed without saving.
 //
 // The storage is injected (AdvanceDeps), so this runs in tests against in-memory fakes; lib/server/garden.ts wires it
-// to Postgres. A checkpoint written by another SIM_VERSION is not stepped on: the plant is rebuilt from its planting
+// to Postgres. A checkpoint written by another model version is not stepped on: the plant is rebuilt from its planting
 // (seedState() and catchUp() over every event, what replayFromPlanting() does), which is what makes the event log the
-// source of truth. A deployment that must not write checkpoints (env.ts: anything but production, while the database is
+// source of truth. The six soil flowers and the lotus have their own models and versions (lib/sim/plant.ts
+// modelVersionOf: SIM_VERSION 7, and 1000 + POND_VERSION for the lotus), so a checkpoint is trusted only when its
+// version, its state's own mark and its state's species all match what the planting is stepped by now. A deployment that must not write checkpoints (env.ts: anything but production, while the database is
 // shared) leaves saveCheckpoint out and gets the catch-up computed once, returned and dropped.
-import { SIM_VERSION, catchUp, createPlant, type PlantState, type Planting, type TimedEvent, type WeatherAt } from "@/lib/sim";
+import { catchUp, createPlant, isCurrentState, isPondState, modelVersionOf, type PlantState, type Planting, type TimedEvent, type WeatherAt } from "@/lib/sim";
 
 export interface CheckpointRecord {
   h: number;
@@ -42,21 +44,28 @@ export interface AdvanceResult {
 }
 
 /**
- * A fresh seed for a planting: createPlant(), except for a rehearsal planted before the game clock starts (a negative
- * hour, only ever before the party). The model marks "never watered or fed" as hour -99, which at a negative hour would
- * read as a recent can and refuse every can and feed for weeks, so for those plants alone the marks move 99 hours
- * before the planting. Real plantings (from PLANT_OPEN_H, on 10 Nov) are exactly createPlant().
+ * A fresh seed for a planting: createPlant(), except for a soil rehearsal planted before the game clock starts (a
+ * negative hour, only ever before the party). The soil model marks "never watered or fed" as hour -99, which at a
+ * negative hour would read as a recent can and refuse every can and feed for weeks, so for those plants alone the marks
+ * move 99 hours before the planting. Real plantings (from PLANT_OPEN_H, on 10 Nov) are exactly createPlant(). A lotus
+ * needs no such move: the pond model marks "not yet" with POND_NONE, far before any hour.
  */
 export function seedState(planting: Planting): PlantState {
   const s = createPlant(planting.speciesId, planting.plantedH, planting.owner);
-  if (planting.plantedH >= 0) return s;
+  if (planting.plantedH >= 0 || isPondState(s)) return s;
   const never = planting.plantedH - 99;
   return { ...s, lastCanH: Math.min(s.lastCanH, never), lastFeedH: Math.min(s.lastFeedH, never) };
 }
 
-/** The state to step from: the checkpoint, or a fresh seed when the checkpoint came from another model version. */
+/**
+ * The state to step from: the checkpoint, or a fresh seed when the checkpoint came from another model version (its
+ * sim_version, its state's own version mark, or the species in its state differ from the planting's model now).
+ */
 export function baseState(cp: CheckpointRecord, planting: Planting): { state: PlantState; rebuilt: boolean } {
-  if (cp.simVersion === SIM_VERSION && cp.state.v === SIM_VERSION) return { state: cp.state, rebuilt: false };
+  const st = cp.state;
+  if (cp.simVersion === modelVersionOf(planting.speciesId) && st && isCurrentState(st) && st.sp === planting.speciesId) {
+    return { state: st, rebuilt: false };
+  }
   return { state: seedState(planting), rebuilt: true };
 }
 

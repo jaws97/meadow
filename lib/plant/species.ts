@@ -1,7 +1,19 @@
-// The six seed packets. Every number here is in metres and radians.
-// Five are inspired by a film and the Island Bloom is our own; all art is original.
+// The seven seed packets. Every number here is in metres and radians.
+// Five are inspired by a film; the Island Bloom and the Lotus are our own; all art is original.
+// The six soil flowers grow in the garden bed (lib/sim/model.ts); the Lotus grows in its own koi pond (lib/sim/pond.ts)
+// and is drawn by components/lotus, so its record below only stands in for code that reads every species.
 
-export type SpeciesId = "rose" | "sundrop" | "magnolia" | "marigold" | "island" | "jasmine";
+/** The six flowers of the garden bed, which the soil model (SIM_VERSION 7) grows. */
+export type SoilSpeciesId = "rose" | "sundrop" | "magnolia" | "marigold" | "island" | "jasmine";
+export type SpeciesId = SoilSpeciesId | "lotus";
+
+/** Every species in the seed picker's order, the lotus last. */
+export const ALL_SPECIES: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"];
+
+/** The lotus grows in a pond, not the bed: its model, care, scene and words differ. */
+export function isLotus(id: SpeciesId): id is "lotus" {
+  return id === "lotus";
+}
 
 export interface PetalLayer {
   /** petals in this whorl */
@@ -249,6 +261,35 @@ export const SPECIES: Record<SpeciesId, Species> = {
       budRadius: 0.03,
     },
     fx: { glowNight: true, pulse: false, sparks: false, scent: true, glowColor: "#fff1c9" },
+  },
+  lotus: {
+    // A stand-in for everything that reads every species (names, the party feed's dot, the glow colour, the developer
+    // panel, the Meadow's fallback heads, speciesHeight): the real lotus, pads, stalks, flower and pod are drawn by
+    // components/lotus. Its colours are the lotus look's soft pink (components/lotus/materials.ts PETAL_SETS.pink, the
+    // pads of textures.ts) and its petals the three whorls of build.ts, drawn at the soil flowers' scale.
+    id: "lotus",
+    name: "Lotus",
+    film: "Original",
+    tagline: "A soft pink lotus in its own koi pond, in a quiet courtyard.",
+    stem: { height: 0.55, radius: 0.008, segments: 3, lean: 0.06, wobble: 0.3, color: "#6c8a4a", tipColor: "#7f9a52", thorns: true, thornColor: "#5d7440" },
+    leaves: {
+      count: [3, 5], length: 0.2, width: 0.2, serration: 0, fold: 0.12, gloss: 0.15, compound: 1,
+      color: "#3f6d5c", tipColor: "#5b8659", veinColor: "#b3c08c",
+    },
+    flower: {
+      layers: [
+        { count: 5, length: 0.19, width: 0.12, open: 0.55, bend: 0.04, cup: 0.95, ruffle: 0.04, tip: 0.34 },
+        { count: 6, length: 0.23, width: 0.145, open: 0.95, bend: 0.08, cup: 0.9, ruffle: 0.04, tip: 0.34 },
+        { count: 7, length: 0.255, width: 0.16, open: 1.3, bend: 0.12, cup: 0.85, ruffle: 0.05, tip: 0.34 },
+      ],
+      colorBase: "#fdf6ea", colorMid: "#f8cdd7", colorTip: "#ee9db4", veinColor: "#de7898", veins: 9,
+      sheenColor: "#fff0f3", sheen: 0.5, roughness: 0.5, transmission: 0.35, thickness: 0.12, attenuationColor: "#e8879f",
+      emissive: "#ffb070", emissiveDay: 0.02, emissiveNight: 0.35,
+      center: { color: "#e3cf6a", radius: 0.05, stamens: 40, stamenColor: "#f6d77a" },
+      sepals: { count: 4, length: 0.06, width: 0.04, color: "#7f9a52" },
+      budRadius: 0.07,
+    },
+    fx: { glowNight: true, pulse: false, sparks: false, scent: true, glowColor: "#ffb070" },
   },
 };
 

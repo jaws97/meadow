@@ -1,6 +1,7 @@
-// The plant simulation's public API: the locked model (SIM_VERSION 7), game time, Bangalore weather from Open-Meteo,
-// the climate normal behind the bloom forecast, the heavy-rain hint read from the forecast (rainSoon), and the replay the
-// server runs to bring a stored plant up to date.
+// The plant simulation's public API: the locked soil model (SIM_VERSION 7) for the six flowers of the bed, the Lotus's
+// pond model (POND_VERSION 1), the one door to both (plant.ts: createPlant, step, toVisual and expectBloom dispatch by
+// species and by state), game time, Bangalore weather from Open-Meteo, the climate normal behind the bloom forecast, the
+// heavy-rain hint read from the forecast (rainSoon), and the replay the server runs to bring a stored plant up to date.
 // Framework-free and pure apart from weather.ts's fetch helpers, so the same code runs on the server, in tests and in
 // the browser.
 export {
@@ -10,10 +11,6 @@ export {
   SIM_SPECIES,
   TWIN,
   PLANT_LINES,
-  createPlant,
-  step,
-  toVisual,
-  expectBloom,
   rainSoon,
   canPlant,
   opensInMorning,
@@ -44,14 +41,47 @@ export type {
   OnOff,
   PlantLine,
   PlantMood,
-  PlantState,
   RainSoon,
   SimEvent,
   SimEventKind,
   SimSpecies,
   TwinEntry,
-  Visual,
 } from "./model";
+export {
+  POND_MODEL_BASE,
+  createPlant,
+  step,
+  toVisual,
+  expectBloom,
+  isPondState,
+  isPondVisual,
+  modelVersionOf,
+  modelVersionOfState,
+  isCurrentState,
+  bloomedAt,
+  ripeAt,
+  diedAt,
+} from "./plant";
+export type { PlantState, Visual, SoilState, SoilVisual } from "./plant";
+export {
+  POND_VERSION,
+  POND_NONE,
+  POND,
+  JAR,
+  POND_SPECIES,
+  POND_TWIN,
+  POND_GEO,
+  POND_LINES,
+  createPond,
+  stepPond,
+  expectBloomPond,
+  toVisualPond,
+  levelMM,
+  koiHunger,
+  connected,
+  pondOpenWindow,
+} from "./pond";
+export type { KoiAdvice, Pond, PondFeedAdvice, PondLine, PondSpecies, PondState, PondVisual } from "./pond";
 export {
   GAME_START_IST,
   GAME_START_MS,

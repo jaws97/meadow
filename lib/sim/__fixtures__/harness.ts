@@ -7,7 +7,7 @@
 // of year y and row h is the Open-Meteo row stamped at the end of that hour. 2025 is the prototype's demo-weather.json
 // as written; 2023 and 2024 use the same scaled-integer format, and the 3-10 Nov 2023 wet week has its own file.
 import fs from "node:fs";
-import type { SpeciesId } from "@/lib/plant/species";
+import type { SoilSpeciesId as SpeciesId } from "@/lib/plant/species";
 import { BED, PLANT_OPEN_H, SIM_SPECIES, createPlant, fOf, opensInMorning, rainSoon, step, toVisual } from "../model";
 import type { ForecastRow, HourWeather, PlantState, SimEvent, SimSpecies, Visual } from "../model";
 

@@ -2,7 +2,20 @@
 // stores: the result always equals a straight replay from planting, an event recorded mid-catch-up is never lost, a
 // weather gap pauses without inventing anything, and a checkpoint from another model version is rebuilt.
 import { describe, expect, it } from "vitest";
-import { SIM_VERSION, catchUp, createPlant, replayFromPlanting, type HourWeather, type PlantState, type Planting, type TimedEvent } from "@/lib/sim";
+import {
+  POND_NONE,
+  POND_VERSION,
+  SIM_VERSION,
+  catchUp,
+  createPlant,
+  modelVersionOf,
+  modelVersionOfState,
+  replayFromPlanting,
+  type HourWeather,
+  type PlantState,
+  type Planting,
+  type TimedEvent,
+} from "@/lib/sim";
 import { advanceCheckpoint, baseState, seedState, type AdvanceDeps, type CheckpointRecord } from "./catchup";
 
 const OWNER = "5b0c9f1e-2a3d-4e5f-8a9b-0c1d2e3f4a5b";
@@ -173,6 +186,62 @@ describe("baseState", () => {
     expect(rebuilt).toBe(true);
     expect(state).toEqual(seedState(planting));
     expect(catchUp(state, [{ id: 1, h: 25, kind: "water" }], wx, 70)).toMatchObject({ sp: "island", v: SIM_VERSION, h: 70, alive: true });
+  });
+});
+
+describe("a lotus checkpoint", () => {
+  const LOTUS: Planting = { speciesId: "lotus", plantedH: 17, owner: OWNER };
+  const lotusAt = (h: number, events: TimedEvent[] = []) => replayFromPlanting(LOTUS, events, wx, h);
+
+  it("is stored under 1001 (1000 + POND_VERSION), apart from the soil versions", () => {
+    expect(modelVersionOf("lotus")).toBe(1000 + POND_VERSION);
+    expect(modelVersionOf("rose")).toBe(SIM_VERSION);
+    expect(modelVersionOfState(createPlant("lotus", 17, OWNER))).toBe(1001);
+    expect(modelVersionOfState(createPlant("rose", 17, OWNER))).toBe(SIM_VERSION);
+  });
+
+  it("is trusted only when its version, its state's mark and its species all match the planting", () => {
+    const s = lotusAt(60, [{ id: 1, h: 20, kind: "water" }, { id: 2, h: 21, kind: "tend" }]);
+    expect(baseState({ h: 60, state: s, simVersion: 1001, version: 2 }, LOTUS)).toEqual({ state: s, rebuilt: false });
+    // the soil version in the column, a pond state from another POND_VERSION, a soil state under a lotus planting, a lotus
+    // state under a soil planting: each is rebuilt from the planting
+    expect(baseState({ h: 60, state: s, simVersion: SIM_VERSION, version: 2 }, LOTUS).rebuilt).toBe(true);
+    expect(baseState({ h: 60, state: { ...s, v: POND_VERSION + 1 }, simVersion: 1001, version: 2 }, LOTUS).rebuilt).toBe(true);
+    const soil = createPlant("rose", 17, OWNER);
+    expect(baseState({ h: 17, state: soil, simVersion: 1001, version: 0 }, LOTUS).rebuilt).toBe(true);
+    expect(baseState({ h: 60, state: s, simVersion: SIM_VERSION, version: 2 }, { ...LOTUS, speciesId: "rose" }).rebuilt).toBe(true);
+    expect(baseState({ h: 60, state: s, simVersion: 1001, version: 2 }, { ...LOTUS, speciesId: "rose" }).rebuilt).toBe(true);
+  });
+
+  it("catches up in its own model and saves under its own version", async () => {
+    const seed = seedState(LOTUS);
+    let cp: CheckpointRecord = { h: seed.h, state: seed, simVersion: modelVersionOf("lotus"), version: 0 };
+    const events: TimedEvent[] = [{ id: 1, h: 20, kind: "water" }, { id: 2, h: 40, kind: "tend" }, { id: 3, h: 66, kind: "water" }];
+    const deps: AdvanceDeps = {
+      planting: LOTUS,
+      loadCheckpoint: async () => JSON.parse(JSON.stringify(cp)) as CheckpointRecord,
+      loadEvents: async (fromH, toH) => events.filter((e) => e.h >= fromH && e.h < toH),
+      ensureWeather: async () => {},
+      loadWeather: async () => wx,
+      saveCheckpoint: async (expected, state) => {
+        if (cp.version !== expected) return false;
+        cp = { h: state.h, state: JSON.parse(JSON.stringify(state)) as PlantState, simVersion: modelVersionOfState(state), version: expected + 1 };
+        return true;
+      },
+    };
+    await advanceCheckpoint(deps, 50);
+    const r = await advanceCheckpoint(deps, 90);
+    expect(r.state).toEqual(lotusAt(90, events));
+    expect(cp.simVersion).toBe(1001);
+    expect(r.state).toMatchObject({ medium: "pond", sp: "lotus", v: POND_VERSION });
+  });
+
+  it("needs no rehearsal shift before the party: its \"not yet\" marks are POND_NONE", () => {
+    const rehearsal: Planting = { ...LOTUS, plantedH: -577 };
+    expect(seedState(rehearsal)).toEqual(createPlant("lotus", -577, OWNER));
+    const s = catchUp(seedState(rehearsal), [{ id: 1, h: -577, kind: "water" }, { id: 2, h: -577, kind: "tend" }], wx, -570);
+    expect(s.lastCanH).toBe(-577);
+    expect(s).toMatchObject({ lastKoiH: -577, lastFeedH: POND_NONE, bloomH: POND_NONE });
   });
 });
 

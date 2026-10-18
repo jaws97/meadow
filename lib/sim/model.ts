@@ -38,7 +38,11 @@
 //
 // Hour index h counts whole hours from GAME_START (10 Nov 2026 00:00 IST), so the IST clock hour is h % 24. step() for
 // hour h covers [h, h + 1) and takes the Open-Meteo row stamped at the END of that hour (weather.ts builds those rows).
-import type { SpeciesId } from "@/lib/plant/species";
+//
+// The six soil species only (SoilSpeciesId): the Lotus grows in a pond under its own model and version (pond.ts,
+// POND_VERSION), and plant.ts sends each plant to its model. Since the lotus joined, the species ids here are typed
+// SoilSpeciesId; not one equation or number changed.
+import type { SoilSpeciesId } from "@/lib/plant/species";
 import { TWIN } from "./twin";
 
 export { TWIN };
@@ -99,7 +103,7 @@ export type Bed = typeof BED;
 // ---- species ---------------------------------------------------------------------------------------------------------
 
 export interface SimSpecies {
-  readonly id: SpeciesId;
+  readonly id: SoilSpeciesId;
   readonly name: string;
   /** depletion share before the stomata close */
   readonly p: number;
@@ -147,7 +151,7 @@ export interface SimSpecies {
 // * game-tuned or estimated. Tb/Tlo/Topt/Tmax degC, TT degC.d (seed to a mature bud), RUE g/MJ PAR, SLA m2/g, dLeaf m.
 // Morning flowers start opening at 06:00 and are half open by 08:00 (magnolia, slower, by 09:00); Night Jasmine at 17:00,
 // half open by 18:00.
-export const SIM_SPECIES: Readonly<Record<SpeciesId, SimSpecies>> = Object.freeze({
+export const SIM_SPECIES: Readonly<Record<SoilSpeciesId, SimSpecies>> = Object.freeze({
   rose: Object.freeze<SimSpecies>({ id: "rose", name: "Enchanted Rose", p: 0.40, wilt: 0.30, Zrmax: 0.085, tolD: 1.1, tolW: 1.0, Tb: 5.2, Tlo: 17, Topt: 27, Tmax: 42.7, TT: 155.8, TTreal: 1000, RUE: 2.2, SLA: 0.020, Tcrit: 43, dLeaf: 0.088, openHod: 6, openDur: 4, mites: 0.5, blackSpot: true,
     truth: "A germinated seedling of a repeat-flowering rose usually shows its first small flower after about 6-10 weeks; here it takes 2." }),
   sundrop: Object.freeze<SimSpecies>({ id: "sundrop", name: "Sundrop", p: 0.45, wilt: 0.50, Zrmax: 0.10, tolD: 1.1, tolW: 0.96, Tb: 6, Tlo: 17, Topt: 28, Tmax: 40, TT: 145.5, TTreal: 900, RUE: 2.5, SLA: 0.025, Tcrit: 45, dLeaf: 0.04, openHod: 6, openDur: 4, mites: 0.3,
@@ -220,7 +224,7 @@ export type SimEventKind = SimEvent["kind"];
 export interface PlantState {
   /** SIM_VERSION that produced this state */
   v: number;
-  sp: SpeciesId;
+  sp: SoilSpeciesId;
   owner: string | null;
   /** the next hour to step; the state describes the moment h (the start of hour h) */
   h: number;
@@ -513,7 +517,7 @@ export function abaSignal(sp: SimSpecies, f: number, KsRoot: number, KsSalt: num
 }
 
 /** A fresh seed in a bed watered at planting. plantedAtIndex is the game hour it goes in (check canPlant first). */
-export function createPlant(speciesId: SpeciesId, plantedAtIndex: number, owner?: string | null): PlantState {
+export function createPlant(speciesId: SoilSpeciesId, plantedAtIndex: number, owner?: string | null): PlantState {
   return {
     v: SIM_VERSION, sp: speciesId, owner: owner == null ? null : owner, h: plantedAtIndex, plantedH: plantedAtIndex,
     hod: hodOf(plantedAtIndex), alive: true, gen: 1, fairyUsed: false, diedH: -1,

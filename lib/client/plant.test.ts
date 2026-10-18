@@ -1,21 +1,35 @@
 // The care layer's pure helpers: the words it shows (soil, weather, bloom outlook, planting day, friends), what a
 // resting plant offers, the optimistic effect of care before the server folds it in, and what the 3D plant is given.
 import { describe, expect, it } from "vitest";
-import { createPlant, dateOfHour, toVisual, type Visual } from "@/lib/sim";
+import { POND, createPlant, dateOfHour, stepPond, toVisual, toVisualPond, type PondState, type PondVisual, type SoilVisual as Visual } from "@/lib/sim";
+import { garden } from "@/lib/garden/store";
 import { isUuid } from "@/lib/server/validate";
 import { isRetryable, newEventId, retryDelayMs } from "./api";
 import {
+  LOTUS_PICKER_LINE,
+  POND_FULL_PROMPT,
+  RAIN_POND_LINE,
+  JAR_LINE,
   bloomText,
+  careKeysFor,
+  careLabels,
   declinedText,
+  easePond,
   easeToward,
   flowerSizeOf,
   friendsLine,
   friendsText,
   istWhen,
   notReadyText,
+  koiLine,
+  lineAsksForWater,
   outlookText,
   overlayEvents,
   plantLine,
+  plantNoun,
+  pondShownOf,
+  pondStamps,
+  pondWord,
   plantedText,
   rainHint,
   rainHintText,
@@ -243,7 +257,7 @@ describe("optimistic care", () => {
 
   it("darkens the soil within seconds and firms the leaves over the hour", () => {
     const base = visual({ moisture: 0.5, droop: 0.6, canAdvice: "ready", says: "ready for a drink", mood: "thirsty" });
-    const ev = [{ kind: "water" as const, on: null, t: t0 }];
+    const ev = [{ kind: "water" as const, on: null, t: t0, mine: true }];
     expect(withCare(base, ev, t0).moisture).toBeCloseTo(0.5, 5);
     const soon = withCare(base, ev, t0 + 8000);
     expect(soon.moisture).toBeGreaterThan(0.74);
@@ -262,10 +276,10 @@ describe("optimistic care", () => {
 
   it("clears pests when tended and glows after a kind word", () => {
     const base = visual({ pests: 0.5, snails: 2 });
-    const tended = withCare(base, [{ kind: "tend", on: null, t: t0 }], t0 + 10_000);
+    const tended = withCare(base, [{ kind: "tend", on: null, t: t0, mine: true }], t0 + 10_000);
     expect(tended.pests).toBeCloseTo(0.05, 5);
     expect(tended.snails).toBe(0);
-    expect(withCare(base, [{ kind: "talk", on: null, t: t0 }], t0 + 5000).glow).toBe(1);
+    expect(withCare(base, [{ kind: "talk", on: null, t: t0, mine: true }], t0 + 5000).glow).toBe(1);
   });
 
   it("shows a shade or cover change before the server has answered", () => {
@@ -305,6 +319,168 @@ describe("what the 3D plant is given", () => {
     let s = a;
     for (let i = 0; i < 100; i++) s = easeToward(s, b, 0.4);
     expect(s.growth).toBe(0.4);
+  });
+});
+
+describe("the lotus", () => {
+  const rows = (h: number) => ({ T: 25, RH: 70, P: 0, SW: h % 24 >= 7 && h % 24 <= 17 ? 500 : 0, ET0: 0.2, U: 6, Ts: 24, isDay: (h % 24 >= 7 && h % 24 <= 17 ? 1 : 0) as 0 | 1 });
+  const lotusState = (over: Partial<PondState> = {}): PondState => ({ ...createPlant("lotus", 15, "me"), ...over });
+  const pondV = (over: Partial<PondVisual> = {}, s: Partial<PondState> = {}): PondVisual => ({ ...toVisualPond(lotusState(s)), ...over });
+  const water = (t: number, mine = true) => [{ kind: "water" as const, on: null, t, mine }];
+
+  it("has four care buttons and its own words on two of them", () => {
+    expect(careKeysFor("lotus")).toEqual(["water", "feed", "tend", "talk"]);
+    expect(careKeysFor("rose")).toEqual(["water", "shade", "cover", "feed", "tend", "talk"]);
+    expect(careLabels(pondV())).toEqual({ water: "Fresh water", tend: "Tend the pond" });
+    expect(careLabels(pondV({ moveReady: true }))).toEqual({ water: "Plant in the pond", tend: "Tend the pond" });
+    expect(careLabels(pondV({ stage: "pond" }))).toEqual({ water: "Top up the pond", tend: "Tend the pond" });
+    expect(careLabels(visual())).toEqual({ water: "Water", tend: "Tend" });
+    expect(plantNoun("lotus")).toBe("lotus");
+  });
+
+  it("names the water in the Pond chip: the jar's clearness, then the pond's level against its line", () => {
+    expect(pondWord(pondV({ jarClarity: 0.95 }))).toBe("clear");
+    expect(pondWord(pondV({ jarClarity: 0.7 }))).toBe("clouding");
+    expect(pondWord(pondV({ jarClarity: 0.3 }))).toBe("cloudy");
+    const p = (waterMM: number, more: Partial<PondVisual> = {}) => pondWord(pondV({ stage: "pond", waterMM, potIsolated: waterMM < -25, potDry: false, ...more }));
+    expect(p(2)).toBe("at its line");
+    // from where a bucket would spill (and the top-up asks first), the chip has its own word
+    expect(p(POND.fullMM)).toBe("full");
+    expect(p(POND.fullMM - 0.5)).toBe("at its line");
+    expect(p(-12)).toBe("could use a top-up");
+    expect(p(-20)).toBe("low");
+    expect(p(-40)).toBe("below the pot");
+    expect(p(-80, { potDry: true })).toBe("the pot is drying");
+  });
+
+  it("shows fresh jar water, the planting and a bucket at once", () => {
+    const t0 = Date.UTC(2026, 10, 12, 4);
+    const cloudy = pondV({ jarClarity: 0.4, canAdvice: "ready", says: "time for fresh water" });
+    const fresh = withCare(cloudy, water(t0), t0 + 1000);
+    expect(fresh).toMatchObject({ medium: "pond", stage: "jar", canAdvice: "damp", says: "thank you for the fresh water" });
+    expect((fresh as PondVisual).jarClarity).toBeGreaterThan(0.95);
+    const ready = pondV({ moveReady: true, says: "my root and first leaf are out; plant me in my pot in the pond" });
+    expect(withCare(ready, water(t0), t0 + 1000)).toMatchObject({ stage: "pond", moveReady: false, says: "I have settled into my pot in the pond" });
+    const low = pondV({ stage: "pond", waterMM: -15, pondMM: -15, canAdvice: "ready", says: "the pond could use a top-up" });
+    const topped = withCare(low, water(t0), t0 + 1000) as PondVisual;
+    expect(topped.waterMM).toBeCloseTo(-15 + POND.can / 1.3038, 1);
+    expect(topped.says).toBe("thank you for the top-up");
+    // a full pond spills at the notch: never above +20 mm
+    expect((withCare(pondV({ stage: "pond", waterMM: 15 }), water(t0), t0 + 1000) as PondVisual).waterMM).toBe(20);
+    expect(withCare(pondV({ stage: "pond", waterMM: 15 }), water(t0), t0 + 1000).canAdvice).toBe("damp");
+  });
+
+  it("a tend feeds the koi and rinses the aphids", () => {
+    const t0 = Date.UTC(2026, 10, 12, 4);
+    const hungry = pondV({ stage: "pond", koiHunger: 0.8, koiGather: 0, koiAdvice: "hungry", aphids: 0.5, pests: 0.5, says: "the koi are hungry" });
+    const fed = withCare(hungry, [{ kind: "tend", on: null, t: t0, mine: true }], t0 + 10_000) as PondVisual;
+    expect(fed).toMatchObject({ koiGather: 1, koiAdvice: "fed", says: "the koi are fed" });
+    expect(fed.koiHunger).toBe(0);
+    expect(fed.aphids).toBeCloseTo(0.05, 5);
+  });
+
+  it("a tend inside the koi's four hours only rinses: no gathering, no fed koi, no pinch to play", () => {
+    const t0 = Date.UTC(2026, 10, 12, 4);
+    const v = pondV({ stage: "pond", koiHunger: 0.3, koiGather: 0, koiAdvice: "ready", aphids: 0.5, pests: 0.5, says: "aphids on my leaves; wash them into the pond for the koi" });
+    const rinse = [{ kind: "tend" as const, on: null, t: t0, mine: true, pinch: false }];
+    const rinsed = withCare(v, rinse, t0 + 10_000) as PondVisual;
+    expect(rinsed).toMatchObject({ koiGather: 0, koiAdvice: "ready", koiHunger: 0.3, says: "the aphids are rinsed into the pond" });
+    expect(rinsed.aphids).toBeCloseTo(0.05, 5);
+    expect(pondStamps({ stage: "pond", moveReady: false }, rinse)).toEqual({ topUpAt: 0, pinchAt: 0, plantedAt: 0 });
+    expect(thanksFor("tend", null, "lotus", 0.5, 0, false, v, false)).toMatch(/^The aphids rinsed into the pond/);
+    expect(thanksFor("tend", null, "lotus", 0, 0, false, v, false)).toMatch(/koi had their pinch not long ago/);
+  });
+
+  it("marks which tends were the koi's pinch, as the server counts them", () => {
+    const h = 300, at = (hh: number, min = 10) => dateOfHour(hh).getTime() + min * 60_000;
+    const lotusView = (koi: MeView["care"]["koi"], pending: MeView["pending"] = []) =>
+      ({ ...view({ nowH: h, stateH: h - 1, pending }), care: { ...view().care, koi } }) as unknown as MeView;
+    const pinches = (me: MeView, local: LocalAction[]) => overlayEvents(me, local).filter((e) => e.kind === "tend").map((e) => e.pinch);
+    // the koi were fed two hours ago: a tend now only rinses; one fed five hours ago: a tend now is their pinch
+    expect(pinches(lotusView({ ready: false, nextAt: dateOfHour(h + 2).toISOString(), lastAt: dateOfHour(h - 2).toISOString() }), [action("tend", at(h))])).toEqual([false]);
+    expect(pinches(lotusView({ ready: true, nextAt: null, lastAt: dateOfHour(h - 5).toISOString() }), [action("tend", at(h))])).toEqual([true]);
+    expect(pinches(lotusView({ ready: true, nextAt: null, lastAt: null }), [action("tend", at(h))])).toEqual([true]);
+    // a pending tend the server counted is the pinch; a second one an hour later is not
+    const counted = lotusView({ ready: false, nextAt: dateOfHour(h + 3).toISOString(), lastAt: dateOfHour(h - 1).toISOString() }, [{ kind: "tend", h: h - 1, at: "", on: null }]);
+    expect(pinches(counted, [action("tend", at(h))])).toEqual([true, false]);
+    // a soil flower's view says nothing of koi: nothing is marked
+    expect(overlayEvents(view({ stateH: h }), [action("tend", at(h))])[0].pinch).toBeUndefined();
+  });
+
+  it("thanks friends for a sprinkle by the pond as the kind thought it is", () => {
+    expect(friendsLine(["Asha"], "lotus", true)).toBe("Asha left a sprinkle by your pond today, a kind thought for your lotus.");
+    expect(friendsLine(["Asha", "A friend"], "lotus", true)).toBe("Asha and a friend left sprinkles by your pond today, kind thoughts for your lotus.");
+    expect(friendsLine(["Asha"], "rose")).toBe("Asha left a sprinkle for your rose today.");
+  });
+
+  it("stamps this device's own top-up, pinch and planting, and nobody else's", () => {
+    const t0 = Date.UTC(2026, 10, 12, 4);
+    expect(pondStamps({ stage: "pond", moveReady: false }, [...water(t0), { kind: "tend", on: null, t: t0 + 5, mine: true }])).toEqual({ topUpAt: t0, pinchAt: t0 + 5, plantedAt: 0 });
+    expect(pondStamps({ stage: "jar", moveReady: true }, water(t0))).toEqual({ topUpAt: 0, pinchAt: 0, plantedAt: t0 });
+    expect(pondStamps({ stage: "jar", moveReady: false }, water(t0))).toEqual({ topUpAt: 0, pinchAt: 0, plantedAt: 0 });
+    expect(pondStamps({ stage: "pond", moveReady: false }, water(t0, false))).toEqual({ topUpAt: 0, pinchAt: 0, plantedAt: 0 });
+  });
+
+  it("gives the garden its pond, easing the levels and stepping the counts", () => {
+    let s = lotusState({ stage: 1, movedH: 15, D: 0.3 });
+    for (let h = 15; h < 40; h++) s = stepPond(s, { h, wx: rows(h) }, []);
+    const v = toVisualPond(s);
+    const a = pondShownOf(v);
+    expect(a).toMatchObject({ stage: "pond", topUpAt: 0, pinchAt: 0, plantedAt: 0, floatLeaves: v.floatLeaves });
+    const b = { ...a, waterMM: a.waterMM + 11.5, floatLeaves: a.floatLeaves + 1, topUpAt: 123 };
+    const one = easePond(a, b, 0.4);
+    expect(one.waterMM).toBeGreaterThan(a.waterMM);
+    expect(one.waterMM).toBeLessThan(b.waterMM);
+    expect(one.floatLeaves).toBe(b.floatLeaves);
+    expect(one.topUpAt).toBe(123);
+    let e = a;
+    for (let i = 0; i < 60; i++) e = easePond(e, b, 0.4);
+    expect(e.waterMM).toBe(b.waterMM);
+    // a soil flower has none, and the store starts without one
+    expect(garden.get().pond).toBeNull();
+  });
+
+  it("speaks for a calm seed in its jar, and lets the rain answer the pond's level but never the jar", () => {
+    const me = view();
+    const jar = pondV({ mood: "content", says: "a seed in clear water, waking up" });
+    expect(plantLine(me, jar, null)).toEqual({ text: JAR_LINE, voice: "narrator", mood: "content" });
+    expect(plantLine(me, pondV({ says: "time for fresh water" }), { when: "now", heavy: true, startsInH: 0 })?.text).toBe("Time for fresh water.");
+    const low = pondV({ stage: "pond", mood: "content", says: "the pond could use a top-up" });
+    expect(plantLine(me, low, { when: "now", heavy: true, startsInH: 0 })?.text).toBe(RAIN_POND_LINE);
+    expect(lineAsksForWater("the pond is low")).toBe(true);
+    expect(lineAsksForWater("time for fresh water")).toBe(true);
+    expect(rainHintText({ when: "soon", heavy: true, startsInH: 3 }, 100, "lotus")).toMatch(/; it will top up the pond\.$/);
+  });
+
+  it("thanks and declines in a lotus's words", () => {
+    expect(thanksFor("water", null, "lotus", 0, 0, true, pondV())).toBe("Fresh water for the jar. Your seed rests easy.");
+    expect(thanksFor("water", null, "lotus", 0, 0, false, pondV({ stage: "pond" }))).toMatch(/^A bucket for the pond/);
+    expect(thanksFor("water", null, "lotus", 0, 0, false, pondV({ stage: "pond", waterMM: -15 }))).toMatch(/rises a little toward its line/);
+    expect(thanksFor("water", null, "lotus", 0, 0, false, pondV({ stage: "pond", waterMM: -4 }))).toMatch(/back at its line/);
+    // at its line already (the chip says so) but short of full: no question, and it never claims the water came back
+    expect(thanksFor("water", null, "lotus", 0, 0, false, pondV({ stage: "pond", waterMM: 0.3 }))).toBe("A bucket for the pond. It rises a little above its line.");
+    // asked first (POND_FULL_PROMPT), a bucket on a full pond spills, and the words say so
+    expect(thanksFor("water", null, "lotus", 0, 0, false, pondV({ stage: "pond", waterMM: 9.4 }))).toMatch(/spills through the notch/);
+    expect(thanksFor("tend", null, "lotus", 0.5, 0, false, pondV({ stage: "pond" }))).toMatch(/aphids rinsed into the pond/);
+    expect(thanksFor("talk", null, "lotus", 0, 1, true, pondV())).toBe("A kind word. Your seed rests easy in its jar.");
+    expect(notReadyText("water", null, "lotus", 0, pondV({ stage: "pond" }))).toMatch(/^The pond had a bucket not long ago/);
+    // the last water was the planting: no bucket yet
+    expect(notReadyText("water", null, "lotus", 0, pondV({ stage: "pond" }), true)).toMatch(/^Your seedling is settling into its pot; the pond's first top-up is welcome from/);
+    expect(notReadyText("water", null, "lotus", 0, pondV({ moveReady: true }), true)).toMatch(/^Your seedling is settling into its pot;/);
+    expect(notReadyText("feed", null, "lotus", 0, pondV({ stage: "pond" }))).toMatch(/lotus tablet/);
+    expect(declinedText("tend", { ok: false, status: 0, code: "offline", message: "", retryAt: null, extra: {} }, "lotus")).toMatch(/^The pinch for the koi did not reach/);
+    expect(POND_FULL_PROMPT.title).toBe("The pond is at its line. Top up anyway?");
+    expect(LOTUS_PICKER_LINE).toMatch(/needs you most in its first days/);
+  });
+
+  it("says when the koi were fed, or that they are hungry", () => {
+    const nowMs = Date.parse("2026-11-12T06:30:00Z");
+    const me = (koi: MeView["care"]["koi"], v: Partial<PondVisual> = {}) =>
+      ({ state: { alive: true }, visual: pondV({ stage: "pond", ...v }), care: { koi } }) as unknown as MeView;
+    expect(koiLine(me({ ready: false, nextAt: null, lastAt: "2026-11-12T02:30:00Z" }), nowMs)).toBe("Koi fed at 08:00");
+    expect(koiLine(me({ ready: true, nextAt: null, lastAt: "2026-11-11T12:30:00Z" }), nowMs)).toBe("Koi fed yesterday at 18:00");
+    expect(koiLine(me({ ready: true, nextAt: null, lastAt: null }, { koiAdvice: "hungry" }), nowMs)).toBe("The koi are hungry");
+    expect(koiLine({ ...view(), visual: visual() } as unknown as MeView, nowMs)).toBeNull();
   });
 });
 

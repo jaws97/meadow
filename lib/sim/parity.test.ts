@@ -10,7 +10,7 @@
 // the flush (wCx) is exercised hour by hour.
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { SpeciesId } from "@/lib/plant/species";
+import type { SoilSpeciesId as SpeciesId } from "@/lib/plant/species";
 import { CLIM_T } from "./climate";
 import { BED, GAME_START, PLANT_CLOSE_H, PLANT_OPEN_H, SIM_SPECIES, SIM_VERSION, TWIN, canPlant, createPlant, expectBloom, rainSoon, step, toVisual } from "./model";
 import type { ForecastRow, HourWeather, PlantState, SimEvent } from "./model";

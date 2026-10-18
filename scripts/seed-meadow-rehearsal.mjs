@@ -3,7 +3,7 @@
 // Meadow) and refuses any other server; every name ends in "(delete me)"; and it only ever changes or deletes the
 // people it created itself, recorded in a state file.
 //
-//   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs plant 60     plant 60 seeds (six species in turn)
+//   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs plant 60     plant 60 seeds (seven species in turn)
 //   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs arrange      move them to the inner rings, as the
 //                                                                               party would fill them, at mixed stages
 //   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs clear        delete every person this script made
@@ -26,7 +26,7 @@ import { ensureTypeScript, importSim } from "./lib/load-sim.mjs";
 ensureTypeScript();
 
 const BASE = "http://localhost:3000";
-const SPECIES = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine"];
+const SPECIES = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"];
 const NAMES = [
   "Asha", "Rahul", "Priya", "Arjun", "Meera", "Kiran", "Divya", "Vikram", "Ananya", "Rohan", "Sneha", "Aditya", "Kavya",
   "Nikhil", "Pooja", "Siddharth", "Lakshmi", "Varun", "Isha", "Karthik", "Neha", "Manoj", "Riya", "Suresh", "Tara",
@@ -100,7 +100,12 @@ async function plant(count) {
 }
 
 async function arrange() {
-  const { createPlant, Bideal, SIM_SPECIES, SIM_VERSION, hourIndexOf, GAME_START_MS } = await importSim();
+  const { createPlant, Bideal, SIM_SPECIES, POND, POND_TWIN, isPondState, modelVersionOf, hourIndexOf, GAME_START_MS } = await importSim();
+  // the lotus's ideal twin, as pond.ts reads it (its Bideal is the soil model's formula on POND_TWIN)
+  const pondB = (D) => {
+    const tab = POND_TWIN.lotus.tab, x = Math.min(1, Math.max(0, D)) * 20, i = Math.min(19, Math.floor(x));
+    return tab[i] + (tab[i + 1] - tab[i]) * (x - i);
+  };
   if (Date.now() >= GAME_START_MS) throw new Error("the game clock has started (10 Nov): rehearsal plants are not arranged any more");
   const state = readState();
   const ids = state.people.map((p) => p.id);
@@ -137,25 +142,37 @@ async function arrange() {
           }
         }
         const plantedH = nowH - pick.days * 24 - (k % 5);
-        const sp = SIM_SPECIES[m.species];
         const s = createPlant(m.species, plantedH, m.person_id);
-        const never = plantedH - 99;
-        s.lastCanH = Math.min(s.lastCanH, never);
-        s.lastFeedH = Math.min(s.lastFeedH, never);
+        const pond = isPondState(s);
+        if (!pond) {
+          // the soil model's "never" marks read as recent at a negative hour (the lotus's POND_NONE does not)
+          const never = plantedH - 99;
+          s.lastCanH = Math.min(s.lastCanH, never);
+          s.lastFeedH = Math.min(s.lastFeedH, never);
+        }
         s.h = nowH;
         s.D = pick.D;
-        s.B = Bideal(sp, pick.D);
+        s.B = pond ? pondB(pick.D) : Bideal(SIM_SPECIES[m.species], pick.D);
         s.Np = 45 * s.B;
+        // a lotus past its jar is in its pot in the pond
+        if (pond && pick.D >= POND.Djar) {
+          s.stage = 1;
+          s.movedH = plantedH + 42;
+        }
         if (pick.stage === "bloom") {
           s.ripeH = nowH - 30;
           s.bloomH = nowH - 8;
           s.op = 1;
+          if (pond) {
+            s.flN = 1;
+            s.flH = s.bloomH;
+          }
         }
         // one in seven a little poorly (an old dry spell), to see the kind words
         if (k % 7 === 3) s.Dw = 0.42;
         await tx`update meadow.plants set plot_index = ${plot}, planted_h = ${plantedH} where id = ${m.plant_id}`;
         await tx`
-          update meadow.checkpoints set h = ${nowH}, state = ${tx.json(s)}, sim_version = ${SIM_VERSION}, version = version + 1, updated_at = now()
+          update meadow.checkpoints set h = ${nowH}, state = ${tx.json(s)}, sim_version = ${modelVersionOf(m.species)}, version = version + 1, updated_at = now()
           where plant_id = ${m.plant_id}`;
         k++;
       }

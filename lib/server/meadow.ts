@@ -10,7 +10,9 @@
 // and catches up on its next read; the statement runs through db.ts transaction(), so it waits a bounded time for row
 // locks). Outside production nothing is saved, and rehearsal plants show only where env.ts showRehearsals() says so
 // (never in production on or after 10 Nov). An instance shares one build among concurrent requests and reuses it for
-// a few seconds, short enough that a new sprout reaches the big screen quickly.
+// a few seconds, short enough that a new sprout reaches the big screen quickly. A plant of a species this build does not
+// know is never loaded, and one that fails to catch up is logged and left out, so one plant never fails the whole
+// snapshot (species-guard.ts).
 //
 // A friend's garden (gardenOfPlot, GET /api/garden/[plot]) is the read-only view behind "See their garden": the plant in
 // one plot, caught up the same way, with only what the Meadow already shows plus what the garden scene needs to draw it
@@ -19,11 +21,12 @@
 // few hours at most.
 import "server-only";
 import type { SpeciesId } from "@/lib/plant/species";
-import { catchUp, hourIndexOf, toVisual, type PlantState, type TimedEvent, type Visual } from "@/lib/sim";
+import { catchUp, hourIndexOf, modelVersionOfState, toVisual, type PlantState, type TimedEvent, type Visual } from "@/lib/sim";
 import { advanceCheckpoint, baseState } from "./catchup";
 import { db, transaction } from "./db";
 import { showRehearsals, writesDerivedState } from "./env";
 import { ApiError } from "./http";
+import { KNOWN_SPECIES, knownPlants } from "./species-guard";
 import { bloomBand, healthBand, hourIso, istClock, stageOf, toRecordedEvent, toTimedEvent, type EventRow, type HealthBand, type Stage } from "./rules";
 import { ensureWeather, loadWeather } from "./weather-store";
 
@@ -89,23 +92,36 @@ async function buildSnapshot(now: Date): Promise<MeadowSnapshot> {
   const sql = db();
   const toH = hourIndexOf(now);
   const includeRehearsal = showRehearsals(toH);
-  const rows = await sql<SnapshotRow[]>`
+  const rows = knownPlants(await sql<SnapshotRow[]>`
     select p.id as plant_id, pe.id as person_id, pe.first_name, pe.show_name, p.species, p.plot_index, p.planted_h,
            c.h as cp_h, c.state as cp_state, c.sim_version as cp_sim_version, c.version as cp_version
     from meadow.plants p
     join meadow.gardens g on g.id = p.garden_id
     join meadow.people pe on pe.id = g.person_id
     join meadow.checkpoints c on c.plant_id = p.id
-    where ${includeRehearsal} or not p.rehearsal
-    order by p.plot_index`;
+    where (${includeRehearsal} or not p.rehearsal) and p.species = any(${KNOWN_SPECIES as string[]}::text[])
+    order by p.plot_index`);
+
+  // A plant that cannot be read (a broken checkpoint, a species the model cannot step) is logged and left out: one plant
+  // must never fail the snapshot everyone shares.
+  const failed = new Set<number>();
+  const skip = (i: number, err: unknown) => {
+    failed.add(i);
+    console.error(`[meadow api] left plot ${rows[i].plot_index} out of the snapshot: ${err instanceof Error ? err.message : String(err)}`);
+  };
 
   // the state each plant steps from (rebuilt from its planting when another model version wrote the checkpoint)
-  const bases = rows.map((r) => {
+  const bases = rows.map((r, i) => {
     const planting = { speciesId: r.species, plantedH: r.planted_h, owner: r.person_id };
-    return baseState({ h: r.cp_h, state: r.cp_state, simVersion: r.cp_sim_version, version: r.cp_version }, planting);
+    try {
+      return baseState({ h: r.cp_h, state: r.cp_state, simVersion: r.cp_sim_version, version: r.cp_version }, planting);
+    } catch (err) {
+      skip(i, err);
+      return { state: r.cp_state, rebuilt: false };
+    }
   });
   const states: PlantState[] = bases.map((b) => b.state);
-  const behind = rows.flatMap((r, i) => (bases[i].state.h < toH || bases[i].rebuilt ? [i] : []));
+  const behind = rows.flatMap((r, i) => (!failed.has(i) && (bases[i].state.h < toH || bases[i].rebuilt) ? [i] : []));
 
   if (behind.length > 0) {
     const fromH = Math.min(...behind.map((i) => bases[i].state.h));
@@ -131,9 +147,16 @@ async function buildSnapshot(now: Date): Promise<MeadowSnapshot> {
     const updates: [string, number, string, number, number, number][] = [];
     for (const i of behind) {
       const r = rows[i], { state: base, rebuilt } = bases[i];
-      const next = catchUp(base, byPlant.get(r.plant_id) ?? [], weather, toH);
+      let next: PlantState;
+      try {
+        next = catchUp(base, byPlant.get(r.plant_id) ?? [], weather, toH);
+      } catch (err) {
+        skip(i, err);
+        continue;
+      }
       states[i] = next;
-      if (next !== base || rebuilt) updates.push([r.plant_id, next.h, JSON.stringify(next), next.v, next.gen, r.cp_version]);
+      // the sim_version column holds the model's version for this species (7, or 1001 for a lotus: lib/sim/plant.ts)
+      if (next !== base || rebuilt) updates.push([r.plant_id, next.h, JSON.stringify(next), modelVersionOfState(next), next.gen, r.cp_version]);
     }
     if (updates.length > 0 && writesDerivedState()) {
       await transaction((tx) => tx`
@@ -150,17 +173,23 @@ async function buildSnapshot(now: Date): Promise<MeadowSnapshot> {
   }
 
   const clock = istClock(now);
-  const plots: MeadowPlot[] = rows.map((r, i) => {
-    const s = states[i], visual = toVisual(s, null, clock);
-    return {
-      plot: r.plot_index,
-      species: r.species,
-      name: r.show_name ? r.first_name : "A friend",
-      stage: stageOf(s),
-      health: healthBand(visual),
-      bloom: bloomBand(visual),
-      generation: s.gen,
-    };
+  const plots: MeadowPlot[] = [];
+  rows.forEach((r, i) => {
+    if (failed.has(i)) return;
+    try {
+      const s = states[i], visual = toVisual(s, null, clock);
+      plots.push({
+        plot: r.plot_index,
+        species: r.species,
+        name: r.show_name ? r.first_name : "A friend",
+        stage: stageOf(s),
+        health: healthBand(visual),
+        bloom: bloomBand(visual),
+        generation: s.gen,
+      });
+    } catch (err) {
+      skip(i, err);
+    }
   });
   return { v: 1, h: toH, at: hourIso(toH), count: plots.length, plots };
 }
@@ -219,9 +248,10 @@ export async function gardenOfPlot(plot: number, now: Date = new Date()): Promis
     from meadow.plants p
     join meadow.gardens g on g.id = p.garden_id
     join meadow.people pe on pe.id = g.person_id
-    where p.plot_index = ${plot}`;
+    where p.plot_index = ${plot} and p.species = any(${KNOWN_SPECIES as string[]}::text[])`;
   const r = rows[0];
-  // a practice plant hidden from this Meadow counts as an empty plot, as it does for sprinkles
+  // a practice plant hidden from this Meadow counts as an empty plot, as it does for sprinkles; so does a plant of a
+  // species this build does not know (species-guard.ts)
   if (!r || (r.rehearsal && !showRehearsals(nowH))) throw plotEmpty();
 
   const planting = { speciesId: r.species, plantedH: r.planted_h, owner: r.person_id };

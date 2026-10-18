@@ -11,8 +11,11 @@ export type Result<T> = { ok: true; value: T } | Invalid;
 const ok = <T>(value: T): Result<T> => ({ ok: true, value });
 const invalid = (code: string, message: string, field?: string): Invalid => ({ ok: false, code, message, field });
 
-/** The six seed packets, in the order the seed picker shows them. Kept in step with the plants.species check. */
-export const SPECIES_IDS = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine"] as const satisfies readonly SpeciesId[];
+/**
+ * The seven seed packets, in the order the seed picker shows them. Kept in step with the plants.species check (the newest
+ * migration), and with every other hand-kept list of species (lib/plant/species-lists.test.ts checks them all).
+ */
+export const SPECIES_IDS = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"] as const satisfies readonly SpeciesId[];
 
 export const CARE_KINDS = ["water", "shade", "cover", "feed", "tend", "talk", "revive", "replant"] as const;
 export type CareKind = (typeof CARE_KINDS)[number];
@@ -91,7 +94,7 @@ export function cleanFirstName(raw: unknown): Result<string> {
   return ok(name);
 }
 
-const SPECIES_MESSAGE = "Please choose one of the six seeds: rose, sundrop, magnolia, marigold, island or jasmine.";
+const SPECIES_MESSAGE = "Please choose one of the seven seeds: rose, sundrop, magnolia, marigold, island, jasmine or lotus.";
 
 /**
  * POST /api/seed: { firstName, species, showName?, clientEventId, partyCode? } where clientEventId is a UUID kept for

@@ -2,7 +2,20 @@
 // rate limits for care, shade and cover changes, the conditions for Fairy Dust and replanting, how stored rows become
 // the model's events, the IST clock helpers, and the Meadow's bands.
 import { describe, expect, it } from "vitest";
-import { BED, PLANT_OPEN_H, createPlant, dateOfHour, step, toVisual, type HourWeather, type PlantState, type SimEvent } from "@/lib/sim";
+import {
+  BED,
+  PLANT_OPEN_H,
+  POND,
+  POND_NONE,
+  createPlant,
+  dateOfHour,
+  step,
+  toVisual,
+  type HourWeather,
+  type PondState,
+  type SimEvent,
+  type SoilState as PlantState,
+} from "@/lib/sim";
 import {
   bloomBand,
   careStatus,
@@ -12,8 +25,10 @@ import {
   healthBand,
   istClock,
   istDayOfHour,
+  lastPinchH,
   plantingOpensText,
   plantingWindow,
+  sprinkleMessage,
   stageOf,
   toRecordedEvent,
   toTimedEvent,
@@ -281,6 +296,96 @@ describe("Meadow bands", () => {
     expect(bloomBand({ ...v, bloom: 0 })).toBe(0);
     expect(bloomBand({ ...v, bloom: 0.5 })).toBe(2);
     expect(bloomBand({ ...v, bloom: 1 })).toBe(3);
+  });
+});
+
+describe("the lotus", () => {
+  const lotus = (over: Partial<PondState> = {}): PondState => ({ ...createPlant("lotus", 17, OWNER), ...over });
+  const lctx = (state: PondState, over: Partial<CareContext> = {}): CareContext => ({ state, pending: [], existing: null, nowH: 100, checkpointH: 100, ...over });
+
+  it("has no shade cloth and no rain cover: both are declined calmly, on or off", () => {
+    for (const kind of ["shade", "cover"] as const) for (const on of [true, false]) {
+      const d = decideCare({ kind, on }, lctx(lotus()));
+      expect(d.action).toBe("reject");
+      if (d.action !== "reject") continue;
+      expect([d.status, d.code]).toEqual([409, "not_for_lotus"]);
+      expect(d.message).toBe(kind === "shade" ? "A lotus loves full sun, so the pond has no shade cloth." : "Rain only helps a pond, so there is no rain cover.");
+    }
+  });
+
+  it("says what the water action was when it comes too soon: fresh jar water, the planting, or a bucket", () => {
+    const too = (s: PondState) => {
+      const d = decideCare({ kind: "water", on: null }, lctx(s, { nowH: 100 }));
+      return d.action === "reject" ? d.message : "";
+    };
+    expect(too(lotus({ lastCanH: 98 }))).toMatch(/^Your seed had fresh water not long ago; the next fresh water is welcome from 06:00 IST.$/);
+    expect(too(lotus({ lastCanH: 98, D: POND.Djar }))).toMatch(/^Your seedling had fresh water not long ago; it can go into its pot in the pond from/);
+    expect(too(lotus({ lastCanH: 98, stage: 1, movedH: 60 }))).toMatch(/^The pond had a bucket not long ago; the next top-up is welcome from/);
+    expect(decideCare({ kind: "water", on: null }, lctx(lotus({ lastCanH: 96 })))).toEqual({ action: "insert", h: 100, amount: null });
+  });
+
+  it("never calls the planting a bucket: pending, or just done, the next water is the pond's first top-up", () => {
+    const planting: RecordedEvent = { id: 1, h: 100, kind: "water", on: null, actorId: null, clientEventId: "p" };
+    const ready = lotus({ lastCanH: 80, D: POND.Djar + 0.01 });
+    const pendingNow = decideCare({ kind: "water", on: null }, lctx(ready, { pending: [planting] }));
+    expect(pendingNow.action === "reject" && pendingNow.message).toMatch(/^Your seedling is settling into its pot; the pond's first top-up is welcome from/);
+    expect(careStatus(ready, [planting], 100).water).toEqual({ ready: false, nextH: 100 + BED.canGapH, planted: true });
+    const planted = lotus({ lastCanH: 100, stage: 1, movedH: 100, D: POND.Djar });
+    const after = decideCare({ kind: "water", on: null }, lctx(planted, { nowH: 102, checkpointH: 102 }));
+    expect(after.action === "reject" && after.message).toMatch(/^Your seedling is settling into its pot;/);
+    expect(careStatus(planted, [], 102).water.planted).toBe(true);
+    // a bucket since: the pond's own words again
+    expect(careStatus(lotus({ lastCanH: 106, stage: 1, movedH: 100 }), [], 108).water.planted).toBe(false);
+    // a soil flower's water status carries no such flag
+    expect(careStatus(fresh(), [], 100).water).not.toHaveProperty("planted");
+  });
+
+  it("calls the food lotus tablets", () => {
+    const d = decideCare({ kind: "feed", on: null }, lctx(lotus({ lastFeedH: 90 })));
+    expect(d.action === "reject" && d.message).toMatch(/lotus tablet/);
+    const r = decideCare({ kind: "feed", on: null }, lctx(lotus({ alive: false })));
+    expect(r.action === "reject" && r.message).toBe("Your lotus is resting; lotus tablets can wait until it wakes.");
+  });
+
+  it("tends once an hour; the koi's pinch counts once every 4 h, pending tends included", () => {
+    const first = decideCare({ kind: "tend", on: null }, lctx(lotus()));
+    expect(first).toEqual({ action: "insert", h: 100, amount: null });
+    const pending = [ev("tend", 100)];
+    expect(decideCare({ kind: "tend", on: null }, lctx(lotus(), { pending })).action).toBe("duplicate");
+    // the koi: fed at 97 in the state, then tends at 99 (inside 4 h: a rinse only) and 101 (a pinch)
+    expect(lastPinchH(97, [ev("tend", 99), ev("tend", 101)])).toBe(101);
+    expect(lastPinchH(97, [ev("tend", 99)])).toBe(97);
+    expect(lastPinchH(POND_NONE, [])).toBe(POND_NONE);
+    const s = careStatus(lotus({ lastKoiH: 97 }), [ev("tend", 99)], 100);
+    expect(s.koi).toEqual({ ready: false, nextH: 101, lastH: 97 });
+    expect(careStatus(lotus(), [], 100).koi).toEqual({ ready: true, nextH: null, lastH: null });
+    // the six soil flowers have no koi
+    expect(careStatus(fresh(), [], 100).koi).toBeNull();
+  });
+
+  it("offers Fairy Dust and a replant in the same pond", () => {
+    const used = decideCare({ kind: "revive", on: null }, lctx(lotus({ alive: false, fairyUsed: true })));
+    expect(used.action === "reject" && used.message).toBe("The Fairy Dust has been used; you can plant a fresh seed in the same pond instead.");
+    const awake = decideCare({ kind: "replant", on: null }, lctx(lotus()));
+    expect(awake.action === "reject" && awake.message).toMatch(/a pond whose lotus has gone to sleep/);
+    expect(decideCare({ kind: "revive", on: null }, lctx(lotus({ alive: false })))).toEqual({ action: "insert", h: 100, amount: null });
+  });
+
+  it("maps the pond model's stages onto the Meadow's", () => {
+    expect(stageOf(lotus())).toBe("seed");
+    expect(stageOf(lotus({ stage: 1, D: 0.2 }))).toBe("sprout");
+    expect(stageOf(lotus({ stage: 1, D: POND.Daer }))).toBe("leafy");
+    expect(stageOf(lotus({ stage: 1, D: POND.Dbud }))).toBe("bud");
+    expect(stageOf(lotus({ stage: 1, D: 1, bloomH: 340 }))).toBe("bloom");
+    // a practice lotus that bloomed before the party (a negative hour) has bloomed
+    expect(stageOf(lotus({ stage: 1, D: 1, bloomH: -280 }))).toBe("bloom");
+    expect(stageOf(lotus({ alive: false }))).toBe("resting");
+  });
+
+  it("tells a friend that a sprinkle is a kindness a pond does not need", () => {
+    expect(sprinkleMessage("Asha", true, "lotus")).toBe("Your sprinkle landed by Asha's lotus. A lotus lives in a pond, so a sprinkle cannot top it up; your kindness still counts.");
+    expect(sprinkleMessage("A friend", false, "lotus")).toMatch(/^Two friends have already sprinkled your friend's lotus today/);
+    expect(sprinkleMessage("Asha", true, "rose")).toBe("Your sprinkle landed on Asha's flower; it will feel it within the hour.");
   });
 });
 

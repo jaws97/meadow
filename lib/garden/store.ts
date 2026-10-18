@@ -5,13 +5,60 @@
 // For a signed-in visitor the plant's numbers are the model's live Visual,
 // eased in by lib/client/plant; the defaults are the owner's rose in full bloom.
 // The care layer also says how much of the screen its card covers (dock), so
-// the camera can keep the plant in the open part of the view.
+// the camera can keep the plant in the open part of the view. A lotus brings
+// its pond as well (pond: the model's pond numbers, eased the same way, and the
+// moments this device's own care started); it is null for the six soil flowers.
 import { useSyncExternalStore } from "react";
 import { planFor, readDevice, recallTier } from "@/lib/garden/device";
 import { quality } from "@/lib/garden/quality";
 import type { SpeciesId } from "@/lib/plant/species";
 
 export type Quality = "cinematic" | "balanced" | "lite";
+
+/**
+ * A lotus's pond as the garden draws it: the model's PondVisual (lib/sim/pond.ts), with the levels and shares eased by
+ * lib/client/plant (counts and flags step), and the moments this device's own top-up, pinch and planting began, so
+ * the scene plays each once.
+ */
+export interface PondShown {
+  stage: "jar" | "pond";
+  /** in the jar: its root and first leaf are out, so the next water action plants it */
+  moveReady: boolean;
+  /** the pond's level against the fill line, mm (negative below it), and the water over the pot's pebbles, mm */
+  waterMM: number;
+  stonesMM: number;
+  /** the pond has fallen below the pot's rim; the pot's own water is gone too */
+  potIsolated: boolean;
+  potDry: boolean;
+  /** the jar's water, 1 clear .. 0 murky, and green water 0..1 */
+  jarClarity: number;
+  algae: number;
+  floatLeaves: number;
+  aerialLeaves: number;
+  /** floating leaves browning on a drying pot, and the share the koi have nibbled */
+  floatBrown: number;
+  nibbled: number;
+  koiHunger: number;
+  /** the koi gathered at the pot after a pinch, 0..1 */
+  koiGather: number;
+  /** the koi gulping at the surface at dawn in green water */
+  koiGasp: boolean;
+  aphids: number;
+  /** 1, 2 or 3 on the flower's three days (0 otherwise); flowers so far; seed pods; the latest pod's drying */
+  flowerDay: 0 | 1 | 2 | 3;
+  flowers: number;
+  pods: number;
+  podDry: number;
+  /** the next bud's progress, and day 3's falling petals, 0..1 */
+  bud2: number;
+  petalDrop: number;
+  /** the flower's own warmth, 0..1, only while the model says it is warm */
+  warmth: number;
+  /** when this device's top-up, pinch for the koi and planting began (epoch ms), 0 for none */
+  topUpAt: number;
+  pinchAt: number;
+  plantedAt: number;
+}
 
 export interface GardenState {
   speciesId: SpeciesId;
@@ -48,6 +95,8 @@ export interface GardenState {
   cloud: number;
   rain: number;
   quality: Quality;
+  /** a lotus's pond (lib/client/plant pondShownOf), or null for a soil flower and before the lotus's numbers arrive */
+  pond: PondShown | null;
 }
 
 const initial: GardenState = {
@@ -76,6 +125,7 @@ const initial: GardenState = {
   cloud: 0.2,
   rain: 0,
   quality: "cinematic",
+  pond: null,
 };
 
 const QUALITIES: readonly Quality[] = ["cinematic", "balanced", "lite"];

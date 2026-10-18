@@ -5,18 +5,28 @@
 //
 // The model stays the authority: step() validates every event again and ignores a can or feed inside its rate limit.
 // These checks exist so the player gets a calm, specific answer instead of an action that silently does nothing.
+//
+// The lotus (lib/sim/pond.ts) keeps the same rate limits under its own words: its water action freshens the jar, plants
+// the seedling in its pot or pours a 15 L bucket into the pond; "Tend the pond" gives the koi a pinch (at most one counts
+// every 4 h) and rinses aphids; there is no shade cloth and no rain cover for a pond (a lotus loves full sun, and rain
+// only helps), so both are declined; and its stages follow the pond model's leaves.
 import {
   BED,
   GAME_START_MS,
   HOUR_MS,
   IST_OFFSET_MIN,
   PLANT_OPEN_H,
+  POND,
+  POND_NONE,
+  bloomedAt,
   canPlant,
   dateOfHour,
+  isPondState,
   type PlantState,
   type TimedEvent,
   type Visual,
 } from "@/lib/sim";
+import type { SpeciesId } from "@/lib/plant/species";
 import type { CareKind } from "./validate";
 
 // ---- time ----------------------------------------------------------------------------------------------------------
@@ -164,7 +174,8 @@ export function toTimedEvent(e: RecordedEvent): TimedEvent | null {
 // ---- care -------------------------------------------------------------------------------------------------------------
 
 export interface CareStatus {
-  water: { ready: boolean; nextH: number | null };
+  /** for a lotus, `planted`: its last water (pending ones counted) was or will be its planting, so no bucket yet */
+  water: { ready: boolean; nextH: number | null; planted?: boolean };
   feed: { ready: boolean; nextH: number | null };
   /** Fairy Dust can wake the plant (it is asleep and the dust is unused) */
   revive: boolean;
@@ -175,12 +186,27 @@ export interface CareStatus {
   /** the game hour the shade cloth went on (the hour its change was recorded in), or null while it is off */
   shadeSinceH: number | null;
   cover: boolean;
+  /**
+   * a lotus's koi (null for the six soil flowers): whether a tend now would also be a pinch (4 h since the last one that
+   * counted, pending tends included), from when it would, and the hour of the last pinch
+   */
+  koi: { ready: boolean; nextH: number | null; lastH: number | null } | null;
 }
 
 function lastOf(state: PlantState, pending: readonly RecordedEvent[], kind: "water" | "feed"): number {
   let last = kind === "water" ? state.lastCanH : state.lastFeedH;
   for (const e of pending) if (e.kind === kind && e.h > last) last = e.h;
   return last;
+}
+
+/**
+ * Whether a lotus's last water (at hour `last`, pending ones counted) is its planting: one still pending while its
+ * seedling is ready in the jar (stepPond plants it with the next water), or the hour it went into its pot.
+ */
+function lastWaterPlanted(state: PlantState, pending: readonly RecordedEvent[], last: number): boolean {
+  if (!isPondState(state) || !state.alive) return false;
+  if (state.stage === 0) return state.D >= POND.Djar && pending.some((e) => e.kind === "water" && e.h === last);
+  return state.movedH === last;
 }
 
 // A replant waiting in pending gives a fresh bed, shade cloth and rain cover off; step() takes it before that hour's
@@ -218,15 +244,32 @@ function shadeSince(state: PlantState, pending: readonly RecordedEvent[]): numbe
 }
 
 /**
+ * The koi's last pinch with the pending tends folded in: a tend counts as a pinch only koiGapH or more after the last one
+ * that counted (stepPond's rule). POND_NONE when the koi have had none since the party.
+ */
+export function lastPinchH(lastKoiH: number, pending: readonly RecordedEvent[]): number {
+  let last = lastKoiH;
+  for (const e of [...pending].filter((x) => x.kind === "tend").sort((a, b) => a.h - b.h || a.id - b.id)) if (e.h - last >= POND.koiGapH) last = e.h;
+  return last;
+}
+
+/**
  * What the player can do at hour nowH, from the replayed state plus the events recorded since it (pending: they take
  * effect when their hour completes).
  */
 export function careStatus(state: PlantState, pending: readonly RecordedEvent[], nowH: number): CareStatus {
   const lastCan = lastOf(state, pending, "water"), lastFeed = lastOf(state, pending, "feed");
+  // the same gaps in both models (a can or a bucket every 4 h, food every 48 h)
   const nextCan = lastCan + BED.canGapH, nextFeed = lastFeed + BED.feedGapH;
+  let koi: CareStatus["koi"] = null;
+  if (isPondState(state)) {
+    const last = lastPinchH(state.lastKoiH, pending), next = last + POND.koiGapH;
+    koi = { ready: nowH >= next, nextH: nowH >= next ? null : next, lastH: last === POND_NONE ? null : last };
+  }
   const waking = pending.some((e) => e.kind === "revive" || e.kind === "replant");
+  const planted = isPondState(state) ? { planted: lastWaterPlanted(state, pending, lastCan) } : {};
   return {
-    water: { ready: nowH >= nextCan, nextH: nowH >= nextCan ? null : nextCan },
+    water: { ready: nowH >= nextCan, nextH: nowH >= nextCan ? null : nextCan, ...planted },
     feed: state.alive
       ? { ready: nowH >= nextFeed, nextH: nowH >= nextFeed ? null : nextFeed }
       : { ready: false, nextH: null },
@@ -235,6 +278,7 @@ export function careStatus(state: PlantState, pending: readonly RecordedEvent[],
     shade: toggleOn(state, pending, "shade"),
     shadeSinceH: shadeSince(state, pending),
     cover: toggleOn(state, pending, "cover"),
+    koi,
   };
 }
 
@@ -272,29 +316,44 @@ export function decideCare(input: { kind: CareKind; on: boolean | null }, ctx: C
   }
   const thisHour = (kind: RecordedEvent["kind"]) => pending.find((e) => e.kind === kind && e.h === h) ?? null;
   const waking = pending.find((e) => e.kind === "revive" || e.kind === "replant") ?? null;
+  const pond = isPondState(state) ? state : null, lotus = pond !== null;
 
   switch (input.kind) {
     case "water": {
       const last = lastOf(state, pending, "water"), next = last + BED.canGapH;
       if (h < next) {
-        return { action: "reject", status: 429, code: "too_soon", retryH: next,
-          message: `Your plant had a can of water not long ago; the next one is welcome from ${formatIstHour(next, nowH)} IST.` };
+        const when = `${formatIstHour(next, nowH)} IST`;
+        // a lotus's words by what its last water was: the planting (pending or just done), a bucket, or fresh jar water
+        const message = !pond ? `Your plant had a can of water not long ago; the next one is welcome from ${when}.`
+          : lastWaterPlanted(pond, pending, last) ? `Your seedling is settling into its pot; the pond's first top-up is welcome from ${when}.`
+          : pond.stage === 1 ? `The pond had a bucket not long ago; the next top-up is welcome from ${when}.`
+          : pond.D >= POND.Djar ? `Your seedling had fresh water not long ago; it can go into its pot in the pond from ${when}.`
+          : `Your seed had fresh water not long ago; the next fresh water is welcome from ${when}.`;
+        return { action: "reject", status: 429, code: "too_soon", retryH: next, message };
       }
       return { action: "insert", h, amount: null };
     }
     case "feed": {
       if (!state.alive) {
-        return { action: "reject", status: 409, code: "resting", message: "Your plant is resting; plant food can wait until it wakes." };
+        return { action: "reject", status: 409, code: "resting",
+          message: lotus ? "Your lotus is resting; lotus tablets can wait until it wakes." : "Your plant is resting; plant food can wait until it wakes." };
       }
       const last = lastOf(state, pending, "feed"), next = last + BED.feedGapH;
       if (h < next) {
+        const when = `${formatIstHour(next, nowH)} IST`;
         return { action: "reject", status: 429, code: "too_soon", retryH: next,
-          message: `Your plant was fed recently; plant food is best every two days. The next feed is welcome from ${formatIstHour(next, nowH)} IST.` };
+          message: lotus
+            ? `Your lotus had a lotus tablet recently; tablets are best every two days at most. The next one is welcome from ${when}.`
+            : `Your plant was fed recently; plant food is best every two days. The next feed is welcome from ${when}.` };
       }
       return { action: "insert", h, amount: null };
     }
     case "shade":
     case "cover": {
+      if (lotus) {
+        return { action: "reject", status: 409, code: "not_for_lotus",
+          message: input.kind === "shade" ? "A lotus loves full sun, so the pond has no shade cloth." : "Rain only helps a pond, so there is no rain cover." };
+      }
       // a change that changes nothing is not recorded, so repeated taps cannot grow the event log
       const on = input.on === true;
       if (on === toggleOn(state, pending, input.kind)) return { action: "unchanged", h, on };
@@ -318,14 +377,16 @@ export function decideCare(input: { kind: CareKind; on: boolean | null }, ctx: C
         return { action: "reject", status: 409, code: "not_needed", message: "Your plant is awake; Fairy Dust is for a plant that has gone to sleep." };
       }
       if (state.fairyUsed) {
-        return { action: "reject", status: 409, code: "fairy_used", message: "The Fairy Dust has been used; you can plant a fresh seed in the same bed instead." };
+        return { action: "reject", status: 409, code: "fairy_used",
+          message: `The Fairy Dust has been used; you can plant a fresh seed in the same ${lotus ? "pond" : "bed"} instead.` };
       }
       return { action: "insert", h, amount: null };
     }
     case "replant": {
       if (waking) return { action: "duplicate", event: waking };
       if (state.alive) {
-        return { action: "reject", status: 409, code: "not_needed", message: "Your plant is still with you; replanting is for a bed whose plant has gone to sleep." };
+        return { action: "reject", status: 409, code: "not_needed",
+          message: lotus ? "Your lotus is still with you; replanting is for a pond whose lotus has gone to sleep." : "Your plant is still with you; replanting is for a bed whose plant has gone to sleep." };
       }
       if (!state.fairyUsed) {
         return { action: "reject", status: 409, code: "revive_first", message: "Try the Fairy Dust first; it can wake a sleeping plant once." };
@@ -340,14 +401,39 @@ export function decideCare(input: { kind: CareKind; on: boolean | null }, ctx: C
   }
 }
 
+// ---- sprinkles ---------------------------------------------------------------------------------------------------------
+
+/**
+ * What a friend's sprinkle did, in words. A lotus lives in a pond: a sprinkle is a kind gesture that cannot top it up (the
+ * model counts 0.12 L into 800 L), and the words say so.
+ */
+export function sprinkleMessage(name: string, counts: boolean, species: SpeciesId): string {
+  const who = name === "A friend" ? "your friend's" : `${name}'s`;
+  const what = species === "lotus" ? "lotus" : "flower";
+  if (!counts) return `Two friends have already sprinkled ${who} ${what} today, so yours arrives as a sparkle of good wishes.`;
+  return species === "lotus"
+    ? `Your sprinkle landed by ${who} lotus. A lotus lives in a pond, so a sprinkle cannot top it up; your kindness still counts.`
+    : `Your sprinkle landed on ${who} flower; it will feel it within the hour.`;
+}
+
 // ---- Meadow bands -----------------------------------------------------------------------------------------------------
 
 export type Stage = "seed" | "sprout" | "leafy" | "bud" | "bloom" | "resting";
 export type HealthBand = "thriving" | "fine" | "poorly" | "resting";
 
-/** Coarse growth stage from development D (buds form at 0.64, a mature bud at 1) and whether it has bloomed. */
+/**
+ * Coarse growth stage from development D (buds form at 0.64, a mature bud at 1) and whether it has bloomed. A lotus: the
+ * seed in its jar, floating leaves once planted, standing leaves from D 0.40, the bud from D 0.64, then bloom.
+ */
 export function stageOf(s: PlantState): Stage {
   if (!s.alive) return "resting";
+  if (isPondState(s)) {
+    if (bloomedAt(s) !== null) return "bloom";
+    if (s.stage === 0) return "seed";
+    if (s.D >= POND.Dbud) return "bud";
+    if (s.D >= POND.Daer) return "leafy";
+    return "sprout";
+  }
   if (s.bloomH >= 0) return "bloom";
   if (s.D >= 0.64) return "bud";
   if (s.D >= 0.3) return "leafy";

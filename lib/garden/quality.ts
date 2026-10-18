@@ -110,8 +110,21 @@ export interface QualityState {
   /** ?governor=off freezes the budget, for screenshots and comparisons. */
   auto: boolean;
   tierChanges: number;
+  /**
+   * Times the opening has started again under the veil for another kind of garden (a remembered rose giving way to the
+   * owner's lotus courtyard as /api/me answers, or back): what it compiled is not what will be shown (RenderBudget).
+   */
+  reopens: number;
+  /** Such a restart came after the first compile had finished: the loading veil's progress holds where it was. */
+  rewound: boolean;
   stats: { fps: number; frameMs: number; gpuMs: number; timer: boolean };
 }
+
+/**
+ * The loading veil still hides the garden: the first opening, before its reveal has begun. From the reveal's fade on,
+ * a change is seen, so it gets what a showing garden gets (a plant swap's soft dim, a courtyard prepared out of sight).
+ */
+export const underVeil = (s: Pick<QualityState, "veiled" | "phase"> = state): boolean => s.veiled && s.phase !== "revealing" && s.phase !== "live";
 
 const FALLBACK_RANGE: PixelBudget = { floor: 0.7, hardFloor: 0.5, start: 1, ceiling: 2 };
 
@@ -164,6 +177,8 @@ let state: QualityState = {
   pinned: false,
   auto: true,
   tierChanges: 0,
+  reopens: 0,
+  rewound: false,
   stats: { fps: 0, frameMs: 0, gpuMs: 0, timer: false },
 };
 const serverState = state;
