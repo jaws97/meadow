@@ -84,7 +84,44 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  transition: transform 1.6s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    transform 1.6s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.45s ease,
+    visibility 0s;
+}
+
+/*
+ * The veil's two looks, both in the first HTML: the plain veil's sprout, words
+ * and vine, or the quote moment (OpeningMoment's .opening-quote: the night sky
+ * with its quote and hairline). The root element's data-veil="quote" picks
+ * the quote moment; an inline script sets it before the first paint, and the
+ * opening keeps it (lib/garden/opening). The look not picked fades out and is
+ * then hidden, so its status line is not read either; a first visit opening
+ * on the showcase crosses over from the sprout to the quote this way.
+ */
+.garden-veil-veil > .opening-quote {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.45s ease,
+    visibility 0s 0.45s;
+}
+
+:root[data-veil="quote"] .garden-veil-veil > .opening-quote {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 0.45s ease,
+    visibility 0s;
+}
+
+:root[data-veil="quote"] .garden-veil-content {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    transform 1.6s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.45s ease,
+    visibility 0s 0.45s;
 }
 
 .garden-veil-art {

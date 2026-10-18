@@ -21,7 +21,12 @@
 // moment under the veil (until frame times settle, a few seconds at most)
 // fitting the pixel budget, stepping the tier there if even the floor is too
 // slow (and, when the veil's time runs out with that still being decided,
-// stepping it then rather than after the reveal), and the veil lifts.
+// stepping it then rather than after the reveal), and the veil lifts. On the
+// garden page the opening may still be holding its quote
+// (lib/garden/opening): then the settled garden waits under the veil,
+// drawing but measuring and deciding nothing, so the wait can never change
+// the budget or the tier, and it is revealed the frame the opening lets go
+// (a resize meanwhile has it calibrate again first, still veiled).
 //
 // A tier step under the veil compiles the new tier's programs again; that
 // wait is capped short (STEP_COMPILE_WAIT_MS), and whatever the driver has not
@@ -87,6 +92,7 @@ import {
   type Compile,
 } from "@/components/garden/warmup";
 import { rememberTier } from "@/lib/garden/device";
+import { opening } from "@/lib/garden/opening";
 import { garden, useGarden, type Quality } from "@/lib/garden/store";
 import { Governor, quality, stepTier, type Phase, type QualityState } from "@/lib/garden/quality";
 
@@ -522,6 +528,8 @@ export function RenderGovernor() {
     resize: null as { dpr: number; at: number; frames: number } | null,
     /** A prepared tier just swapped in behind the still (swapTier). */
     swap: null as SwapHold | null,
+    /** Settled under the veil, the garden waits for the opening's quote and breath (lib/garden/opening) before its reveal. */
+    waiting: false,
   });
   const lastInput = useLastInput(gl.domElement.parentElement);
 
@@ -623,11 +631,19 @@ export function RenderGovernor() {
     if (q.phase !== c.phase) {
       c.phase = q.phase;
       c.since = now;
+      c.waiting = false;
     }
     if (q.range !== c.range) {
       // The canvas changed size: a new floor and ceiling, the budget as the store left it.
       c.range = q.range;
       governor.setRange(q.range, q.budget);
+      // Waiting for the opening, nothing was measured at this size: calibrate again under the veil, and the
+      // opening's breath waits for that (while its quote is up; once the breath has begun, the reveal is moments away
+      // and the live governor takes the new size from there).
+      if (c.waiting && opening.unready()) {
+        c.waiting = false;
+        c.since = now;
+      }
     }
     if (q.refreshHz !== c.refresh) {
       // The panel's rate, measured at startup: what smooth means on this screen.
@@ -685,6 +701,20 @@ export function RenderGovernor() {
       return;
     }
     if (q.phase === "compiling" || q.phase === "boot") return;
+
+    // The governor has settled and the garden waits under the veil while the
+    // opening's quote is read and its breath taken (lib/garden/opening). It
+    // keeps drawing but measures and decides nothing meanwhile: the budget and
+    // the tier stay as calibrated, so the hold can never cause a change, and
+    // the reveal comes the frame the opening lets it go.
+    if (c.waiting) {
+      if (opening.holdsReveal()) return;
+      c.waiting = false;
+      mark("revealed");
+      governor.beginGrace(now, GRACE_MS);
+      quality.set({ phase: "revealing" });
+      return;
+    }
 
     const calibrating = q.phase === "calibrating";
     // the tier on screen (another may be being prepared out of sight)
@@ -752,6 +782,14 @@ export function RenderGovernor() {
             changeTier(next, gl.domElement, governor, ownTier);
             return;
           }
+        }
+        // Ready, but the opening's quote is still being read (or its breath
+        // taken): the garden waits under the veil, settled as it is.
+        if (!held && opening.holdsReveal()) {
+          c.waiting = true;
+          mark("ready");
+          opening.ready();
+          return;
         }
         mark("revealed");
         governor.beginGrace(now, GRACE_MS);

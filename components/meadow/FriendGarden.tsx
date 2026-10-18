@@ -16,7 +16,6 @@ import { dayText, moodLine, speciesName } from "@/components/meadow/words";
 import { useQuality } from "@/lib/garden/quality";
 import { garden, type GardenState } from "@/lib/garden/store";
 import { istNow } from "@/lib/sky/sun";
-import { VeilQuote } from "@/components/garden/VeilQuote";
 import "@/components/meadow/meadow.css";
 
 const GardenCanvas = dynamic(() => import("@/components/garden/GardenCanvas"), { ssr: false, loading: () => null });
@@ -133,7 +132,6 @@ export function FriendGardenView() {
             </div>
             <p className="meadow-veil-title">{failed ? "This garden is resting" : opening}</p>
             <p className="meadow-veil-line">{failed ?? "Walking over from the Meadow"}</p>
-            {!failed && <VeilQuote />}
             {failed && (
               <p style={{ marginTop: 18, textAlign: "center" }}>
                 <a className="meadow-pill meadow-glass" href={back}>

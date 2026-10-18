@@ -11,7 +11,11 @@
 // - anyone else sees Lijas's rose with a gentle line about the party.
 // The decision needs the server (the session cookie is httpOnly), so the first render, which is also the prerendered
 // HTML, shows only the loading veil, and the door opens once GET /api/session answers (asked as the page script
-// loads, lib/client/session.ts, so the answer is usually in by the time the page hydrates).
+// loads, lib/client/session.ts, so the answer is usually in by the time the page hydrates). That first answer also
+// starts the page's opening (lib/garden/opening): the quote moment for a colleague's own garden (with "Welcome back"
+// once it is showing, unless the door has left that garden by then) and for the showcase, which then needs no still of
+// the rose; the gift's own first look and the dialogs skip it, over whichever loading veil was painted first. Until
+// the opening's peace has passed, the pill, the care card and the showcase caption hold back (gift.css, CareLayer.css).
 //
 // The care layer mounts only once the colleague is in their own garden ("Go to my garden", a returning visit, an
 // opened link): Lijas's rose stays behind the planting moment and the link sheet, and the care layer's plant swap (a
@@ -44,6 +48,7 @@ import {
   type SeedResult,
   type TakenLink,
 } from "@/lib/client/session";
+import { opening, quoteRuns, useOpening } from "@/lib/garden/opening";
 import "@/components/gift/gift.css";
 
 // Only a signed-in visitor needs the care layer, so the party's first-time visitors download it only once their seed
@@ -152,7 +157,17 @@ async function doorFor(link: TakenLink): Promise<Door> {
 }
 
 // One answer per page load, even when React runs the effect twice in development.
-let opening: Promise<Door> | null = null;
+let arriving: Promise<Door> | null = null;
+
+/**
+ * The first answer also decides the page's opening (lib/garden/opening): the quote moment for the visitor's own garden
+ * (with their name for the welcome) and for the showcase; the plain loading veil for the gift's own first look and for
+ * a dialog at the door.
+ */
+function openingFor(d: Door) {
+  if (d.mode === "garden") opening.door({ run: true, name: d.person.firstName });
+  else opening.door({ run: d.mode === "showcase", name: null });
+}
 
 /** How long a note about a switch stays under the pill, once the new garden is showing. */
 const NOTE_MS = 5000;
@@ -162,11 +177,15 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
   // a note waits for the garden it is about (afterGardenSettles), then shows for NOTE_MS
   const [pendingNote, setPendingNote] = useState<{ text: string; person: PersonSummary } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const quoteMoment = useOpening(quoteRuns);
 
   useEffect(() => {
     let live = true;
-    opening ??= doorFor(takeGardenLink());
-    opening.then((d) => live && setDoor(d));
+    arriving ??= doorFor(takeGardenLink());
+    arriving.then((d) => {
+      openingFor(d);
+      if (live) setDoor(d);
+    });
     // a garden link pasted into this open page changes only the fragment, so no reload brings it to the door
     const onHash = () => {
       const link = takeLinkFromHashChange();
@@ -180,6 +199,12 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
       window.removeEventListener("hashchange", onHash);
     };
   }, []);
+
+  // The welcome is for the garden the door first opened: once the door shows anything else (the dialog for an ended
+  // session, a pasted link resolving), it is not said.
+  useEffect(() => {
+    if (door.mode !== "garden") opening.unname();
+  }, [door.mode]);
 
   // The care layer found that this device no longer holds the garden it was showing (its session ended, say by a
   // reset from another device). The door takes the event, so the name pill goes and the explanation is the door's own
@@ -281,7 +306,8 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
       {/* keyed by whose garden it is, so a switch starts the care layer afresh for the new plant */}
       {door.mode === "garden" && <CareLayer key={personKey(door.person)} />}
 
-      {(door.mode === "gift" || door.mode === "showcase") && <GiftVeil />}
+      {/* the gift's own first look; the showcase too, unless it opens on the quote moment (lib/garden/opening) */}
+      {(door.mode === "gift" || (door.mode === "showcase" && !quoteMoment)) && <GiftVeil />}
 
       {door.mode === "gift" && (
         <GiftFlow

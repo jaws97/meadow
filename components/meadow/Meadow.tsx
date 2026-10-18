@@ -5,11 +5,17 @@
 // use, the opening veil, and the calm notices the canvas raises (the glide fallback, the respawn fade). The
 // developer readout shows only with ?dev.
 //
+// The opening (lib/garden/opening): a quote alone on the night sky, held until it has been read; the Meadow coming into
+// focus with nothing over it for a few seconds; "Welcome back" for someone whose device holds a garden; then the
+// overlay. While it holds back, the root element carries data-opening="quiet", and meadow.css keeps the bar, the hint,
+// the card and the notices out of sight and out of reach until it lifts.
+//
 // Data: the shared snapshot is polled while the page is open (data.ts), and the session says whether this device
 // holds a garden (for "This is yours", the sprinkle, and the gold ribbon on the person's own stake). A link to
 // /meadow?plot=N opens beside that plant with its card.
 import dynamic from "next/dynamic";
 import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
+import { QuoteMoment, WelcomeLine } from "@/components/garden/OpeningMoment";
 import { DevHud, FadeVeil, MoverNotice } from "@/components/meadow/DevHud";
 import { UnstuckButton } from "@/components/meadow/Unstuck";
 import { loadSession, meadowData, startPolling, useMe, useMeadowData } from "@/components/meadow/data";
@@ -19,7 +25,7 @@ import { meadow } from "@/components/meadow/runtime";
 import { ui, useUi } from "@/components/meadow/ui";
 import { VisitCard } from "@/components/meadow/VisitCard";
 import { primaryTouch } from "@/lib/garden/device";
-import { VeilQuote } from "@/components/garden/VeilQuote";
+import { opening, useOpening, VEIL_FADE_MS } from "@/lib/garden/opening";
 import "@/components/meadow/meadow.css";
 
 const MeadowCanvas = dynamic(() => import("@/components/meadow/MeadowCanvas"), { ssr: false, loading: () => null });
@@ -68,26 +74,59 @@ function TopBar() {
   );
 }
 
-/** The opening: a warm veil until the first frame is up with a body in it and the Meadow's plants have arrived. */
+/**
+ * The opening's veil, up until the first frame is up with a body in it and the Meadow's plants have arrived. Usually
+ * the quote moment (lib/garden/opening, components/garden/OpeningMoment): only the night sky and a quote, progress a
+ * gold hairline at the very bottom, held until the quote has been read even when the Meadow is ready sooner; then the
+ * breath, and the veil fades over the Meadow coming into focus. Its first HTML is the night sky and the hairline alone
+ * (the quote is chosen on the client). When the opening is skipped (a quote moment on this device in the last ten
+ * minutes), the plain veil instead: the lantern, "Opening the Meadow" and a line, fading as soon as the Meadow is ready.
+ */
 function MeadowVeil() {
-  const [phase, setPhase] = useState<"up" | "out" | "gone">("up");
-  const status = useMeadowData((d) => d.status);
-  const [line, setLine] = useState("Gathering everyone's seeds");
+  const stage = useOpening((s) => s.stage);
+  const soft = useOpening((s) => s.soft && !s.reduced);
+  const focused = useOpening((s) => s.focusedAt !== null);
+  const data = useMeadowData((d) => d.status !== "loading");
+  // the body's arrival is in the runtime, not React: looked at a few times a second until it is there
+  const [body, setBody] = useState(false);
+  const [gone, setGone] = useState(false);
+  const ready = body && data;
+  const plainOut = stage === "skip" && ready;
+  useEffect(() => opening.begin(false), []);
   useEffect(() => {
-    if (phase !== "up") return;
+    if (body) return;
     const id = window.setInterval(() => {
-      if (!meadow.stats.loading) setLine("Lighting the lanterns");
-      if (!meadow.stats.loading && status !== "loading") {
-        setPhase("out");
-        window.setTimeout(() => setPhase("gone"), 1300);
-      }
+      if (!meadow.stats.loading) setBody(true);
     }, 150);
     return () => window.clearInterval(id);
-  }, [phase, status]);
-  if (phase === "gone") return null;
+  }, [body]);
+  useEffect(() => {
+    if (ready) opening.ready();
+  }, [ready]);
+  useEffect(() => {
+    if (!plainOut) return;
+    const t = window.setTimeout(() => setGone(true), 1300);
+    return () => window.clearTimeout(t);
+  }, [plainOut]);
+
+  if (stage === "unset" || stage === "pending" || stage === "quote" || stage === "breath" || (stage === "peace" && !focused)) {
+    const lifting = stage === "peace";
+    const [progress, duration] = ready || lifting ? [1, "0.5s"] : body || data ? [0.85, "4s"] : [0.55, "8s"];
+    return (
+      <div
+        className={`meadow-veil${lifting ? " meadow-veil-out" : ""}`}
+        style={{ transitionDuration: `${soft ? VEIL_FADE_MS.soft : VEIL_FADE_MS.plain}ms` }}
+        aria-hidden={lifting}
+      >
+        <QuoteMoment status="Opening the Meadow" progress={progress} duration={duration} />
+      </div>
+    );
+  }
+  if (stage !== "skip" || gone) return null;
   return (
-    <div className={`meadow-veil${phase === "out" ? " meadow-veil-out" : ""}`} aria-hidden={phase === "out"}>
-      <div>
+    <div className={`meadow-veil${plainOut ? " meadow-veil-out" : ""}`} aria-hidden={plainOut}>
+      {/* it comes once the page has hydrated (the first HTML is the quote moment's night sky), so it eases in */}
+      <div className="meadow-veil-arrive">
         <div className="meadow-veil-art">
           <div className="meadow-veil-halo" />
           <svg viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
@@ -109,9 +148,8 @@ function MeadowVeil() {
         </div>
         <p className="meadow-veil-title">Opening the Meadow</p>
         <p className="meadow-veil-line" role="status" aria-live="polite">
-          {line}
+          {body ? "Lighting the lanterns" : "Gathering everyone's seeds"}
         </p>
-        <VeilQuote />
       </div>
     </div>
   );
@@ -148,6 +186,11 @@ export function Meadow() {
     return stop;
   }, []);
 
+  // the opening's welcome, for someone whose device holds a garden (said only if the name is in by its moment)
+  useEffect(() => {
+    if (me?.signedIn && me.firstName) opening.named(me.firstName);
+  }, [me]);
+
   useEffect(() => {
     meadow.myPlot = me?.signedIn && me.plot !== null ? me.plot : -1;
   }, [me]);
@@ -183,6 +226,7 @@ export function Meadow() {
       <UnstuckButton />
       <MoverNotice />
       <FadeVeil />
+      <WelcomeLine />
       <MeadowVeil />
     </main>
   );

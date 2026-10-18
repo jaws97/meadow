@@ -28,9 +28,13 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
+    // suppressHydrationWarning: the garden page's inline script marks the root
+    // with the loading veil's first look before React hydrates
+    // (lib/garden/opening's FIRST_LOOK_SCRIPT)
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
       <body className="min-h-full">
         {children}

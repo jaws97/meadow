@@ -4,13 +4,16 @@
 // the cart, which keeps the view calm and keeps "drag toward the finger" meaning the same thing on screen at all
 // times. Pinch or wheel set the distance.
 //
-// Three things move it besides the cart, always by easing, never by a cut:
+// Four things move it besides the cart, always by easing, never by a cut:
 // - the opening shot: the Meadow first appears from high above, the rings round the rose, and the camera settles
-//   onto the cart over a few seconds (meadow.intro), framing the rose with it until the cart sets off;
+//   onto the cart over a few seconds (meadow.intro), framing the rose with it until the cart sets off (not behind the
+//   opening's quote moment, where the push-in below is the one move);
 // - pulling far back: past about twenty metres the focus drifts toward the dais and the view tilts down, so zooming
 //   out turns into an overview of the whole Meadow rather than a long look along the ground;
 // - a visit: once the cart has pulled up beside a plant whose card is open, the camera comes in on the plant and
-//   keeps it in the part of the screen the card leaves clear (meadow.view).
+//   keeps it in the part of the screen the card leaves clear (meadow.view);
+// - the opening's push-in (lib/garden/opening): a few per cent farther back while the veil is up, easing in as the
+//   Meadow comes into focus behind it, and stopped where it is the moment someone drives or zooms.
 //
 // The framing follows the screen's shape, blended smoothly from a tall phone to an ultrawide (no jump at square):
 // a tall screen gets a floor on the horizontal field of view, a little more distance, and a slightly steeper look
@@ -21,6 +24,7 @@ import { useRef } from "react";
 import * as THREE from "three";
 import { meadowLayout } from "@/components/meadow/layout";
 import { INTRO_SECONDS, meadow } from "@/components/meadow/runtime";
+import { opening } from "@/lib/garden/opening";
 
 /** Elevation, measured from straight up (three's spherical phi). */
 const PHI = 0.28 * Math.PI;
@@ -80,7 +84,7 @@ const verticalFor = (horizontal: number, aspect: number) =>
   THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(horizontal / 2)) / aspect));
 
 export function CameraRig() {
-  const rig = useRef({ distance: 13, phi: PHI, visit: 0, home: 1, trail: 0 });
+  const rig = useRef({ distance: 13, phi: PHI, visit: 0, home: 1, trail: 0, zoom0: -1 });
   useFrame(({ camera, size }, dtRaw) => {
     const dt = Math.min(dtRaw, 0.1);
     const r = rig.current;
@@ -137,13 +141,20 @@ export function CameraRig() {
     r.trail += ((meadow.journey ? 1 : 0) - r.trail) * (1 - Math.exp(-GENTLE * dt));
     if (r.trail > 0.001) distance = THREE.MathUtils.lerp(distance, Math.max(distance, JOURNEY_DISTANCE * shape), r.trail);
     // where the cart starts, beside the dais, the view takes in the rose as well, until the cart sets off
+    // (held as it is until there is a cart, so the cart arriving where the view already looks moves nothing: the opening's
+    // veil can lift moments after it appears)
     const home =
       m !== null && meadow.view.target === null && Math.hypot(m.state.position.x - meadow.start.x, m.state.position.z - meadow.start.z) < HOME_RADIUS;
-    r.home += ((home ? 1 : 0) - r.home) * (1 - Math.exp(-GENTLE * dt));
+    if (m) r.home += ((home ? 1 : 0) - r.home) * (1 - Math.exp(-GENTLE * dt));
     if (r.home > 0.001) {
       want.multiplyScalar(1 - HOME_SHARE * r.home * (1 - overview));
       distance = THREE.MathUtils.lerp(distance, Math.max(distance, HOME_DISTANCE * shape), r.home);
     }
+    // the opening's push-in (lib/garden/opening): a little farther back under the veil, easing in to the framing as the
+    // Meadow comes into focus, and stopped where it is the moment someone drives (a drag or the keys) or zooms
+    if (opening.get().revealAt === null) r.zoom0 = meadow.zoom;
+    if (meadow.mode === "drag" || meadow.mode === "keys" || meadow.zoom !== r.zoom0) opening.stopPush();
+    distance *= opening.push(performance.now());
     // the opening shot: high over the dais, settling onto the cart
     if (meadow.intro > 0) {
       meadow.intro = Math.max(0, meadow.intro - dt);

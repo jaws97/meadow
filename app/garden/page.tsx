@@ -12,13 +12,15 @@
 // care layer's card holds the bottom of the screen. Everything over the canvas
 // stacks inside the page: a plant swap's soft night (z 12), the care card
 // (15), the name pill (17), the loading veil (20), then the gift's still and
-// sheet; dialogs go to the body, over all of it. The development panel
+// sheet; dialogs go to the body, over all of it. The opening's welcome line
+// (OpeningMoment) comes after the veil has gone, when nothing else is shown. The development panel
 // shows in development, and in production only with ?dev, so colleagues see
 // a clean garden while the owner can still tune it on the live site.
 import dynamic from "next/dynamic";
 import { useSyncExternalStore } from "react";
 import { DevPanel } from "@/components/garden/DevPanel";
 import { LoadingVeil } from "@/components/garden/LoadingVeil";
+import { WelcomeLine } from "@/components/garden/OpeningMoment";
 import { GardenDoor } from "@/components/gift/GardenDoor";
 import { Hint } from "@/components/gift/Hint";
 
@@ -38,6 +40,7 @@ export default function GardenPage() {
     <main className="fixed inset-0 overflow-hidden bg-[#06080f]" data-garden-layers="">
       <GardenCanvas />
       <LoadingVeil />
+      <WelcomeLine />
       {showPanel && <DevPanel />}
       <GardenDoor hint={<Hint panel={showPanel} />} />
     </main>

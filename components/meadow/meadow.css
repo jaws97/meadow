@@ -62,6 +62,10 @@
   justify-content: space-between;
   gap: 10px;
   pointer-events: none;
+  /* it fades in once the opening's peace has passed (see the end of this file) */
+  transition:
+    opacity 0.9s var(--m-ease),
+    visibility 0s;
 }
 
 /*
@@ -570,11 +574,44 @@
   color: rgba(246, 234, 214, 0.5);
 }
 
+/* the plain veil's lantern and words come once the page has hydrated (the first HTML is the quote moment's night sky) */
+.meadow-veil-arrive {
+  animation: meadow-fade 0.45s ease both;
+}
+
+/*
+ * The opening's peace (lib/garden/opening): while the root element carries data-opening="quiet", the overlay holds
+ * back, out of sight and out of reach (visibility, so nothing hidden takes a tap or a Tab), and the Meadow is shown
+ * with nothing over it. Then it comes: the bar and the hint fade in, a card opened by a /meadow?plot= link rises in.
+ * The hint and the notices set their own opacity inline, hence the !important.
+ */
+:root[data-opening="quiet"] .meadow-top,
+:root[data-opening="quiet"] .meadow-hint,
+:root[data-opening="quiet"] .meadow-notice,
+:root[data-opening="quiet"] .meadow-journey {
+  opacity: 0 !important;
+  visibility: hidden;
+}
+
+:root[data-opening="quiet"] .meadow-card {
+  animation: none;
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* on a landscape screen the opening shot has the rose high in the frame: the welcome sits above it, not across it */
+@media (min-aspect-ratio: 1/1) {
+  .meadow-root .opening-welcome {
+    top: calc(max(12px, env(safe-area-inset-top)) + clamp(18px, 4.5vh, 48px));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .meadow-card,
   .meadow-find,
   .meadow-find-dock,
-  .meadow-journey {
+  .meadow-journey,
+  .meadow-veil-arrive {
     animation: none;
   }
   .meadow-veil-halo {

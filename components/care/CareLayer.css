@@ -140,6 +140,17 @@
   }
 }
 
+/*
+ * The opening's peace (lib/garden/opening): while the root element carries data-opening="quiet" the card is laid out
+ * (so it still tells the camera how much it covers, and the plant is framed for it from the first instant) but out of
+ * sight and out of reach. When the quiet lifts its entrance plays then, rising (or sliding) in over the garden.
+ */
+:root[data-opening="quiet"] .care-panel {
+  animation: none;
+  opacity: 0;
+  visibility: hidden;
+}
+
 @keyframes care-rise {
   from {
     opacity: 0;

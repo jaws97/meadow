@@ -18,7 +18,9 @@
 // else on the soil chip; the can's breathing ring shows where to act.
 //
 // The card's height reaches the garden camera through the store (dockBottom, dockRight), so the plant stands in the
-// open part of the view and eases up when the card grows for a question or a reply. A plant that has gone to sleep
+// open part of the view and eases up when the card grows for a question or a reply. On the page's opening
+// (lib/garden/opening) the card is laid out from the start, so the plant is already framed for it, but held out of
+// sight until the opening's peace has passed (CareLayer.css), then it rises in. A plant that has gone to sleep
 // gets the resting card (Fairy Dust, then a second-chance sprout) in place of the buttons; a garden that cannot be
 // reached, or a device that no longer holds its garden, gets a small calm card with words instead of silence.
 //
@@ -58,6 +60,7 @@ import {
   weatherWords,
   type MeView,
 } from "@/lib/client/plant";
+import { uiHeld, useOpening } from "@/lib/garden/opening";
 import { useQuality } from "@/lib/garden/quality";
 import { garden } from "@/lib/garden/store";
 import { IST_OFFSET_MIN, hourIndexOf } from "@/lib/sim";
@@ -145,9 +148,11 @@ function useDock(panel: RefObject<HTMLElement | null>) {
  * been thanked today is remembered on this device.
  */
 function useSprinkleThanks(me: MeView, noun: string, resting: boolean) {
-  // the veils' rule: once first seen the garden counts as showing, through a tier change behind a held still too
+  // the veils' rule: once first seen the garden counts as showing, through a tier change behind a held still too; and
+  // the card itself waits for the opening's peace to pass (lib/garden/opening), so the thanks waits with it
   const showing = useQuality((s) => !underVeil(s));
-  const quiet = resting || !showing;
+  const held = useOpening(uiHeld);
+  const quiet = resting || !showing || held;
   const names = me.friendsToday.join("\u0001");
   const seed = me.plant.seed;
   const day = Math.floor(me.now.h / 24);

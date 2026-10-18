@@ -9,12 +9,22 @@
 // opening compiles the shaders behind the loading veil. R3F re-applies dpr
 // when the prop changes and the effect composer re-sizes its buffers when it
 // sees the renderer's pixel ratio move, so a budget change is live.
+//
+// On the garden page's opening (lib/garden/opening) the canvas comes into
+// focus as the veil lifts, from a soft blur to sharp (a CSS filter on its
+// wrapper, for a few seconds only), on a laptop or a big screen and not on
+// the lite tier. Elsewhere the veil's longer fade carries the focus alone and
+// the compositor does no filtering: a filter over a live canvas is not proven
+// smooth on a phone's or a tablet's GPU, and the moment is worth more than
+// the blur.
 import { Canvas, type CanvasProps } from "@react-three/fiber";
-import { Suspense, useLayoutEffect } from "react";
+import { Suspense, useEffect, useLayoutEffect } from "react";
 import * as THREE from "three";
+import { useOpeningFocus } from "@/components/garden/OpeningMoment";
 import { Opening, RenderGovernor, TierPreparer } from "@/components/garden/RenderBudget";
 import { Scene } from "@/components/garden/Scene";
-import { garden } from "@/lib/garden/store";
+import { opening } from "@/lib/garden/opening";
+import { garden, useGarden } from "@/lib/garden/store";
 import { env } from "@/lib/garden/env";
 import { quality, useQuality, type Phase } from "@/lib/garden/quality";
 
@@ -38,10 +48,15 @@ const stopped = (p: Phase) => p === "boot" || p === "compiling";
 export default function GardenCanvas() {
   const dpr = useQuality((s) => s.dpr);
   const phase = useQuality((s) => s.phase);
+  const tier = useGarden((s) => s.quality);
+  const roomy = useQuality((s) => s.device?.kind === "laptop" || s.device?.kind === "bigscreen");
+  const focus = useOpeningFocus();
   // Mounting the canvas means the chunk has arrived: the opening starts compiling.
   useLayoutEffect(() => {
     if (quality.get().phase === "boot") quality.set({ phase: "compiling" });
   }, []);
+  // The tier settled under the veil decides how the garden comes into focus.
+  useEffect(() => opening.setSoft(tier !== "lite" && roomy), [tier, roomy]);
   return (
     // three r186 removed PCFSoftShadowMap; asking for it makes the first shadow
     // pass silently switch types after materials compiled, which leaves the
@@ -53,6 +68,7 @@ export default function GardenCanvas() {
       gl={GL}
       camera={CAMERA}
       style={STYLE}
+      className={focus}
       onCreated={(state) => {
         state.gl.transmissionResolutionScale = TRANSMISSION_SCALE;
         // Dev-only handle for probing the live renderer from the console.

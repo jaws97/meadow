@@ -18,6 +18,10 @@
 // zoom by the viewer is kept as a share of that distance. Left alone, the camera drifts a
 // little, as if handheld on a slow dolly; any touch of the controls pauses the
 // drift, which eases back in a few seconds after the last gesture.
+// On the garden page's opening (lib/garden/opening) the camera waits under
+// the veil a little farther back and pushes gently in to its framing as the
+// garden comes into focus; the first drag or zoom ends the push where it is
+// (a tap, which only brings the UI in, does not).
 // OrbitControls stays live so the viewer can lean right in to the flower:
 // a drag (mouse, trackpad or one finger) orbits, the wheel, a trackpad pinch
 // or two fingers zoom.
@@ -35,6 +39,7 @@ import { sidePanel } from "@/lib/client/dock";
 import { HERO_GROUND_Y } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { framingFor, LAYOUT, type Framing } from "@/lib/garden/layout";
+import { opening } from "@/lib/garden/opening";
 import { garden } from "@/lib/garden/store";
 import { lerp, smoothstep } from "@/lib/plant/prng";
 
@@ -121,6 +126,9 @@ const DRIFT_PERIOD = 28;
 const DRIFT_RESUME_AFTER = 5;
 /** seconds the drift takes to ease back to full strength */
 const DRIFT_EASE = 5;
+/** A gesture moved the camera (and so ends the opening's push-in) past this turn (radians) or change of distance (a share). */
+const MOVED_ANGLE = 0.002;
+const MOVED_SHARE = 0.002;
 
 /**
  * The lens shift for a docked care layer: the plant (head to foot) is centred
@@ -136,6 +144,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 const offset = new THREE.Vector3();
 const prevTarget = new THREE.Vector3();
 const driftLift = new THREE.Vector3();
+const released = new THREE.Vector3();
 const lensHead = new THREE.Vector3();
 const lensFoot = new THREE.Vector3();
 const lensCap = new THREE.Vector3();
@@ -148,6 +157,9 @@ interface Drift {
   lastGesture: number;
   /** the viewer's own zoom, as a share of the dolly's distance for the plant's height */
   zoom: number;
+  /** the opening's push-in currently applied to the camera's distance (a factor), and whether a gesture has ended it */
+  push: number;
+  pushOff: boolean;
 }
 
 /**
@@ -260,7 +272,7 @@ export function CameraRig() {
   const camera = useThree((s) => s.camera);
   const width = useThree((s) => s.size.width);
   const height = useThree((s) => s.size.height);
-  const drift = useRef<Drift>({ yaw: 0, lift: 0, interacting: false, lastGesture: -Infinity, zoom: 1 });
+  const drift = useRef<Drift>({ yaw: 0, lift: 0, interacting: false, lastGesture: -Infinity, zoom: 1, push: 1, pushOff: false });
   /** the lens shift now applied, CSS px: content moved left (x) and up (y) */
   const lens = useRef({ x: 0, y: 0 });
   const aspect = Math.round(width / Math.max(1, height) / ASPECT_STEP) * ASPECT_STEP;
@@ -303,21 +315,36 @@ export function CameraRig() {
 
   // A gesture takes over the camera wherever the drift has left it: the drift
   // is forgotten rather than unwound, so nothing snaps under the hand.
+  // The opening's push-in ends with a gesture that moved the camera (a drag,
+  // a pinch or the wheel), the same way: the distance it had reached becomes
+  // the camera's own. A tap that moves nothing leaves it running.
+  const pressed = useRef(new THREE.Vector3());
   const onStart = useCallback(() => {
     const d = drift.current;
     d.yaw = 0;
     d.lift = 0;
     d.interacting = true;
-  }, []);
+    const c = controls.current;
+    if (c) pressed.current.copy(camera.position).sub(c.target);
+  }, [camera]);
   const onEnd = useCallback(() => {
     const d = drift.current;
     d.interacting = false;
     d.lastGesture = env.time;
-    // Keep the viewer's zoom as a share of the dolly, so the plant keeps its size in frame as it grows.
     const c = controls.current;
     if (c) {
+      const off = released.copy(camera.position).sub(c.target);
+      const from = pressed.current;
+      const moved = off.angleTo(from) > MOVED_ANGLE || Math.abs(off.length() / Math.max(1e-6, from.length()) - 1) > MOVED_SHARE;
+      if (moved && !d.pushOff) {
+        d.push = 1;
+        d.pushOff = true;
+        opening.stopPush();
+      }
+      // Keep the viewer's zoom as a share of the dolly, so the plant keeps its size in frame as it grows (without the
+      // push-in, while that is still running).
       const auto = autoDistance(live.current, liveAspect.current, env.headPos.y);
-      d.zoom = Math.min(3, Math.max(0.3, camera.position.distanceTo(c.target) / auto));
+      d.zoom = Math.min(3, Math.max(0.3, off.length() / d.push / auto));
     }
   }, [camera]);
 
@@ -345,11 +372,15 @@ export function CameraRig() {
       // Carry the camera with the target and ease its distance toward the
       // dolly's, keeping the direction it looks from: the framing angle holds
       // from seedling to bloom, and an orbit the viewer chose is respected.
+      // The opening's push-in (lib/garden/opening) rides on top, applied
+      // straight to the distance rather than eased, so it keeps its own slow
+      // curve: from a little farther back under the veil to the framing.
       const ratio = dollyRatio(Math.max(0, headY - HERO_GROUND_Y));
       const want = Math.min(MAX_DISTANCE, Math.max(MIN_DISTANCE + 0.05, autoDistance(f, liveAspect.current, headY) * d.zoom));
       const ease = 1 - Math.exp(-dt * DOLLY_RATE);
+      const push = d.pushOff ? 1 : opening.push(performance.now());
       offset.copy(camera.position).sub(prevTarget).sub(driftLift.set(0, d.lift, 0));
-      const dist = offset.length() || want;
+      const dist = offset.length() / d.push || want;
       const next = dist + (want - dist) * ease;
       if (d.lastGesture === -Infinity) {
         const flat = Math.hypot(offset.x, offset.z) || 1e-6;
@@ -357,11 +388,12 @@ export function CameraRig() {
         const bedElevation = lerp(BED_ELEVATION.tall, BED_ELEVATION.wide, wide);
         const goal = lerp(lerp(CLOSE_ELEVATION, f.elevation, smoothstep(0.28, 0.62, ratio)), bedElevation, bed);
         const e = elev + (goal - elev) * ease;
-        const k = (Math.cos(e) * next) / flat;
-        offset.set(offset.x * k, Math.sin(e) * next, offset.z * k);
+        const k = (Math.cos(e) * next * push) / flat;
+        offset.set(offset.x * k, Math.sin(e) * next * push, offset.z * k);
       } else {
-        offset.multiplyScalar(next / dist);
+        offset.setLength(next * push);
       }
+      d.push = push;
       camera.position.copy(c.target).add(offset).add(driftLift);
     }
 

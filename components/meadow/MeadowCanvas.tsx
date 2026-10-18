@@ -48,6 +48,7 @@ import {
 } from "react";
 import * as THREE from "three";
 import { holdFrame, releaseFrame, RESIZE_HOLD } from "@/components/garden/frameHold";
+import { useOpeningFocus } from "@/components/garden/OpeningMoment";
 import { Bursts } from "@/components/meadow/Bursts";
 import { CameraRig } from "@/components/meadow/CameraRig";
 import { MeadowController } from "@/components/meadow/controller";
@@ -66,6 +67,7 @@ import { ui } from "@/components/meadow/ui";
 import { VisitedPlant } from "@/components/meadow/VisitedPlant";
 import { GLIDE_NOTICE } from "@/components/meadow/words";
 import { dprForBudget, MIN_DPR, readDevice, type DeviceKind } from "@/lib/garden/device";
+import { opening, quoteRuns } from "@/lib/garden/opening";
 import { ringsToDraw } from "@/lib/server/plots";
 
 interface PhysicsProps {
@@ -152,7 +154,10 @@ function prepareStart(plot: number | null, device: DeviceKind): void {
     meadow.requests.visit = { index: p.index, journey: false };
   } else {
     const s = meadowLayout().spawn;
-    setStart(s.x, s.z, s.yaw, true);
+    // the opening shot, unless the opening's quote moment holds the Meadow behind its veil until the quote has been
+    // read (lib/garden/opening): it would play unseen there, or run on into the reveal, where the push-in is the one
+    // camera move (and none at all for reduced motion)
+    setStart(s.x, s.z, s.yaw, !quoteRuns(opening.get()));
   }
   if (device === "bigscreen") setZoom(23);
 }
@@ -425,6 +430,12 @@ export default function MeadowCanvas() {
 
   const quality = QUALITY[deviceKind];
   const lite = quality === "lite";
+  // the opening (lib/garden/opening): the Meadow comes into focus from a soft blur as the veil lifts on a laptop or a
+  // big screen; on a phone (the lite tier) or a tablet the veil's longer fade carries it alone and the compositor does
+  // no filtering (a full-screen filter over the live canvas is not measured smooth on their GPUs)
+  const focus = useOpeningFocus();
+  const roomy = deviceKind === "laptop" || deviceKind === "bigscreen";
+  useEffect(() => opening.setSoft(roomy), [roomy]);
   // The Meadow and the physics world do not change with the mover, so their elements are kept: the swap (and the
   // retiring of the physics world three frames later) re-renders only the movers. Re-rendered, the whole Meadow and
   // every collider went through React again, most of a long frame at the swap.
@@ -458,7 +469,7 @@ export default function MeadowCanvas() {
     [onFail, lite, layoutKey],
   );
   return (
-    <Canvas shadows={SHADOWS} dpr={dpr} gl={GL} camera={CAMERA} style={STYLE}>
+    <Canvas shadows={SHADOWS} dpr={dpr} gl={GL} camera={CAMERA} style={STYLE} className={focus}>
       <PerfProbe watch={kind === "physics" && auto} onSlow={onSlow} onSag={onSag} />
       <PixelStep askRef={stepAsk} dpr={dpr} next={nextDpr} onStep={onStep} />
       <Controls controller={controller} fallBack={fallBack} />

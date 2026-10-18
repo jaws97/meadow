@@ -1219,6 +1219,10 @@
   z-index: 17;
   top: max(12px, env(safe-area-inset-top));
   left: max(12px, env(safe-area-inset-left));
+  /* it fades in once the opening's peace has passed (the end of this file) */
+  transition:
+    opacity 0.9s var(--gift-ease),
+    visibility 0s;
 }
 
 .gift-id-pill {
@@ -1420,6 +1424,24 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/*
+ * The opening's peace (lib/garden/opening): while the root element carries data-opening="quiet" the garden is shown
+ * with nothing over it, so the name pill, the showcase's caption and the hint hold back, out of sight and out of reach
+ * (visibility, so nothing hidden takes a tap or a Tab). When the quiet lifts the pill and the hint fade in and the
+ * caption's entrance plays then. The hint sets its own opacity inline, hence the !important.
+ */
+:root[data-opening="quiet"] .gift-id,
+:root[data-opening="quiet"] .gift-hint {
+  opacity: 0 !important;
+  visibility: hidden;
+}
+
+:root[data-opening="quiet"] .gift-showcase {
+  animation: none;
+  opacity: 0;
+  visibility: hidden;
 }
 
 /* ---- reduced motion ---------------------------------------------------------------------- */

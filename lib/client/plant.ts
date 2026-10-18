@@ -688,7 +688,8 @@ export function dismissNotice() {
 
 // ---- remembered look -----------------------------------------------------------------------------------------------------
 
-const LOOK_KEY = "garden-plant:v1";
+/** Also read, as a sign that this device has shown its own garden, by the garden veil's first look (lib/garden/opening). */
+export const LOOK_KEY = "garden-plant:v1";
 const LOOK_MAX_AGE = 7 * DAY;
 let lookSavedAt = 0;
 /** the store holds a remembered plant that /api/me has not confirmed yet */
