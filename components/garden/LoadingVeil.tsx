@@ -10,10 +10,12 @@
 //
 // - The quote moment (OpeningMoment's QuoteMoment), for a device that has
 //   shown its own garden or opened on a quote before: only the night sky and
-//   a quote, with loading progress a gold hairline at the very bottom. The
-//   quote is chosen on the client, so the first HTML has the night sky and
-//   the hairline alone, and the words begin once the door has said whose
-//   garden this is (the visitor's own, or the showcase). The veil then holds
+//   a quote, with loading progress a gold hairline at the very bottom. Every
+//   quote is in the first HTML; the inline script picks one and, for a plain
+//   address (no garden link, no party code), starts its words with the first
+//   paint, while the door is still finding out whose garden this is (the
+//   visitor's own, or the showcase); otherwise the words begin once the door
+//   has answered. The veil then holds
 //   the garden's reveal (RenderBudget) until the quote has been read, and
 //   after the breath fades over the garden coming into focus, on the
 //   opening's clock rather than the governor's.
@@ -22,40 +24,32 @@
 //   ten minutes ago: a seed of light on a night-garden sky, its sprout
 //   swaying, a halo breathing round it and motes drifting up, over one line,
 //   "The garden is waking" (WAKING_LINE, the same words the gift's first look
-//   uses), and a thin vine of progress, fading over a second and a half into
-//   the first frame. On a return visit the sky behind the sprout is the
+//   uses), and a thin vine of progress that creeps from the first paint (as
+//   the quote's hairline does), fading over a second and a half into the
+//   first frame. On a return visit the sky behind the sprout is the
 //   garden itself, as this device last saw it (poster.ts), softly blurred, so
 //   the first instant already shows the colleague's own flower. When a first
 //   visit's door opens on the showcase, the sprout crosses over to the quote.
 //
 // The veil belongs to the first opening only. Once the garden has been seen
 // it never comes back: a later tier change holds a still of the garden
-// instead (frameHold.ts). If the governor steps the tier while the veil is
-// still up, the vine (or the hairline) never grows backwards.
+// instead (frameHold.ts). The vine and the hairline creep on time alone, so a
+// tier step under the veil never sends them backwards.
 //
 // The motion is CSS on HTML elements (LoadingVeil.css, OpeningMoment.css),
-// so it runs on the compositor and never stutters while the main thread
-// works. The art is drawn here, original to the garden.
+// opacity and transform only, so it runs on the compositor and never
+// stutters while the main thread works. The art is drawn here, original to
+// the garden.
 import { useLayoutEffect, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { QuoteMoment } from "@/components/garden/OpeningMoment";
+import { FirstLook, QuoteMoment } from "@/components/garden/OpeningMoment";
 import { lookOf, readPoster } from "@/components/garden/poster";
-import { FIRST_LOOK_SCRIPT, opening, useOpening, VEIL_FADE_MS } from "@/lib/garden/opening";
+import { opening, useOpening, VEIL_FADE_MS } from "@/lib/garden/opening";
 import { garden } from "@/lib/garden/store";
-import { useQuality, type Phase } from "@/lib/garden/quality";
+import { useQuality } from "@/lib/garden/quality";
 import "@/components/garden/LoadingVeil.css";
 
 /** The one loading line, wherever the garden is loading (the gift's first look says it too). */
 export const WAKING_LINE = "The garden is waking";
-
-/** How far along the vine has grown, and how slowly it gets there (compiling has no progress to report, so it creeps). */
-const PROGRESS: Record<Phase, [number, string]> = {
-  boot: [0.18, "2.5s"],
-  compiling: [0.86, "9s"],
-  warming: [0.92, "0.6s"],
-  calibrating: [0.97, "0.9s"],
-  revealing: [1, "0.5s"],
-  live: [1, "0.5s"],
-};
 
 /** Motes: horizontal drift (px), duration and delay (s). Negative delays start them mid-flight. */
 const MOTES: ReadonlyArray<[number, number, number]> = [
@@ -117,8 +111,8 @@ function Sprout() {
   );
 }
 
-/** The plain veil's sprout, its one line and its vine of progress. */
-function PlainLook({ progress, duration }: { progress: number; duration: string }) {
+/** The plain veil's sprout, its one line and its vine of progress (`finished`: drawn to its end as the veil lifts). */
+function PlainLook({ finished }: { finished: boolean }) {
   return (
     <div className="garden-veil-content">
       <div className="garden-veil-art">
@@ -137,46 +131,29 @@ function PlainLook({ progress, duration }: { progress: number; duration: string 
       <p className="garden-veil-title" role="status">
         {WAKING_LINE}
       </p>
-      <div className="garden-veil-track">
-        <div className="garden-veil-fill" style={{ transform: `scaleX(${progress})`, ["--t" as string]: duration }} />
+      <div className={`garden-veil-track${finished ? " garden-veil-finished" : ""}`}>
+        <div className="garden-veil-fill" />
+        <div className="garden-veil-end" />
       </div>
     </div>
-  );
-}
-
-/**
- * The first look, set on the root element as the page's HTML is parsed (it comes before the veil, so the veil's first
- * paint has it). Rendered in the browser its type is text/plain, so React never warns of a script it would not run
- * (the type differs from the server's, hence suppressHydrationWarning), as in Next's "preventing flash" guide.
- */
-function FirstLook() {
-  return (
-    <script
-      type={typeof window === "undefined" ? "text/javascript" : "text/plain"}
-      suppressHydrationWarning
-      dangerouslySetInnerHTML={{ __html: FIRST_LOOK_SCRIPT }}
-    />
   );
 }
 
 export function LoadingVeil() {
   const phase = useQuality((s) => s.phase);
   const veiled = useQuality((s) => s.veiled);
-  const settling = useQuality((s) => s.tierChanges > 0 || s.rewound);
   const stage = useOpening((s) => s.stage);
   const look = useOpening((s) => s.look);
   const soft = useOpening((s) => s.soft && !s.reduced);
   const focused = useOpening((s) => s.focusedAt !== null);
   const poster = useSyncExternalStore(subscribeNever, readPosterOnce, serverPoster);
-  // The opening begins once the page has hydrated, and waits for the door to say whose garden this is. Before the
-  // first paint after hydration, so the look it puts back on the root (React's development remount clears it) never
-  // flickers.
-  useLayoutEffect(() => opening.begin(true), []);
-  const [target, duration] = PROGRESS[phase];
-  // The vine only ever grows: a tier step under the veil (which comes from
-  // calibrating), or another kind of garden arriving under it (a lotus's
-  // courtyard), re-runs the opening phases, and the bar holds where it was.
-  const progress = settling ? Math.max(target, PROGRESS.calibrating[0]) : target;
+  // The opening begins once the page has hydrated (adopting a quote the first paint began), and waits for the door to
+  // say whose garden this is. Before the first paint after hydration, so the look and the quote it puts back on the
+  // root (React's development remount clears them) never flicker.
+  useLayoutEffect(() => {
+    opening.begin(true);
+    opening.resync();
+  }, []);
 
   // The veil's element and its two looks stay the same elements from the first HTML on, so a change of look crosses
   // over (LoadingVeil.css) and nothing already painted starts again.
@@ -189,8 +166,8 @@ export function LoadingVeil() {
     veil = (
       <div className={`garden-veil-veil${lifting ? " garden-veil-out" : ""}`} style={fade} aria-hidden={lifting}>
         {null}
-        {stage === "quote" && <PlainLook progress={progress} duration={duration} />}
-        <QuoteMoment status={WAKING_LINE} progress={lifting ? 1 : progress} duration={duration} />
+        {stage === "quote" && <PlainLook finished={false} />}
+        <QuoteMoment status={WAKING_LINE} />
       </div>
     );
   } else if (stage === "unset" || stage === "pending" || (stage === "skip" && veiled && phase !== "live")) {
@@ -201,14 +178,14 @@ export function LoadingVeil() {
     veil = (
       <div className={`garden-veil-veil${still ? " garden-veil-has-poster" : ""}${out ? " garden-veil-out" : ""}`} aria-hidden={out}>
         {still && <div className="garden-veil-poster" style={{ backgroundImage: `url(${still})` }} />}
-        <PlainLook progress={progress} duration={duration} />
-        <QuoteMoment status={WAKING_LINE} progress={progress} duration={duration} />
+        <PlainLook finished={out} />
+        <QuoteMoment status={WAKING_LINE} finished={out} />
       </div>
     );
   }
   return (
     <>
-      <FirstLook />
+      <FirstLook page="garden" />
       {veil}
     </>
   );

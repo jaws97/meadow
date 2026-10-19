@@ -176,7 +176,9 @@ export function forgetGardenLink(): void {
 
 // ---- the party code ------------------------------------------------------------------------------------------------
 
-const CODE_KEY = "garden-party-code:v1";
+/** The party code kept for this tab (sessionStorage); the opening's first-look script checks for it too (lib/garden/opening). */
+export const PARTY_CODE_KEY = "garden-party-code:v1";
+const CODE_KEY = PARTY_CODE_KEY;
 /** lib/server/validate.ts PARTY_CODE_MAX */
 const PARTY_CODE_MAX = 64;
 

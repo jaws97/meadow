@@ -19,9 +19,23 @@
 // elsewhere (the gift's own first look, a dialog), or a door that never answers. One opening per page load.
 //
 // The garden page's veil has two looks, and which one is painted first is decided before any script but an inline one
-// has run (FIRST_LOOK_SCRIPT, as the HTML is parsed): the quote moment's night sky for a device that has shown its own
+// has run (firstLookScript, as the HTML is parsed): the quote moment's night sky for a device that has shown its own
 // garden or opened on a quote before, the plain veil's sprout for a first visit (the party's QR code opens as it always
-// has). The door can still turn a plain first look into the quote moment (a first visit to the showcase).
+// has). The door can still turn a plain first look into the quote moment (a first visit to the showcase). The Meadow's
+// veil has two looks too: the quote moment, or its lantern when the quote is skipped.
+//
+// The words in the first paint. Every quote is in the page's HTML, hidden, and the same inline script picks this
+// opening's quote (by quoteOrder's own shuffle, never the one shown last) and shows it by marking the root element
+// (data-quote), so its words begin to arrive with the first paint instead of waiting for the page's JavaScript to load
+// and run, seconds on a phone. It does so only where the opening will surely run the quote: on the Meadow unless it is
+// skipped, and on the garden page for a device with the quote moment's look and a plain address (no garden link, no
+// party code), whose door can only open on the colleague's own garden or the showcase. It leaves a note for the store
+// (window.__openingFirst) and the store adopts it as the page hydrates: the same quote, timed from when it began. On
+// the garden page that quote is still waiting for the door's answer (awaitingDoor): the breath waits for it as a
+// pending opening would (at most PENDING_MAX_MS after the garden is ready), the answer brings the visitor's name for the
+// welcome, and in the rare case the door leads elsewhere after all (the gift, a dialog) the quote is withdrawn, rising
+// away as it would in the breath, over the night sky that stays. The dwell counts from the moment the words were
+// actually painted (painted()), not from when the store heard of them, so a slow page never cuts the reading short.
 //
 // A hidden page (opened in a background tab, or switched away from) stops the opening's clock: the quote begins to
 // arrive only once it can be seen, and every moment still to come waits as long as the page was hidden, so the dwell
@@ -69,10 +83,15 @@ export const UI_AT_MS = 3000;
 /** The UI's own arrival, after which the opening is over. */
 export const UI_SETTLE_MS = 1000;
 
+/** The longest the words' first paint can come after the store heard the quote began (ms): later is not waited for. */
+export const PAINT_SLACK_MS = 10_000;
+
 const LAST_QUOTE_KEY = "garden:last-quote";
 const OPENED_AT_KEY = "garden:opening-at";
 /** lib/client/plant's remembered plant: this device has shown its own garden (typed against it rather than imported). */
 const HELD_KEY: (typeof import("@/lib/client/plant"))["LOOK_KEY"] = "garden-plant:v1";
+/** lib/client/session's kept party code: this tab came from the party's QR link (typed against it rather than imported). */
+const PARTY_CODE_KEY: (typeof import("@/lib/client/session"))["PARTY_CODE_KEY"] = "garden-party-code:v1";
 
 /** The garden veil's look: the quote moment's night sky, or the plain veil's sprout (the root element's data-veil). */
 export type Look = "quote" | "plain";
@@ -106,6 +125,10 @@ export interface OpeningState {
   doneAt: number | null;
   /** Someone dragged or zoomed: the push-in stops where it is. */
   pushStoppedAt: number | null;
+  /** The quote began with the first paint (firstLookScript) and the garden's door has not answered yet. */
+  awaitingDoor: boolean;
+  /** The door led elsewhere after the quote had begun: it was withdrawn then. */
+  withdrawnAt: number | null;
 }
 
 export const INITIAL: OpeningState = Object.freeze({
@@ -127,6 +150,8 @@ export const INITIAL: OpeningState = Object.freeze({
   uiAt: null,
   doneAt: null,
   pushStoppedAt: null,
+  awaitingDoor: false,
+  withdrawnAt: null,
 }) as OpeningState;
 
 // ---------------------------------------------------------------------------
@@ -161,16 +186,73 @@ export function firstLookQuote(openedAt: number | null, held: boolean, now: numb
   return !skipsQuote(openedAt, now) && (opened || held);
 }
 
+/** What the inline first-look script hands the store (window.__openingFirst), adopted as the page hydrates. */
+export interface FirstLook {
+  look: Look;
+  /** a quote moment on this device less than ten minutes ago (skipsQuote) */
+  skip: boolean;
+  /** the quote it picked (quoteOrder's first) */
+  quote: number;
+  /** it started the quote: the words are arriving */
+  run: boolean;
+  /** when it started them (performance.now() ms), or null while the page is still hidden */
+  at: number | null;
+  /** a tap or a key before the page had hydrated, once the words had begun */
+  tap: number | null;
+  /** stops listening for the page being seen and for taps (the store takes over) */
+  stop: () => void;
+}
+
+/** Keys on their own (Shift for a screenshot, say) are not someone wanting to move on. */
+const MODIFIER_KEYS = ["Shift", "Control", "Alt", "Meta", "CapsLock", "Fn"] as const;
+
 /**
- * firstLookQuote, run by the garden page as its HTML is parsed (an inline script before the veil, so the veil's first
- * paint already has its look: Next's "preventing flash before hydration" guide). It sets the root element's
- * data-veil="quote", which the store keeps from then on; opening.test.ts holds the two to the same answers.
+ * The first look, run by the page as its HTML is parsed: an inline script before the veil, so the veil's first paint
+ * already has it (Next's "preventing flash before hydration" guide). It decides the veil's look as the store would
+ * (firstLookQuote on the garden page; on the Meadow the quote unless skipsQuote), sets the root element's data-veil,
+ * picks the quote by quoteOrder's own shuffle and, where the opening will surely run it (see the header), starts its
+ * words by setting data-quote, as soon as the page can be seen. It touches only the root element's attributes (React
+ * renders no text it changes, so hydration matches), writes nothing to storage (the store remembers the quote once it
+ * adopts it), and leaves everything in window.__openingFirst. opening.test.ts holds it to the store's answers.
  */
-export const FIRST_LOOK_SCRIPT =
-  `(function(){try{var s=localStorage,v=s.getItem(${JSON.stringify(OPENED_AT_KEY)}),` +
-  `a=v===null||v.trim()===""?NaN:Number(v),n=Date.now(),o=isFinite(a);` +
-  `if(!(o&&n>=a&&n-a<${SKIP_WITHIN_MS})&&(o||s.getItem(${JSON.stringify(HELD_KEY)})!==null))` +
-  `document.documentElement.setAttribute("data-veil","quote")}catch(e){}})()`;
+export function firstLookScript(page: "garden" | "meadow"): string {
+  const k = JSON.stringify;
+  const prod = process.env.NODE_ENV === "production";
+  // On the garden page the door can only open the colleague's own garden or the showcase for a device with the quote
+  // moment's look and a plain address: a garden link (#k=, ?link=) or a party code (?code=, or one kept for this tab)
+  // may lead to a dialog or the gift instead. In development a device without a garden is offered the gift
+  // (GardenDoor's PLANT_WITHOUT_CODE), so there only a device that holds a garden is sure.
+  const runs =
+    page === "meadow"
+      ? "!skip"
+      : `look==="quote"&&!/[#&]k=/.test(location.hash)&&!/[?&](link|code)=/.test(location.search)&&!kept()&&(${prod}||held)`;
+  return (
+    `(function(){try{` +
+    `var d=document,r=d.documentElement,s=localStorage,n=Date.now(),` +
+    `v=s.getItem(${k(OPENED_AT_KEY)}),a=v===null||v.trim()===""?NaN:Number(v),o=isFinite(a),` +
+    `skip=o&&n>=a&&n-a<${SKIP_WITHIN_MS},held=s.getItem(${k(HELD_KEY)})!==null,` +
+    (page === "garden" ? `look=!skip&&(o||held)?"quote":"plain",` : `look=skip?"plain":"quote",`) +
+    `w=s.getItem(${k(LAST_QUOTE_KEY)}),last=w===null||w.trim()===""?null:Number(w),q=[],i,j,t;` +
+    `if(!Number.isInteger(last))last=null;` +
+    // quoteOrder (lib/garden/quotes): a Fisher-Yates shuffle that never starts on the quote shown last
+    `for(i=0;i<${QUOTES.length};i++)q.push(i);` +
+    `for(i=q.length-1;i>0;i--){j=Math.floor(Math.random()*(i+1));t=q[i];q[i]=q[j];q[j]=t}` +
+    `if(q.length>1&&q[0]===last)q.push(q.shift());` +
+    `var kept=function(){try{return sessionStorage.getItem(${k(PARTY_CODE_KEY)})!==null}catch(e){return false}},` +
+    `h={look:look,skip:skip,quote:q[0],run:${runs},at:null,tap:null},` +
+    `go=function(){if(h.at!==null||d.visibilityState!=="visible")return;` +
+    `h.at=performance.now();r.setAttribute("data-quote",String(h.quote));d.removeEventListener("visibilitychange",go)},` +
+    `mods=${k(MODIFIER_KEYS)},` +
+    `act=function(e){if(h.at!==null&&h.tap===null&&!(e.type==="keydown"&&mods.indexOf(e.key)>=0))h.tap=performance.now()};` +
+    `h.stop=function(){d.removeEventListener("visibilitychange",go);` +
+    `window.removeEventListener("pointerdown",act,true);window.removeEventListener("keydown",act,true)};` +
+    `r.setAttribute("data-veil",look);` +
+    `if(h.run){go();if(h.at===null)d.addEventListener("visibilitychange",go);` +
+    `window.addEventListener("pointerdown",act,true);window.addEventListener("keydown",act,true)}` +
+    `window.__openingFirst=h` +
+    `}catch(e){}})()`
+  );
+}
 
 /** When the quote's last word is in, or null before it has begun. */
 export function quoteInAt(s: OpeningState): number | null {
@@ -238,7 +320,10 @@ function step(s: OpeningState, now: number): OpeningState {
       return s.readyAt !== null && now >= s.readyAt + PENDING_MAX_MS ? { ...s, stage: "skip" } : s;
     case "quote": {
       const end = dwellEndAt(s);
-      return end !== null && s.readyAt !== null && now >= end ? { ...s, stage: "breath", breathAt: now } : s;
+      if (end === null || s.readyAt === null || now < end) return s;
+      // a quote begun with the first paint waits for the garden's door as a pending opening would, and no longer
+      if (s.awaitingDoor && now < s.readyAt + PENDING_MAX_MS) return s;
+      return { ...s, stage: "breath", breathAt: now };
     }
     case "breath":
       return s.breathAt !== null && now >= s.breathAt + BREATH_MS ? { ...s, stage: "peace", revealAt: now } : s;
@@ -268,7 +353,7 @@ export function nextDue(s: OpeningState): number | null {
       break;
     case "quote": {
       const end = dwellEndAt(s);
-      if (end !== null && s.readyAt !== null) due.push(end);
+      if (end !== null && s.readyAt !== null) due.push(s.awaitingDoor ? Math.max(end, s.readyAt + PENDING_MAX_MS) : end);
       break;
     }
     case "breath":
@@ -294,15 +379,33 @@ export function nextDue(s: OpeningState): number | null {
 /**
  * The page's opening begins: `waitForDoor` keeps it pending until the garden's door says whose garden this is, in the
  * look painted first (`quoteFirst`, firstLookQuote). On a hidden page the quote waits to begin until it is seen (shown).
+ * `started`: the first-look script began the quote with the first paint, at `shownAt` (null while the page is hidden),
+ * with a tap at `tappedAt` before the page hydrated; on the garden page it still waits for the door (awaitingDoor).
  */
 export function begin(
   s: OpeningState,
-  o: { waitForDoor: boolean; skip: boolean; reduced: boolean; quote: number; words: number; quoteFirst?: boolean; hidden?: boolean },
+  o: {
+    waitForDoor: boolean;
+    skip: boolean;
+    reduced: boolean;
+    quote: number;
+    words: number;
+    quoteFirst?: boolean;
+    hidden?: boolean;
+    started?: boolean;
+    shownAt?: number | null;
+    tappedAt?: number | null;
+  },
   now: number,
 ): OpeningState {
   if (s.stage !== "unset") return s;
   const base = { ...s, reduced: o.reduced, quote: o.quote, words: o.words };
   if (o.skip) return { ...base, stage: "skip", look: "plain" };
+  if (o.started) {
+    const shownAt = o.shownAt ?? (o.hidden ? null : now);
+    const tappedAt = shownAt !== null && o.tappedAt != null && o.tappedAt >= shownAt ? o.tappedAt : null;
+    return { ...base, stage: "quote", look: "quote", shownAt, tappedAt, awaitingDoor: o.waitForDoor };
+  }
   if (o.waitForDoor) return { ...base, stage: "pending", look: o.quoteFirst ? "quote" : "plain" };
   return { ...base, stage: "quote", look: "quote", shownAt: o.hidden ? null : now };
 }
@@ -310,11 +413,28 @@ export function begin(
 /**
  * The door has answered: the visitor's own garden (with their name for the welcome) or the showcase run the quote,
  * in the quote moment's look whatever was painted first. Anything else skips it and keeps the look it has: a night
- * sky already up stays up under the gift's still or a dialog, rather than a sprout arriving behind them.
+ * sky already up stays up under the gift's still or a dialog, rather than a sprout arriving behind them. A quote the
+ * first paint began (awaitingDoor) takes the name, or is withdrawn if it is still up (and left alone if the garden is
+ * already showing: the gift or the dialog simply comes over it).
  */
 export function door(s: OpeningState, d: { run: boolean; name: string | null; hidden?: boolean }, now: number): OpeningState {
-  if (s.stage !== "pending") return s;
-  return d.run ? { ...s, stage: "quote", look: "quote", shownAt: d.hidden ? null : now, name: d.name } : { ...s, stage: "skip" };
+  if (s.stage === "pending") {
+    return d.run ? { ...s, stage: "quote", look: "quote", shownAt: d.hidden ? null : now, name: d.name } : { ...s, stage: "skip" };
+  }
+  if (!s.awaitingDoor) return s;
+  if (d.run) return { ...s, awaitingDoor: false, name: s.uiAt === null && s.stage !== "done" ? d.name : s.name };
+  if (s.stage === "quote") return { ...s, awaitingDoor: false, stage: "skip", withdrawnAt: now };
+  return { ...s, awaitingDoor: false };
+}
+
+/**
+ * The words were first painted at `at` (when their animations started, on the same clock as performance.now()): the
+ * quote counts from then, so a page too busy to paint never cuts the signed-off reading short. Only ever later, only
+ * while the quote is up, and never more than PAINT_SLACK_MS after the store heard of it.
+ */
+export function painted(s: OpeningState, at: number): OpeningState {
+  if (s.stage !== "quote" || s.shownAt === null || !Number.isFinite(at)) return s;
+  return at > s.shownAt && at <= s.shownAt + PAINT_SLACK_MS ? { ...s, shownAt: at } : s;
 }
 
 /** The page is seen: a quote held back while it was hidden begins to arrive. */
@@ -423,20 +543,45 @@ function marksFor(prev: OpeningState, next: OpeningState) {
   // the moments the store never waits for, marked once they are known
   const inAt = quoteInAt(next);
   if (prev.shownAt === null && inAt !== null) mark("quote-in", inAt);
+  if (prev.shownAt !== null && next.shownAt !== null && next.shownAt !== prev.shownAt) mark("quote-painted", next.shownAt);
+  if (prev.withdrawnAt === null && next.withdrawnAt !== null) mark("quote-withdrawn", next.withdrawnAt);
   if (prev.stage === "quote" && next.stage === "breath") mark(next.tappedAt !== null ? "dwell-tapped" : "dwell-end", dwellEndAt(next) ?? undefined);
 }
 
 /**
- * The root element's data-opening="quiet" while the UI holds back, and its data-veil (the garden veil's look) once the
- * opening has begun: until then it is whatever FIRST_LOOK_SCRIPT set as the page was parsed. Set again on every change,
- * as React's development remount clears what it did not render on the root.
+ * The root element's data-opening="quiet" while the UI holds back, its data-veil (the veil's look) once the opening has
+ * begun, and its data-quote (the quote whose figure shows: OpeningMoment.css) from the moment the quote begins until
+ * the opening is over; until the opening begins they are whatever firstLookScript set as the page was parsed. Set
+ * again on every change, as React's development remount clears what it did not render on the root.
  */
 function syncRoot(s: OpeningState) {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   if (uiHeld(s)) root.dataset.opening = "quiet";
   else if (root.dataset.opening !== undefined) delete root.dataset.opening;
-  if (s.stage !== "unset" && root.dataset.veil !== s.look) root.dataset.veil = s.look;
+  if (s.stage === "unset") return;
+  if (root.dataset.veil !== s.look) root.dataset.veil = s.look;
+  const figure = s.quote !== null && s.stage !== "done" && (s.shownAt !== null || s.withdrawnAt !== null) ? String(s.quote) : null;
+  if (figure === null) {
+    if (root.dataset.quote !== undefined) delete root.dataset.quote;
+  } else if (root.dataset.quote !== figure) root.dataset.quote = figure;
+}
+
+/** The first-look script's note, taken once: it stops listening, and the store takes over from here. */
+function takeFirstLook(): FirstLook | null {
+  const w = window as unknown as { __openingFirst?: Partial<FirstLook> };
+  const h = w.__openingFirst;
+  delete w.__openingFirst;
+  if (!h || typeof h !== "object") return null;
+  try {
+    h.stop?.();
+  } catch {
+    // nothing left to stop
+  }
+  const time = (t: unknown) => (typeof t === "number" && Number.isFinite(t) ? t : null);
+  if ((h.look !== "quote" && h.look !== "plain") || typeof h.skip !== "boolean" || typeof h.run !== "boolean") return null;
+  if (typeof h.quote !== "number" || !Number.isInteger(h.quote) || h.quote < 0 || h.quote >= QUOTES.length) return null;
+  return { look: h.look, skip: h.skip, quote: h.quote, run: h.run, at: time(h.at), tap: time(h.tap), stop: () => {} };
 }
 
 const ACT_EVENTS = ["pointerdown", "keydown", "wheel"] as const;
@@ -553,19 +698,26 @@ export const opening = {
     const lastAt = asNumber(readStored(OPENED_AT_KEY));
     const openedAt = lastAt !== null && Number.isFinite(lastAt) ? lastAt : null;
     const last = lastQuote !== null && Number.isInteger(lastQuote) ? lastQuote : null;
-    const quote = quoteOrder(QUOTES.length, last)[0];
     const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const today = Date.now();
     hiddenAt = document.hidden ? performance.now() : null;
     document.addEventListener("visibilitychange", onVisibility);
+    // The first-look script's decisions stand (the page has painted them): the same quote, the same skip (read before
+    // anything was written, so the ten-minute boundary cannot fall between the two), and a quote it began, from when.
+    // Without its note (a soft navigation here, a blocked script) the store decides as the page loads.
+    const first = takeFirstLook();
+    const quote = first ? first.quote : quoteOrder(QUOTES.length, last)[0];
     const o = {
       waitForDoor,
-      skip: skipsQuote(openedAt, today),
-      quoteFirst: firstLookQuote(openedAt, readStored(HELD_KEY) !== null, today),
+      skip: first ? first.skip : skipsQuote(openedAt, today),
+      quoteFirst: first ? first.look === "quote" : firstLookQuote(openedAt, readStored(HELD_KEY) !== null, today),
       hidden: hiddenAt !== null,
       reduced,
       quote,
       words: wordsOf(QUOTES[quote].text).length,
+      started: first?.run ?? false,
+      shownAt: first?.at ?? null,
+      tappedAt: first?.tap ?? null,
     };
     apply((s, now) => begin(s, o, now));
     if (earlyDoor) {
@@ -583,6 +735,10 @@ export const opening = {
     apply((s, now) => door(s, { ...d, hidden: hiddenAt !== null }, now));
   },
   ready: () => apply((s, now) => ready(s, now)),
+  /** The quote's words were first painted at `at` (OpeningMoment's QuoteMoment): its dwell counts from then. */
+  painted: (at: number) => apply((s) => painted(s, at)),
+  /** Puts the root element's attributes back as the opening has them (after React's development remount). */
+  resync: () => syncRoot(state),
   /**
    * The settled garden has to be measured again (its canvas resized while it waited): true when the breath now waits
    * for the next ready(), which it can while the quote is still up; false once the breath has begun.

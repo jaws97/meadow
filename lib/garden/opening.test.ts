@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   BREATH_MS,
   DWELL_MIN_MS,
-  FIRST_LOOK_SCRIPT,
   FOCUS_DONE_MS,
   INITIAL,
   PENDING_MAX_MS,
@@ -24,10 +25,13 @@ import {
   dwellEndAt,
   dwellMs,
   firstLookQuote,
+  firstLookScript,
   focusState,
   holdsReveal,
   named,
   nextDue,
+  PAINT_SLACK_MS,
+  painted,
   pushFactor,
   quoteInAt,
   ready,
@@ -41,9 +45,10 @@ import {
   unready,
   welcomeState,
   wordsOf,
+  type FirstLook,
   type OpeningState,
 } from "./opening";
-import { QUOTES } from "./quotes";
+import { QUOTES, quoteOrder } from "./quotes";
 
 const START = 1 / (1 - PUSH);
 
@@ -121,18 +126,83 @@ describe("the ten-minute rule", () => {
   });
 });
 
+/** What firstLookScript is run against: this device's storage, the address and whether the page can be seen. */
+interface Page {
+  openedAt?: string | null;
+  held?: boolean;
+  last?: string | null;
+  hash?: string;
+  search?: string;
+  kept?: boolean;
+  visible?: boolean;
+  random?: () => number;
+}
+
+const NOW = 1_800_000_000_000;
+
+/** Runs the first-look script as a browser parsing the page would, with a clock reading 1234 ms since navigation. */
+function runFirstLook(page: "garden" | "meadow", p: Page = {}, env = process.env.NODE_ENV) {
+  const stored: Record<string, string> = {};
+  if (p.openedAt != null) stored["garden:opening-at"] = p.openedAt;
+  if (p.held) stored["garden-plant:v1"] = "{}";
+  if (p.last != null) stored["garden:last-quote"] = p.last;
+  const attrs: Record<string, string> = {};
+  const docListeners = new Map<string, () => void>();
+  const winListeners = new Map<string, (e: { type: string; key?: string }) => void>();
+  let clock = 1234;
+  const document = {
+    visibilityState: p.visible === false ? "hidden" : "visible",
+    documentElement: { setAttribute: (k: string, v: string) => (attrs[k] = v) },
+    addEventListener: (t: string, f: () => void) => docListeners.set(t, f),
+    removeEventListener: (t: string) => docListeners.delete(t),
+  };
+  const window: { __openingFirst?: FirstLook } & Record<string, unknown> = {
+    addEventListener: (t: string, f: (e: { type: string; key?: string }) => void) => winListeners.set(t, f),
+    removeEventListener: (t: string) => winListeners.delete(t),
+  };
+  const localStorage = { getItem: (k: string) => (k in stored ? stored[k] : null) };
+  const sessionStorage = { getItem: (k: string) => (p.kept && k === "garden-party-code:v1" ? "CODE" : null) };
+  const location = { hash: p.hash ?? "", search: p.search ?? "" };
+  const performance = { now: () => clock };
+  const math = Object.assign(Object.create(Math), { random: p.random ?? Math.random });
+  const saved = process.env.NODE_ENV;
+  (process.env as Record<string, string | undefined>).NODE_ENV = env;
+  const script = firstLookScript(page);
+  (process.env as Record<string, string | undefined>).NODE_ENV = saved;
+  new Function("localStorage", "sessionStorage", "document", "window", "location", "performance", "Math", "Date", script)(
+    localStorage,
+    sessionStorage,
+    document,
+    window,
+    location,
+    performance,
+    math,
+    { now: () => NOW },
+  );
+  return {
+    attrs,
+    note: window.__openingFirst!,
+    docListeners,
+    winListeners,
+    /** the page becomes visible, later on its clock */
+    show(at: number) {
+      clock = at;
+      document.visibilityState = "visible";
+      docListeners.get("visibilitychange")?.();
+    },
+    /** a tap or a key, at `at` */
+    act(at: number, type = "pointerdown", key?: string) {
+      clock = at;
+      winListeners.get(type)?.({ type, key });
+    },
+  };
+}
+
 describe("the first look", () => {
-  const now = 1_800_000_000_000;
-  /** FIRST_LOOK_SCRIPT run against a stored opening time and remembered plant: whether it marked the root. */
+  const now = NOW;
+  /** The first-look script run against a stored opening time and remembered plant: whether the garden got the quote look. */
   function script(openedAt: string | null, held: boolean): boolean {
-    const stored: Record<string, string> = {};
-    if (openedAt !== null) stored["garden:opening-at"] = openedAt;
-    if (held) stored["garden-plant:v1"] = "{}";
-    const attrs: Record<string, string> = {};
-    const localStorage = { getItem: (k: string) => (k in stored ? stored[k] : null) };
-    const document = { documentElement: { setAttribute: (k: string, v: string) => (attrs[k] = v) } };
-    new Function("localStorage", "document", "Date", FIRST_LOOK_SCRIPT)(localStorage, document, { now: () => now });
-    return attrs["data-veil"] === "quote";
+    return runFirstLook("garden", { openedAt, held }).attrs["data-veil"] === "quote";
   }
 
   it("is the quote moment for a device that has shown its own garden or opened on a quote, the sprout for a first visit", () => {
@@ -174,6 +244,154 @@ describe("the first look", () => {
     expect(door(quote, { run: false, name: null }, 10).look).toBe("quote");
     expect(advance(ready(quote, 0), PENDING_MAX_MS).look).toBe("quote");
     expect(begin(INITIAL, { waitForDoor: true, skip: true, reduced: false, quote: 0, words: 5, quoteFirst: true }, 0).look).toBe("plain");
+  });
+});
+
+describe("the words in the first paint", () => {
+  const anHourAgo = String(NOW - 3_600_000);
+  /** A deterministic stand-in for Math.random. */
+  function seeded(seed: number) {
+    return () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 2 ** 32;
+    };
+  }
+
+  it("picks the quote exactly as quoteOrder does, never the one shown last", () => {
+    for (let trial = 0; trial < 400; trial++) {
+      const last = trial % 13 === 12 ? "junk" : String(trial % (QUOTES.length + 1));
+      const { note } = runFirstLook("meadow", { openedAt: anHourAgo, last, random: seeded(trial + 1) });
+      const parsed = Number(last);
+      const expected = quoteOrder(QUOTES.length, Number.isInteger(parsed) ? parsed : null, seeded(trial + 1))[0];
+      expect(note.quote, `trial ${trial}`).toBe(expected);
+      if (Number.isInteger(parsed) && parsed < QUOTES.length) expect(note.quote).not.toBe(parsed);
+    }
+  });
+
+  it("starts the Meadow's quote with the first paint, unless it is skipped", () => {
+    const fresh = runFirstLook("meadow", { openedAt: anHourAgo });
+    expect(fresh.attrs["data-veil"]).toBe("quote");
+    expect(fresh.note.run).toBe(true);
+    expect(fresh.note.at).toBe(1234);
+    expect(fresh.attrs["data-quote"]).toBe(String(fresh.note.quote));
+    // a first visit to the Meadow has the quote too
+    expect(runFirstLook("meadow").note.run).toBe(true);
+    const skipped = runFirstLook("meadow", { openedAt: String(NOW - 60_000) });
+    expect(skipped.attrs["data-veil"]).toBe("plain");
+    expect(skipped.note).toMatchObject({ run: false, skip: true, at: null });
+    expect(skipped.attrs["data-quote"]).toBeUndefined();
+  });
+
+  it("starts the garden's quote only for a plain address, where the door can only run it", () => {
+    const prod = (p: Page) => runFirstLook("garden", p, "production").note.run;
+    expect(prod({ openedAt: anHourAgo })).toBe(true);
+    expect(prod({ held: true })).toBe(true);
+    // a first visit keeps the signed-off sprout, and the door decides
+    expect(prod({})).toBe(false);
+    // a garden link or a party code may open a dialog or the gift instead
+    expect(prod({ held: true, hash: "#k=abcdefghijklmnop" })).toBe(false);
+    expect(prod({ held: true, hash: "#x=1&k=abcdefghijklmnop" })).toBe(false);
+    expect(prod({ held: true, search: "?code=PARTY" })).toBe(false);
+    expect(prod({ held: true, search: "?a=1&link=invalid" })).toBe(false);
+    expect(prod({ held: true, kept: true })).toBe(false);
+    // the ten-minute rule: the plain veil, no quote
+    expect(prod({ held: true, openedAt: String(NOW - 60_000) })).toBe(false);
+    // other parts of the address change nothing
+    expect(prod({ held: true, hash: "#top", search: "?dev" })).toBe(true);
+  });
+
+  it("in development, starts the garden's quote only for a device that holds a garden (others are offered the gift)", () => {
+    expect(runFirstLook("garden", { held: true }, "development").note.run).toBe(true);
+    expect(runFirstLook("garden", { openedAt: anHourAgo }, "development").note.run).toBe(false);
+  });
+
+  it("holds the words back while the page is hidden, and starts them the moment it is seen", () => {
+    const page = runFirstLook("meadow", { visible: false });
+    expect(page.note.run).toBe(true);
+    expect(page.note.at).toBeNull();
+    expect(page.attrs["data-quote"]).toBeUndefined();
+    page.show(9000);
+    expect(page.note.at).toBe(9000);
+    expect(page.attrs["data-quote"]).toBe(String(page.note.quote));
+    expect(page.docListeners.size).toBe(0);
+  });
+
+  it("notes a tap before the page hydrates, but not a modifier key, and stops listening when the store takes over", () => {
+    const page = runFirstLook("meadow");
+    page.act(1500, "keydown", "Shift");
+    expect(page.note.tap).toBeNull();
+    page.act(1600);
+    expect(page.note.tap).toBe(1600);
+    page.act(1700, "keydown", "Enter");
+    expect(page.note.tap).toBe(1600);
+    page.note.stop();
+    expect(page.winListeners.size).toBe(0);
+  });
+
+  it("is adopted by the store: the same quote, timed from when it began, with the tap", () => {
+    const s = begin(INITIAL, { waitForDoor: false, skip: false, reduced: false, quote: 4, words: 6, started: true, shownAt: 300, tappedAt: 900 }, 2000);
+    expect(s).toMatchObject({ stage: "quote", look: "quote", quote: 4, shownAt: 300, tappedAt: 900, awaitingDoor: false });
+    expect(dwellEndAt(s)).toBe(900);
+    // begun while hidden: it starts when it is seen
+    const hidden = begin(INITIAL, { waitForDoor: false, skip: false, reduced: false, quote: 4, words: 6, started: true, shownAt: null, hidden: true }, 2000);
+    expect(hidden.shownAt).toBeNull();
+    expect(shown(hidden, 5000).shownAt).toBe(5000);
+    // a tap before the words began does not count
+    expect(begin(INITIAL, { waitForDoor: false, skip: false, reduced: false, quote: 4, words: 6, started: true, shownAt: 300, tappedAt: 100 }, 2000).tappedAt).toBeNull();
+  });
+
+  it("on the garden page waits for the door before the breath, at most as long as a pending opening would", () => {
+    const s = begin(INITIAL, { waitForDoor: true, skip: false, reduced: false, quote: 1, words: 6, started: true, shownAt: 0, quoteFirst: true }, 50);
+    expect(s.awaitingDoor).toBe(true);
+    // ready a while into the dwell, so the door's bound comes after the dwell's end
+    const r = ready(s, 4000);
+    const end = dwellEndAt(r)!;
+    expect(4000 + PENDING_MAX_MS).toBeGreaterThan(end);
+    expect(advance(r, end).stage).toBe("quote");
+    expect(nextDue(r)).toBe(4000 + PENDING_MAX_MS);
+    // the door answers: the welcome's name, and the breath at the end of the dwell
+    const named = door(r, { run: true, name: "Asha" }, 2000);
+    expect(named).toMatchObject({ stage: "quote", name: "Asha", awaitingDoor: false, shownAt: 0 });
+    expect(advance(named, end).stage).toBe("breath");
+    // a door that never answers is not waited for past the bound
+    const late = ready(s, end + 10_000);
+    expect(advance(late, end + 10_000 + PENDING_MAX_MS - 1).stage).toBe("quote");
+    expect(advance(late, end + 10_000 + PENDING_MAX_MS).stage).toBe("breath");
+  });
+
+  it("is withdrawn if the door leads elsewhere while it is up, keeping the night sky", () => {
+    const s = begin(INITIAL, { waitForDoor: true, skip: false, reduced: false, quote: 1, words: 6, started: true, shownAt: 0, quoteFirst: true }, 50);
+    const w = door(s, { run: false, name: null }, 700);
+    expect(w).toMatchObject({ stage: "skip", look: "quote", withdrawnAt: 700, awaitingDoor: false });
+    expect(holdsReveal(w)).toBe(false);
+    // once the garden is showing, the gift or the dialog simply comes over it
+    const r = ready(s, 0);
+    const p = advance(advance(r, r.readyAt! + PENDING_MAX_MS + 60_000), r.readyAt! + PENDING_MAX_MS + 60_000 + BREATH_MS);
+    expect(p.stage).toBe("peace");
+    expect(door(p, { run: false, name: null }, p.revealAt! + 10)).toMatchObject({ stage: "peace", withdrawnAt: null, awaitingDoor: false });
+  });
+
+  it("counts the dwell from the first paint of the words, only ever later and within reason", () => {
+    const s = quoteAt(1000, 8);
+    expect(painted(s, 1400).shownAt).toBe(1400);
+    expect(dwellEndAt(painted(s, 1400))).toBe(dwellEndAt(s)! + 400);
+    expect(painted(s, 900)).toBe(s);
+    expect(painted(s, Number.NaN)).toBe(s);
+    expect(painted(s, Number.POSITIVE_INFINITY)).toBe(s);
+    expect(painted(s, 1000 + PAINT_SLACK_MS + 1)).toBe(s);
+    // not once the breath has begun, nor for a quote still waiting to be seen
+    const b = advance(ready(s, 0), dwellEndAt(s)!);
+    expect(painted(b, dwellEndAt(s)! + 10)).toBe(b);
+    const hidden = begin(INITIAL, { waitForDoor: false, skip: false, reduced: false, quote: 0, words: 8, hidden: true }, 0);
+    expect(painted(hidden, 500)).toBe(hidden);
+  });
+
+  it("has a stylesheet rule to show each quote's figure", () => {
+    const css = readFileSync(join(__dirname, "../../components/garden/OpeningMoment.css"), "utf8");
+    for (let i = 0; i < QUOTES.length; i++) {
+      expect(css, `quote ${i}`).toContain(`:root[data-quote="${i}"] .opening-figure[data-q="${i}"]`);
+    }
+    expect(css).not.toContain(`:root[data-quote="${QUOTES.length}"]`);
   });
 });
 

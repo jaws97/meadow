@@ -4,10 +4,20 @@
  * takes the quote away, the canvas coming into focus, and the welcome line. A plain stylesheet with prefixed class
  * names, like LoadingVeil.css: the project's Turbopack rule runs every .css file through Tailwind as global CSS.
  *
- * Transform, opacity and filter only, so the browser runs it all on its compositor while the main thread builds the
- * garden. For reduced motion the quote arrives whole and leaves without rising, and nothing blurs (the store gives
- * the veil .opening-quote-still and the canvas no focus class).
+ * Every animation moves opacity and transform alone, so the browser runs it all on its compositor while the main
+ * thread builds the garden: a blur animated word by word cannot be (Chrome reports "filter may move pixels" and runs
+ * it on the main thread, where a busy phone froze a word half-blurred), so each word is a sharp copy fading in over a
+ * still, blurred twin fading out. For reduced motion (the media query itself, so nothing changes as the page hydrates)
+ * the quote arrives whole and leaves without rising, and nothing blurs (the canvas gets no focus class).
  */
+
+/*
+ * The quote's face is a serif every device already has (Iowan on Apple devices, Palatino on Windows), never a web font:
+ * its words arrive with the first paint, and a font arriving later would swap them mid-arrival.
+ */
+:root {
+  --quote-serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+}
 
 .opening-quote {
   position: absolute;
@@ -21,6 +31,7 @@
 }
 
 .opening-figure {
+  display: none;
   margin: 0;
   max-width: min(30rem, 100%);
   text-align: center;
@@ -29,9 +40,27 @@
     transform 0.9s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/*
+ * Every quote is in the page's HTML; the one the root element's data-quote names shows, and its words begin to arrive
+ * the moment it does (with the first paint, when the first-look script names it). One rule per quote in
+ * lib/garden/quotes (opening.test.ts checks there is one for each).
+ */
+:root[data-quote="0"] .opening-figure[data-q="0"],
+:root[data-quote="1"] .opening-figure[data-q="1"],
+:root[data-quote="2"] .opening-figure[data-q="2"],
+:root[data-quote="3"] .opening-figure[data-q="3"],
+:root[data-quote="4"] .opening-figure[data-q="4"],
+:root[data-quote="5"] .opening-figure[data-q="5"],
+:root[data-quote="6"] .opening-figure[data-q="6"],
+:root[data-quote="7"] .opening-figure[data-q="7"],
+:root[data-quote="8"] .opening-figure[data-q="8"],
+:root[data-quote="9"] .opening-figure[data-q="9"] {
+  display: block;
+}
+
 .opening-figure blockquote {
   margin: 0;
-  font-family: var(--font-display, "Iowan Old Style"), "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-family: var(--quote-serif);
   font-style: italic;
   font-weight: 400;
   font-size: clamp(23px, 1rem + 1.4vw, 34px);
@@ -42,23 +71,66 @@
   text-shadow: 0 1px 18px rgba(6, 8, 15, 0.6);
 }
 
-/* each word from a slight blur to sharp, a beat after the one before (the store times the dwell from the same numbers) */
+/*
+ * Each word from a slight blur to sharp, a beat after the one before (the store times the dwell from the same numbers):
+ * the word rises and fades in while, inside it, its blurred twin (a still blur) melts away and the sharp word comes
+ * through, all three on the same curve.
+ */
 .opening-word {
+  position: relative;
   display: inline-block;
   animation: opening-word var(--word, 700ms) cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * var(--stagger, 140ms));
+}
+
+.opening-word-sharp {
+  display: inline-block;
+  animation: opening-word-sharp var(--word, 700ms) cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * var(--stagger, 140ms));
+}
+
+.opening-word-soft {
+  position: absolute;
+  left: 0;
+  top: 0;
+  filter: blur(6px);
+  pointer-events: none;
+  animation: opening-word-soft var(--word, 700ms) cubic-bezier(0.2, 0.7, 0.2, 1) both;
   animation-delay: calc(var(--i, 0) * var(--stagger, 140ms));
 }
 
 @keyframes opening-word {
   from {
     opacity: 0;
-    filter: blur(6px);
     transform: translate3d(0, 0.16em, 0);
   }
   to {
     opacity: 1;
-    filter: none;
     transform: none;
+  }
+}
+
+@keyframes opening-word-sharp {
+  from {
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.25;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes opening-word-soft {
+  from {
+    opacity: 1;
+  }
+  60% {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 0;
   }
 }
 
@@ -103,13 +175,23 @@
   }
 }
 
-/* the breath: the quote rises a little and fades, the hairline with it, and the night holds a moment */
-.opening-quote-leaving .opening-figure {
+/*
+ * The breath: the quote rises a little and fades, the hairline with it, and the night holds a moment. A quote the door
+ * withdrew (lib/garden/opening's door) leaves the same way, while the hairline carries on.
+ */
+.opening-quote-leaving .opening-figure,
+.opening-quote-withdrawn .opening-figure {
   opacity: 0;
   transform: translate3d(0, -14px, 0);
 }
 
-/* loading progress, only a hairline of gold along the very bottom of the screen */
+/*
+ * Loading progress, a hairline of gold along the very bottom of the screen. It sets off with the first paint and
+ * creeps by itself, quickly at first and ever more slowly (a third of the way at 3 s, two thirds at 8 s, nine tenths
+ * at 25 s), so it moves for as long as anyone waits and never stops short; when the quote leaves (or the veil lifts),
+ * its end draws it the rest of the way. It is time, not a count of work done: the work has no honest count to give,
+ * and a line that parks reads as a page that is stuck.
+ */
 .opening-hairline {
   position: absolute;
   left: 0;
@@ -117,7 +199,7 @@
   bottom: 0;
   height: 2px;
   overflow: hidden;
-  background: rgba(217, 181, 111, 0.08);
+  background: rgba(217, 181, 111, 0.1);
   transition: opacity 0.6s ease;
 }
 
@@ -125,12 +207,34 @@
   opacity: 0;
 }
 
-.opening-hairline-fill {
+.opening-hairline-fill,
+.opening-hairline-end {
   position: absolute;
   inset: 0;
   transform-origin: 0 50%;
   background: linear-gradient(90deg, rgba(217, 181, 111, 0.12), rgba(235, 205, 146, 0.8));
-  transition: transform var(--t, 1.2s) cubic-bezier(0.2, 0.6, 0.2, 1);
+}
+
+.opening-hairline-fill {
+  animation: opening-creep 40s cubic-bezier(0.12, 0.62, 0.18, 1) both;
+}
+
+.opening-hairline-end {
+  transform: scaleX(0);
+}
+
+.opening-hairline-finished .opening-hairline-end {
+  transform: scaleX(1);
+  transition: transform 0.6s cubic-bezier(0.2, 0.6, 0.2, 1);
+}
+
+@keyframes opening-creep {
+  from {
+    transform: scaleX(0.03);
+  }
+  to {
+    transform: scaleX(0.94);
+  }
 }
 
 .opening-sr {
@@ -145,25 +249,36 @@
   border: 0;
 }
 
-/* reduced motion: the quote fades in whole, the rule with it, and leaves without rising */
-.opening-quote-still .opening-word {
-  animation: none;
-}
+/*
+ * Reduced motion: the quote fades in whole, the rule with it, and leaves without rising (the store times it so,
+ * lib/garden/opening's STILL_IN_MS). The hairline still creeps: it is the loading line, not decoration.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .opening-word,
+  .opening-word-sharp {
+    animation: none;
+  }
 
-.opening-quote-still .opening-figure blockquote {
-  animation: opening-fade 0.7s ease both;
-}
+  .opening-word-soft {
+    display: none;
+  }
 
-.opening-quote-still .opening-rule {
-  animation: opening-fade 0.7s ease 0.2s both;
-}
+  .opening-figure blockquote {
+    animation: opening-fade 0.7s ease both;
+  }
 
-.opening-quote-still .opening-figure figcaption {
-  animation-delay: 0.35s;
-}
+  .opening-rule {
+    animation: opening-fade 0.7s ease 0.2s both;
+  }
 
-.opening-quote-still.opening-quote-leaving .opening-figure {
-  transform: none;
+  .opening-figure figcaption {
+    animation-delay: 0.35s;
+  }
+
+  .opening-quote-leaving .opening-figure,
+  .opening-quote-withdrawn .opening-figure {
+    transform: none;
+  }
 }
 
 /*
@@ -190,7 +305,7 @@
   width: max-content;
   max-width: calc(100vw - 48px);
   margin: 0 auto;
-  font-family: var(--font-display, "Iowan Old Style"), "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-family: var(--quote-serif);
   font-size: clamp(21px, 0.85rem + 1.1vw, 29px);
   font-weight: 400;
   line-height: 1.25;

@@ -574,9 +574,25 @@
   color: rgba(246, 234, 214, 0.5);
 }
 
-/* the plain veil's lantern and words come once the page has hydrated (the first HTML is the quote moment's night sky) */
-.meadow-veil-arrive {
+/*
+ * The veil's two looks, both in the first HTML: the quote moment (OpeningMoment's .opening-quote) or the plain veil's
+ * lantern. The root element's data-veil="plain" picks the lantern; the first-look script sets it before the first
+ * paint and the opening keeps it (lib/garden/opening). The look not picked is hidden outright (visibility), so its
+ * status line is not read either, and the lantern eases in as it is shown.
+ */
+.meadow-veil > .meadow-veil-plain {
+  position: relative;
+  z-index: 3;
+  visibility: hidden;
+}
+
+:root[data-veil="plain"] .meadow-veil > .meadow-veil-plain {
+  visibility: visible;
   animation: meadow-fade 0.45s ease both;
+}
+
+:root[data-veil="plain"] .meadow-veil > .opening-quote {
+  visibility: hidden;
 }
 
 /*
@@ -611,7 +627,7 @@
   .meadow-find,
   .meadow-find-dock,
   .meadow-journey,
-  .meadow-veil-arrive {
+  :root[data-veil="plain"] .meadow-veil > .meadow-veil-plain {
     animation: none;
   }
   .meadow-veil-halo {

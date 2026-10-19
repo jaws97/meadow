@@ -14,8 +14,8 @@
 // holds a garden (for "This is yours", the sprinkle, and the gold ribbon on the person's own stake). A link to
 // /meadow?plot=N opens beside that plant with its card.
 import dynamic from "next/dynamic";
-import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
-import { QuoteMoment, WelcomeLine } from "@/components/garden/OpeningMoment";
+import { Suspense, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { FirstLook, QuoteMoment, WelcomeLine } from "@/components/garden/OpeningMoment";
 import { DevHud, FadeVeil, MoverNotice } from "@/components/meadow/DevHud";
 import { UnstuckButton } from "@/components/meadow/Unstuck";
 import { loadSession, meadowData, startPolling, useMe, useMeadowData } from "@/components/meadow/data";
@@ -78,9 +78,11 @@ function TopBar() {
  * The opening's veil, up until the first frame is up with a body in it and the Meadow's plants have arrived. Usually
  * the quote moment (lib/garden/opening, components/garden/OpeningMoment): only the night sky and a quote, progress a
  * gold hairline at the very bottom, held until the quote has been read even when the Meadow is ready sooner; then the
- * breath, and the veil fades over the Meadow coming into focus. Its first HTML is the night sky and the hairline alone
- * (the quote is chosen on the client). When the opening is skipped (a quote moment on this device in the last ten
- * minutes), the plain veil instead: the lantern, "Opening the Meadow" and a line, fading as soon as the Meadow is ready.
+ * breath, and the veil fades over the Meadow coming into focus. When the opening is skipped (a quote moment on this
+ * device in the last ten minutes), the plain veil instead: the lantern, "Opening the Meadow" and a line, fading as soon
+ * as the Meadow is ready. Both looks are in the first HTML, in one veil that stays the same element throughout, and
+ * the first-look script (FirstLook) picks one before the first paint (the root element's data-veil, meadow.css) and
+ * starts the quote's words then: nothing waits for the page's JavaScript to arrive.
  */
 function MeadowVeil() {
   const stage = useOpening((s) => s.stage);
@@ -93,7 +95,12 @@ function MeadowVeil() {
   const [gone, setGone] = useState(false);
   const ready = body && data;
   const plainOut = stage === "skip" && ready;
-  useEffect(() => opening.begin(false), []);
+  // Before the first paint after hydration, so the look and the quote it puts back on the root (React's development
+  // remount clears them) never flicker.
+  useLayoutEffect(() => {
+    opening.begin(false);
+    opening.resync();
+  }, []);
   useEffect(() => {
     if (body) return;
     const id = window.setInterval(() => {
@@ -110,49 +117,47 @@ function MeadowVeil() {
     return () => window.clearTimeout(t);
   }, [plainOut]);
 
-  if (stage === "unset" || stage === "pending" || stage === "quote" || stage === "breath" || (stage === "peace" && !focused)) {
-    const lifting = stage === "peace";
-    const [progress, duration] = ready || lifting ? [1, "0.5s"] : body || data ? [0.85, "4s"] : [0.55, "8s"];
-    return (
-      <div
-        className={`meadow-veil${lifting ? " meadow-veil-out" : ""}`}
-        style={{ transitionDuration: `${soft ? VEIL_FADE_MS.soft : VEIL_FADE_MS.plain}ms` }}
-        aria-hidden={lifting}
-      >
-        <QuoteMoment status="Opening the Meadow" progress={progress} duration={duration} />
-      </div>
-    );
-  }
-  if (stage !== "skip" || gone) return null;
+  const quoteUp = stage === "unset" || stage === "pending" || stage === "quote" || stage === "breath" || (stage === "peace" && !focused);
+  if (!quoteUp && (stage !== "skip" || gone)) return null;
+  const lifting = stage === "peace";
+  const out = lifting || plainOut;
   return (
-    <div className={`meadow-veil${plainOut ? " meadow-veil-out" : ""}`} aria-hidden={plainOut}>
-      {/* it comes once the page has hydrated (the first HTML is the quote moment's night sky), so it eases in */}
-      <div className="meadow-veil-arrive">
-        <div className="meadow-veil-art">
-          <div className="meadow-veil-halo" />
-          <svg viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
-            <defs>
-              <radialGradient id="mv-glow" cx="50%" cy="45%" r="60%">
-                <stop offset="0%" stopColor="#fff2c8" />
-                <stop offset="60%" stopColor="#ffc56e" />
-                <stop offset="100%" stopColor="#d9893c" />
-              </radialGradient>
-            </defs>
-            {/* a little lantern on its hook, the Meadow's guide light */}
-            <path d="M60 22v10" stroke="#b48a4e" strokeWidth="2" strokeLinecap="round" />
-            <path d="M48 40l12-8 12 8z" fill="#b48a4e" />
-            <rect x="50" y="40" width="20" height="30" rx="3" fill="rgba(255,236,200,0.18)" stroke="#b48a4e" strokeWidth="1.6" />
-            <ellipse cx="60" cy="56" rx="5.5" ry="7.5" fill="url(#mv-glow)" />
-            <path d="M47 70h26" stroke="#b48a4e" strokeWidth="2.4" strokeLinecap="round" />
-            <path d="M30 98 Q60 88 90 98" fill="none" stroke="rgba(246,234,214,0.22)" strokeWidth="1.2" strokeLinecap="round" />
-          </svg>
+    <>
+      <FirstLook page="meadow" />
+      <div
+        className={`meadow-veil${out ? " meadow-veil-out" : ""}`}
+        style={stage === "skip" ? undefined : { transitionDuration: `${soft ? VEIL_FADE_MS.soft : VEIL_FADE_MS.plain}ms` }}
+        aria-hidden={out}
+      >
+        {/* the plain look: shown by data-veil="plain" (meadow.css), easing in with the first paint */}
+        <div className="meadow-veil-plain">
+          <div className="meadow-veil-art">
+            <div className="meadow-veil-halo" />
+            <svg viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
+              <defs>
+                <radialGradient id="mv-glow" cx="50%" cy="45%" r="60%">
+                  <stop offset="0%" stopColor="#fff2c8" />
+                  <stop offset="60%" stopColor="#ffc56e" />
+                  <stop offset="100%" stopColor="#d9893c" />
+                </radialGradient>
+              </defs>
+              {/* a little lantern on its hook, the Meadow's guide light */}
+              <path d="M60 22v10" stroke="#b48a4e" strokeWidth="2" strokeLinecap="round" />
+              <path d="M48 40l12-8 12 8z" fill="#b48a4e" />
+              <rect x="50" y="40" width="20" height="30" rx="3" fill="rgba(255,236,200,0.18)" stroke="#b48a4e" strokeWidth="1.6" />
+              <ellipse cx="60" cy="56" rx="5.5" ry="7.5" fill="url(#mv-glow)" />
+              <path d="M47 70h26" stroke="#b48a4e" strokeWidth="2.4" strokeLinecap="round" />
+              <path d="M30 98 Q60 88 90 98" fill="none" stroke="rgba(246,234,214,0.22)" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+          </div>
+          <p className="meadow-veil-title">Opening the Meadow</p>
+          <p className="meadow-veil-line" role="status" aria-live="polite">
+            {body ? "Lighting the lanterns" : "Gathering everyone's seeds"}
+          </p>
         </div>
-        <p className="meadow-veil-title">Opening the Meadow</p>
-        <p className="meadow-veil-line" role="status" aria-live="polite">
-          {body ? "Lighting the lanterns" : "Gathering everyone's seeds"}
-        </p>
+        <QuoteMoment status="Opening the Meadow" finished={plainOut} />
       </div>
-    </div>
+    </>
   );
 }
 

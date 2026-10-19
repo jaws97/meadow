@@ -244,13 +244,26 @@
   background: rgba(246, 234, 214, 0.12);
 }
 
-.garden-veil-fill {
+/* the vine creeps from the first paint as the quote's hairline does (OpeningMoment.css), and its end draws it home as the veil lifts */
+.garden-veil-fill,
+.garden-veil-end {
   position: absolute;
   inset: 0;
   transform-origin: 0 50%;
   background: linear-gradient(90deg, rgba(255, 200, 120, 0.2), rgba(255, 214, 150, 0.95));
-  transition: transform var(--t, 1.2s) cubic-bezier(0.2, 0.6, 0.2, 1);
-  will-change: transform;
+}
+
+.garden-veil-fill {
+  animation: opening-creep 40s cubic-bezier(0.12, 0.62, 0.18, 1) both;
+}
+
+.garden-veil-end {
+  transform: scaleX(0);
+}
+
+.garden-veil-finished .garden-veil-end {
+  transform: scaleX(1);
+  transition: transform 0.6s cubic-bezier(0.2, 0.6, 0.2, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
