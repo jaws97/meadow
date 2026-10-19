@@ -19,7 +19,9 @@ import { weather } from "@/components/garden/garden/weather";
 import { goldenHour } from "@/components/party/logic";
 import { finishTrailer, OPEN_S, PREPARE_MAX_S, putBack, returnPanel, run, stopTrailer } from "@/components/party/trailer/control";
 import { blankFrame, GATES, MONTAGE, RESTORE_AT, RETURN_AT, TRAILER_S, trailerAt } from "@/components/party/trailer/script";
+import { music, renderPreview } from "@/components/party/trailer/music";
 import { cover, trailer, trailerCam, trailerCues } from "@/components/party/trailer/store";
+import { istDateAt, skyState, sunInfo } from "@/lib/sky/sun";
 import { env } from "@/lib/garden/env";
 import { garden } from "@/lib/garden/store";
 
@@ -95,10 +97,20 @@ export function TrailerDirector() {
   const gl = useThree((s) => s.gl);
   const state = useRef<Run>({ prep: "dip", prepAt: 0, t: 0, golden: 17.5, gate: null, gateAt: 0, calm: 0, usual: 1 / 60, returned: false });
 
-  // Dev-only: the trailer's clock, for checking it from the console.
+  // Dev-only: the trailer's clock, and its music rendered to a WAV, for checking them from the console.
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
-    (window as unknown as { __trailer?: unknown }).__trailer = state;
+    const preview = () => {
+      const golden = goldenHour(new Date());
+      const f = blankFrame();
+      return renderPreview((t) => {
+        trailerAt(t, golden, f);
+        const night = skyState(sunInfo(istDateAt(f.hour)).altitude, f.cloud, f.hour, f.rain).nightness;
+        return { rain: f.rain, night };
+      }, TRAILER_S);
+    };
+    (window as unknown as { __trailer?: unknown; __trailerMusic?: unknown }).__trailer = state;
+    (window as unknown as { __trailerMusic?: unknown }).__trailerMusic = { preview };
   }, []);
 
   // A lost GPU context leaves a frozen picture: the trailer stops and the panel comes back, and no trailer starts until
@@ -196,6 +208,7 @@ export function TrailerDirector() {
         r.t = t;
       }
       write(r.t, r.golden);
+      music.play(r.t, frame.rain, env.nightness, GATES.find((g) => g > r.t) ?? Infinity);
       if (!r.returned && r.t >= RETURN_AT) {
         r.returned = true;
         returnPanel();

@@ -11,7 +11,9 @@
 // screen, D plays or stops the trailer (components/party/trailer: the seed,
 // the rose growing through a day, the doe, night and the other flowers, in
 // the live garden, about a minute and a half), which a button in the
-// corner also plays while the mouse moves. While it plays H, T and F wait.
+// corner also plays while the mouse moves; it has music written for it
+// (trailer/score.ts), which M mutes and `?music=off` leaves out. While it
+// plays H, T and F wait.
 // `?panel=off` and `?tour=on` set the opening state, and `?hour=21.5`
 // lights the garden at another hour for a rehearsal (logic.ts showcaseHour).
 //
@@ -29,6 +31,7 @@ import { PartyVeil } from "@/components/party/PartyVeil";
 import { stageShowcase } from "@/components/party/showcase";
 import { party, useParty } from "@/components/party/store";
 import { stopTrailer, toggleTrailer } from "@/components/party/trailer/control";
+import { music } from "@/components/party/trailer/music";
 import { trailer } from "@/components/party/trailer/store";
 import { TrailerButton, TrailerOverlay } from "@/components/party/trailer/TrailerOverlay";
 import { useQuality } from "@/lib/garden/quality";
@@ -138,6 +141,7 @@ export function PartyScreen({ className = "" }: { className?: string }) {
   useLayoutEffect(() => {
     const search = window.location.search;
     stageShowcase(search);
+    music.setEnabled(readSwitch(search, "music") ?? true);
     party.set({ panel: readSwitch(search, "panel") ?? true, tour: readSwitch(search, "tour") ?? false });
   }, []);
 
@@ -152,6 +156,12 @@ export function PartyScreen({ className = "" }: { className?: string }) {
       const key = e.key.toLowerCase();
       if (key === "d") {
         toggleTrailer();
+        return;
+      }
+      if (key === "m") {
+        music.setMuted(!music.muted);
+        // over the trailer the screen stays clean; the change is heard
+        if (trailer.get().phase === "idle") setNote({ text: music.muted ? "Trailer music off" : "Trailer music on", at: performance.now() });
         return;
       }
       // the trailer has the screen

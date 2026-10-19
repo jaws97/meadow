@@ -9,6 +9,7 @@ import { weather } from "@/components/garden/garden/weather";
 import { HOME } from "@/components/party/logic";
 import { stageShowcase } from "@/components/party/showcase";
 import { party } from "@/components/party/store";
+import { music } from "@/components/party/trailer/music";
 import { TRAILER_S } from "@/components/party/trailer/script";
 import { cover, QUIET, trailer, trailerCam, trailerCues } from "@/components/party/trailer/store";
 import { env } from "@/lib/garden/env";
@@ -89,6 +90,8 @@ export function startTrailer(): boolean {
   holdUntil = run.openedAt + HOLD_S * 1000;
   trailer.set({ ...QUIET, phase: "opening", bars: true });
   cover.set(1, OPEN_S);
+  // in the click or key press itself, the only moment a browser lets sound start
+  music.begin();
   window.clearInterval(watchdog);
   watchdog = window.setInterval(watch, 1000);
   return true;
@@ -124,6 +127,7 @@ function done() {
 export function finishTrailer() {
   if (trailer.get().phase === "idle") return;
   cover.set(0);
+  music.end(0.5);
   done();
 }
 
@@ -134,6 +138,7 @@ export function stopTrailer() {
   clearTimers();
   trailer.set({ ...QUIET, phase: "closing" });
   cover.set(1, CLOSE_S);
+  music.end(CLOSE_S);
   later(CLOSE_S + 0.1, () => {
     putBack();
     // the rose eases back to full bloom under the black (the plant follows the store at 2.5 a second)
