@@ -167,7 +167,7 @@ export function LoadingVeil() {
       <div className={`garden-veil-veil${lifting ? " garden-veil-out" : ""}`} style={fade} aria-hidden={lifting}>
         {null}
         {stage === "quote" && <PlainLook finished={false} />}
-        <QuoteMoment status={WAKING_LINE} />
+        <QuoteMoment status={WAKING_LINE} waking={WAKING_LINE} />
       </div>
     );
   } else if (stage === "unset" || stage === "pending" || (stage === "skip" && veiled && phase !== "live")) {
@@ -179,7 +179,7 @@ export function LoadingVeil() {
       <div className={`garden-veil-veil${still ? " garden-veil-has-poster" : ""}${out ? " garden-veil-out" : ""}`} aria-hidden={out}>
         {still && <div className="garden-veil-poster" style={{ backgroundImage: `url(${still})` }} />}
         <PlainLook finished={out} />
-        <QuoteMoment status={WAKING_LINE} finished={out} />
+        <QuoteMoment status={WAKING_LINE} waking={WAKING_LINE} finished={out} />
       </div>
     );
   }

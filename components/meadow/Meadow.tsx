@@ -155,7 +155,7 @@ function MeadowVeil() {
             {body ? "Lighting the lanterns" : "Gathering everyone's seeds"}
           </p>
         </div>
-        <QuoteMoment status="Opening the Meadow" finished={plainOut} />
+        <QuoteMoment status="Opening the Meadow" waking="The Meadow is waking" finished={plainOut} />
       </div>
     </>
   );

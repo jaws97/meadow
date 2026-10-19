@@ -30,7 +30,155 @@
   pointer-events: none;
 }
 
+/*
+ * The fireflies on the night sky (OpeningMoment.tsx's FIREFLIES): from the first paint until the breath, which takes
+ * them away with the quote so its moment of quiet dark stays dark. Each is three nested elements, a slow swing across,
+ * a slow swing up and down and a glow, every one a transform or opacity animation on keyframes with fixed values, so
+ * the compositor runs them unaided however busy the page is. The glow is a small radial gradient: a bright core in a
+ * soft halo, no filter, no shadow. A phone shows the first nine; wide screens add four beside the quote's column.
+ */
+.opening-sky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.opening-quote-leaving .opening-sky {
+  opacity: 0;
+}
+
+.opening-ff-x {
+  position: absolute;
+  width: 0;
+  height: 0;
+  animation: opening-ff-x16 10s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.opening-ff-x22 {
+  animation-name: opening-ff-x22;
+}
+
+.opening-ff-x28 {
+  animation-name: opening-ff-x28;
+}
+
+.opening-ff-y {
+  position: absolute;
+  animation: opening-ff-y10 9s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.opening-ff-y16 {
+  animation-name: opening-ff-y16;
+}
+
+.opening-ff-y22 {
+  animation-name: opening-ff-y22;
+}
+
+.opening-ff {
+  position: absolute;
+  left: calc(var(--s) / -2);
+  top: calc(var(--s) / -2);
+  width: var(--s);
+  height: var(--s);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle closest-side,
+    rgb(255 250 226) 0%,
+    rgb(var(--c) / 0.9) 16%,
+    rgb(var(--c) / 0.32) 42%,
+    rgb(var(--c) / 0.08) 70%,
+    rgb(var(--c) / 0) 100%
+  );
+  opacity: 0.12;
+  animation: opening-ff-blink 6s ease-in-out infinite;
+  will-change: opacity;
+}
+
+@keyframes opening-ff-x16 {
+  from {
+    transform: translate3d(-16px, 0, 0);
+  }
+  to {
+    transform: translate3d(16px, 0, 0);
+  }
+}
+
+@keyframes opening-ff-x22 {
+  from {
+    transform: translate3d(-22px, 0, 0);
+  }
+  to {
+    transform: translate3d(22px, 0, 0);
+  }
+}
+
+@keyframes opening-ff-x28 {
+  from {
+    transform: translate3d(-28px, 0, 0);
+  }
+  to {
+    transform: translate3d(28px, 0, 0);
+  }
+}
+
+@keyframes opening-ff-y10 {
+  from {
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    transform: translate3d(0, -10px, 0);
+  }
+}
+
+@keyframes opening-ff-y16 {
+  from {
+    transform: translate3d(0, 16px, 0);
+  }
+  to {
+    transform: translate3d(0, -16px, 0);
+  }
+}
+
+@keyframes opening-ff-y22 {
+  from {
+    transform: translate3d(0, 22px, 0);
+  }
+  to {
+    transform: translate3d(0, -22px, 0);
+  }
+}
+
+/* a slow rise to bright and a slower fall, as the Meadow's own fireflies glow */
+@keyframes opening-ff-blink {
+  0%,
+  30%,
+  76%,
+  100% {
+    opacity: 0.12;
+  }
+  46% {
+    opacity: 0.9;
+  }
+  58% {
+    opacity: 0.72;
+  }
+}
+
+@media (max-width: 767px) {
+  .opening-ff-x:nth-child(n + 10) {
+    display: none;
+  }
+}
+
 .opening-figure {
+  position: relative;
+  z-index: 1;
   display: none;
   margin: 0;
   max-width: min(30rem, 100%);
@@ -176,6 +324,51 @@
 }
 
 /*
+ * The waking line, hung under the rule (so the quote never moves for it): the veil's words (--waking) in small spaced
+ * capitals, fading in a little after this quote's dwell would end (--wait-at, from the store's own numbers), then
+ * breathing softly while the wait goes on. When the garden is ready in time the breath has taken the quote away first.
+ */
+.opening-waking {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  margin-top: 18px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.26em;
+  /* the spacing after the last letter, balanced before the first, so the line sits centred */
+  text-indent: 0.26em;
+  text-transform: uppercase;
+  color: rgba(246, 234, 214, 0.55);
+  opacity: 0;
+  animation:
+    opening-waking-in 1.4s ease var(--wait-at, 6s) forwards,
+    opening-waking-breathe 4.2s ease-in-out calc(var(--wait-at, 6s) + 1.4s) infinite;
+}
+
+.opening-waking::before {
+  content: var(--waking, "");
+}
+
+@keyframes opening-waking-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes opening-waking-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/*
  * The breath: the quote rises a little and fades, the hairline with it, and the night holds a moment. A quote the door
  * withdrew (lib/garden/opening's door) leaves the same way, while the hairline carries on.
  */
@@ -278,6 +471,37 @@
   .opening-quote-leaving .opening-figure,
   .opening-quote-withdrawn .opening-figure {
     transform: none;
+  }
+
+  /* the waking line fades in at its time and stays still */
+  .opening-waking {
+    animation: opening-waking-in 1.4s ease var(--wait-at-still, 6s) forwards;
+  }
+
+  /* the fireflies stay where they are and only glow, slowly, fewer of them */
+  .opening-ff-x,
+  .opening-ff-y {
+    animation: none;
+  }
+
+  .opening-ff {
+    animation: opening-ff-glow 24s ease-in-out infinite;
+    /* over each firefly's own blink length, set on the element */
+    animation-duration: 24s !important;
+  }
+
+  .opening-ff-x:nth-child(n + 7) {
+    display: none;
+  }
+}
+
+@keyframes opening-ff-glow {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+  50% {
+    opacity: 0.6;
   }
 }
 
