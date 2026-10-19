@@ -11,6 +11,7 @@ import { Suspense, useLayoutEffect } from "react";
 import * as THREE from "three";
 import { PartyScene } from "@/components/party/PartyScene";
 import { Opening, RenderGovernor } from "@/components/garden/RenderBudget";
+import { setShaderChecks } from "@/components/garden/warmup";
 import { env } from "@/lib/garden/env";
 import { quality, useQuality, type Phase } from "@/lib/garden/quality";
 import { garden } from "@/lib/garden/store";
@@ -42,6 +43,7 @@ export default function PartyCanvas() {
       style={STYLE}
       onCreated={(state) => {
         state.gl.transmissionResolutionScale = TRANSMISSION_SCALE;
+        setShaderChecks(state.gl);
         // Dev-only handles for probing the live renderer from the console, named as on the garden page.
         if (process.env.NODE_ENV !== "production") {
           const w = window as unknown as { __garden?: unknown; __gardenStore?: unknown; __gardenEnv?: unknown };

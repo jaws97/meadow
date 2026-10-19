@@ -225,6 +225,19 @@ export function unchecked<A extends unknown[]>(gl: THREE.WebGLRenderer, draw: (.
   };
 }
 
+/**
+ * Whether three reads every shader program's compile logs back on its first draw (renderer.debug.checkShaderErrors,
+ * on by default). Each read is a round trip to the GPU process that waits for the work queued before it; measured on
+ * the Meadow, after every program had compiled in parallel, the reads alone still froze the first frame for 2.2 s on
+ * an office laptop (about 33 ms a program), and several times that on a phone. Nobody reads a colleague's console, so
+ * production skips them; development keeps them so a broken shader still says why, and ?dev turns them back on in
+ * production for a diagnosis. Set once on each canvas as it is created.
+ */
+export function setShaderChecks(gl: THREE.WebGLRenderer): void {
+  const dev = process.env.NODE_ENV !== "production" || new URLSearchParams(window.location.search).has("dev");
+  gl.debug.checkShaderErrors = dev;
+}
+
 /** Main-thread time per compile slice (ms), with a frame drawn between slices. */
 const SLICE_MS = 5;
 

@@ -23,6 +23,7 @@ import * as THREE from "three";
 import { useOpeningFocus } from "@/components/garden/OpeningMoment";
 import { Opening, RenderGovernor, TierPreparer } from "@/components/garden/RenderBudget";
 import { Scene } from "@/components/garden/Scene";
+import { setShaderChecks } from "@/components/garden/warmup";
 import { opening } from "@/lib/garden/opening";
 import { garden, useGarden } from "@/lib/garden/store";
 import { env } from "@/lib/garden/env";
@@ -71,6 +72,7 @@ export default function GardenCanvas() {
       className={focus}
       onCreated={(state) => {
         state.gl.transmissionResolutionScale = TRANSMISSION_SCALE;
+        setShaderChecks(state.gl);
         // Dev-only handle for probing the live renderer from the console.
         if (process.env.NODE_ENV !== "production") {
           const w = window as unknown as { __garden?: unknown; __gardenStore?: unknown; __gardenEnv?: unknown };

@@ -116,6 +116,11 @@ export const meadow = {
     triangles: 0,
     dpr: 1,
     loading: true,
+    /**
+     * The canvas has drawn its first frames after the shader warm-up (MeadowCanvas's Warmup): until then the opening
+     * veil stays up even with a body in place, so it never lifts over a canvas that has not drawn.
+     */
+    drawn: false,
   },
 };
 
@@ -155,6 +160,7 @@ export function resetMeadow(kind: MoverKind): void {
   meadow.notice = null;
   meadow.guardian.live = false;
   meadow.stats.loading = true;
+  meadow.stats.drawn = false;
 }
 
 /** Where a new body starts, and whether the Meadow opens on its wide view first. */

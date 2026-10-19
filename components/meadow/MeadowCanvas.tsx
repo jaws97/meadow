@@ -32,6 +32,15 @@
 // with the grounds (components/lotus/river/River.tsx, from the plan's river parts), at the device's tier, keeping its
 // own clock.
 //
+// Warm-up. Drawn as soon as it mounts, the Meadow's first frame compiled every one of its sixty-odd shader programs
+// one after another on the main thread, the first draw of each waiting for the last: a second and a half on an office
+// laptop and eight seconds or more on a phone, every bit of the page frozen. So the canvas mounts with its frame loop
+// held, and once the scene is in place renderer.compileAsync hands all of the scene's programs to the driver at once
+// (with KHR_parallel_shader_compile they compile side by side, off the main thread), along with the sun's shadow pass's
+// depth programs (components/garden/warmup), while the opening's quote and its CSS motion carry on. Then the loop
+// starts, and the opening veil waits for the first frames to be drawn (meadow.stats.drawn) before it may lift. The
+// physics world keeps loading meanwhile, so the cart is usually there by the time the Meadow shows.
+//
 // Frame order, by useFrame priority: perf probe (-10), controller (-6), Rapier's stepper and its timer
 // (-5.01..-4.99), cart and glider sync (-5..-4.9), camera (-1), guides, sky and sun (-0.5), then R3F renders.
 import { addAfterEffect, Canvas, useFrame, useThree, type CanvasProps } from "@react-three/fiber";
@@ -51,6 +60,7 @@ import {
 import * as THREE from "three";
 import { holdFrame, releaseFrame, RESIZE_HOLD } from "@/components/garden/frameHold";
 import { useOpeningFocus } from "@/components/garden/OpeningMoment";
+import { compileShadowCasters, setShaderChecks } from "@/components/garden/warmup";
 import { Bursts } from "@/components/meadow/Bursts";
 import { CameraRig } from "@/components/meadow/CameraRig";
 import { MeadowController } from "@/components/meadow/controller";
@@ -133,6 +143,15 @@ const STEP_GAP_MS = 30000;
 const START_TIMEOUT_MS = 12000;
 /** Frames the glider draws before the hidden physics world (and with it the cart's trolley) is unmounted. */
 const RETIRE_FRAMES = 3;
+/**
+ * The longest the warm-up holds the first frame (ms): a driver that never reports its programs ready (or a scene still
+ * arriving) is drawn anyway, and whatever has not compiled by then compiles as it is first drawn, as before.
+ */
+const WARM_MAX_MS = 8000;
+/** Frames drawn after the warm-up before the opening veil may lift (meadow.stats.drawn). */
+const DRAWN_FRAMES = 2;
+
+const onCreated: CanvasProps["onCreated"] = (state) => setShaderChecks(state.gl);
 
 function readMoverParam(): MoverKind | "pinned-physics" {
   const p = new URLSearchParams(window.location.search).get("mover");
@@ -202,6 +221,67 @@ function AfterFrames({ frames, onDone }: { frames: number; onDone: () => void })
     left.current--;
     if (left.current === 0) onDone();
   });
+  return null;
+}
+
+function mark(name: string) {
+  try {
+    performance.mark(name);
+  } catch {
+    // marks are a measuring aid only
+  }
+}
+
+/** A warm-up step that may fail on an unusual driver: whatever it missed compiles on the first frame instead. */
+function attempt(job: () => Promise<unknown>): Promise<unknown> {
+  try {
+    return job().catch(() => undefined);
+  } catch {
+    return Promise.resolve();
+  }
+}
+
+/**
+ * The shader warm-up, while the frame loop is held (see the header): once the scene this commit mounted is in place,
+ * every program it draws with, and the shadow pass's depth programs, are handed to the driver at once; `onWarm` once
+ * they are ready, or after WARM_MAX_MS. The Meadow draws straight to the canvas, so the scene compiles for it (no
+ * render target); the shadow pass draws into its shadow map, so its depth programs compile for a render target.
+ */
+function Warmup({ onWarm }: { onWarm: () => void }) {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+  useEffect(() => {
+    let live = true;
+    const shadowTarget = new THREE.WebGLRenderTarget(1, 1);
+    const done = () => {
+      if (!live) return;
+      live = false;
+      window.clearTimeout(timer);
+      mark("meadow:warm-done");
+      onWarm();
+    };
+    const timer = window.setTimeout(done, WARM_MAX_MS);
+    mark("meadow:warm-start");
+    // a task later, so the effects of this commit (the fog, the plants' instances) have all run first: both change
+    // which programs the scene needs
+    const start = window.setTimeout(() => {
+      void Promise.all([
+        attempt(() => gl.compileAsync(scene, camera)),
+        attempt(() => compileShadowCasters(gl, scene, camera, shadowTarget)),
+      ]).then(() => {
+        // the stand-ins' programs stay compiled; only the throwaway target goes
+        shadowTarget.dispose();
+        done();
+      });
+    }, 0);
+    return () => {
+      // React's development remount runs this twice: the second run finds the programs already compiled
+      live = false;
+      window.clearTimeout(start);
+      window.clearTimeout(timer);
+    };
+  }, [gl, scene, camera, onWarm]);
   return null;
 }
 
@@ -387,6 +467,13 @@ export default function MeadowCanvas() {
   const [physics, setPhysics] = useState(param !== "glide");
   const retire = useCallback(() => setPhysics(false), []);
   const [dprStep, setDprStep] = useState(0);
+  /** The shader warm-up is over: the frame loop runs (see the header). */
+  const [warm, setWarm] = useState(false);
+  const onWarm = useCallback(() => setWarm(true), []);
+  const onDrawn = useCallback(() => {
+    meadow.stats.drawn = true;
+    mark("meadow:frame-drawn");
+  }, []);
   const { dpr, next: nextDpr, kind: deviceKind } = useBudgetDpr(dprStep);
   const stepAsk = useRef(false);
   const phone = deviceKind === "phone";
@@ -472,11 +559,21 @@ export default function MeadowCanvas() {
     [onFail, lite, layoutKey],
   );
   return (
-    <Canvas shadows={SHADOWS} dpr={dpr} gl={GL} camera={CAMERA} style={STYLE} className={focus}>
+    <Canvas
+      shadows={SHADOWS}
+      dpr={dpr}
+      gl={GL}
+      camera={CAMERA}
+      style={STYLE}
+      className={focus}
+      frameloop={warm ? "always" : "never"}
+      onCreated={onCreated}
+    >
       <PerfProbe watch={kind === "physics" && auto} onSlow={onSlow} onSag={onSag} />
       <PixelStep askRef={stepAsk} dpr={dpr} next={nextDpr} onStep={onStep} />
       <Controls controller={controller} fallBack={fallBack} />
       {scenery}
+      {warm ? <AfterFrames frames={DRAWN_FRAMES} onDone={onDrawn} /> : <Warmup onWarm={onWarm} />}
       {kind === "glide" && <GlideMover lite={lite} />}
       {physics && <group visible={kind === "physics"}>{physicsWorld}</group>}
       {physics && kind === "glide" && <AfterFrames frames={RETIRE_FRAMES} onDone={retire} />}

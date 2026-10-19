@@ -87,7 +87,8 @@ function MeadowVeil() {
   const soft = useOpening((s) => s.soft && !s.reduced);
   const focused = useOpening((s) => s.focusedAt !== null);
   const data = useMeadowData((d) => d.status !== "loading");
-  // the body's arrival is in the runtime, not React: looked at a few times a second until it is there
+  // the body's arrival is in the runtime, not React: looked at a few times a second until it is there, and drawn (the
+  // canvas holds its first frame for the shader warm-up, MeadowCanvas.tsx; a hidden tab draws nothing at all)
   const [body, setBody] = useState(false);
   const [gone, setGone] = useState(false);
   const ready = body && data;
@@ -96,7 +97,7 @@ function MeadowVeil() {
   useEffect(() => {
     if (body) return;
     const id = window.setInterval(() => {
-      if (!meadow.stats.loading) setBody(true);
+      if (!meadow.stats.loading && meadow.stats.drawn) setBody(true);
     }, 150);
     return () => window.clearInterval(id);
   }, [body]);
