@@ -34,7 +34,7 @@ import { garden, useGarden } from "@/lib/garden/store";
 type View = "garden" | "side" | "close" | "face" | "face34" | "legs";
 type Time = "dawn" | "morning" | "noon" | "golden" | "dusk";
 
-const ACTS: readonly Act[] = ["tour", "stand", "graze", "browse", "walk"];
+const ACTS: readonly Act[] = ["visit", "tour", "stand", "graze", "browse", "walk"];
 const VIEWS: readonly View[] = ["garden", "side", "close", "face", "face34", "legs"];
 const TIMES: readonly Time[] = ["dawn", "morning", "noon", "golden", "dusk"];
 /** Bangalore hours (the development panel's golden hour and dusk). */

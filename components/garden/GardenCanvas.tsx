@@ -46,7 +46,8 @@ const SHADOWS = { enabled: true, type: THREE.PCFShadowMap } as const;
 /** Nothing is drawn until the shaders are ready: a half-compiled first frame is the long black screen. */
 const stopped = (p: Phase) => p === "boot" || p === "compiling";
 
-export default function GardenCanvas() {
+/** `deer`: the doe may visit this garden (the garden page alone: lib/garden/visitor). */
+export default function GardenCanvas({ deer = false }: { deer?: boolean }) {
   const dpr = useQuality((s) => s.dpr);
   const phase = useQuality((s) => s.phase);
   const tier = useGarden((s) => s.quality);
@@ -84,7 +85,7 @@ export default function GardenCanvas() {
     >
       <RenderGovernor />
       <Suspense fallback={null}>
-        <Scene />
+        <Scene deer={deer} />
         <Opening />
         <TierPreparer />
       </Suspense>

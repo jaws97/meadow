@@ -256,6 +256,29 @@ export const quality = {
   },
 };
 
+/**
+ * A visitor in the garden (the doe, on a deer day: components/deer): while one is there the live governor measures and
+ * decides nothing (no pixel step either way, no tier step) and keeps no still or tier for the next visit
+ * (RenderBudget), so her cost can neither drop the garden's quality in front of the viewer nor be remembered as the
+ * device's; once she has gone the governor starts afresh. A hold lapses by itself after `maxMs`, so a visitor that
+ * never leaves cannot freeze the budget for good.
+ */
+const visitors = new Set<{ until: number }>();
+export const visitorHold = {
+  active(now = performance.now()): boolean {
+    for (const v of visitors) if (now < v.until) return true;
+    return false;
+  },
+  /** Holds from now until the returned release is called, or for `maxMs` at most. */
+  acquire(maxMs = 180_000): () => void {
+    const v = { until: performance.now() + maxMs };
+    visitors.add(v);
+    return () => {
+      visitors.delete(v);
+    };
+  },
+};
+
 export function useQuality<T>(selector: (s: QualityState) => T): T {
   return useSyncExternalStore(
     quality.subscribe,
@@ -604,6 +627,17 @@ export class Governor {
     this.upAfter = Math.max(this.upAfter, now + UP_COOLDOWN_MS);
     this.unproven = null;
     this.forget();
+  }
+
+  /**
+   * A visitor has gone (visitorHold): nothing was measured while they were there; the window open when the hold began
+   * is dropped, and the live clocks restart after a grace of `ms`, with no step up for the cooldown.
+   */
+  resume(now: number, ms: number) {
+    this.win = { start: -1, frames: [], gpu: [] };
+    this.recentFrames = [];
+    this.hitches = 0;
+    this.beginGrace(now, ms);
   }
 
   /** After a tier step down, a step back up needs a long, convincing stretch. */

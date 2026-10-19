@@ -94,7 +94,7 @@ import {
 import { rememberTier } from "@/lib/garden/device";
 import { opening } from "@/lib/garden/opening";
 import { garden, useGarden, type Quality } from "@/lib/garden/store";
-import { Governor, quality, stepTier, underVeil, useQuality, type Phase, type QualityState } from "@/lib/garden/quality";
+import { Governor, quality, stepTier, underVeil, useQuality, visitorHold, type Phase, type QualityState } from "@/lib/garden/quality";
 import { isLotus } from "@/lib/plant/species";
 
 /**
@@ -165,6 +165,8 @@ const PREPARE_PREDRAW_GROUPS = 8;
 const SWAP_HOLD = { frames: 3, maxMs: 1500 } as const;
 /** The still kept for next time: first this long into a live visit, then refreshed this often (ms). */
 const POSTER_AFTER_MS = 5000;
+/** After a visitor (the doe) has gone, the governor's clocks restart from this grace (ms). */
+const VISIT_GRACE_MS = 2000;
 const POSTER_EVERY_MS = 120000;
 
 const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
@@ -569,6 +571,9 @@ export function RenderGovernor() {
     swap: null as SwapHold | null,
     /** Settled under the veil, the garden waits for the opening's quote and breath (lib/garden/opening) before its reveal. */
     waiting: false,
+    /** A visitor (the doe) is in the showing garden (visitorHold), and when the last one left. */
+    visiting: false,
+    visitEnd: -Infinity,
   });
   const lastInput = useLastInput(gl.domElement.parentElement);
 
@@ -762,8 +767,15 @@ export function RenderGovernor() {
     // Room above is only ever noted for the next visit, so the session's tier changes do not limit it.
     const highest = q.pinned || stepTier(tier, 1, q.plan?.maxTier ?? tier) === null;
     const interacting = touched;
+    // A visitor in the showing garden (the doe): nothing is measured or decided until she has gone.
+    const visiting = !underVeil(q) && visitorHold.active(now);
+    if (c.visiting && !visiting) {
+      governor.resume(now, VISIT_GRACE_MS);
+      c.visitEnd = now;
+    }
+    c.visiting = visiting;
     // Sampled even when frozen (?governor=off), so the readout still reports the frame.
-    const sampled = governor.sample(delta * 1000, gpuMs, now, { calibrating, lowest, highest, interacting });
+    const sampled = visiting ? { kind: "none" as const } : governor.sample(delta * 1000, gpuMs, now, { calibrating, lowest, highest, interacting });
     const decision = q.auto ? sampled : { kind: "none" as const };
     if (!q.auto && sampled.kind === "budget") governor.hold(q.budget);
     if (now - c.statsAt > 1000) {
@@ -850,7 +862,9 @@ export function RenderGovernor() {
       // never made on a showing garden). Both only on the real clock: a
       // friend's garden and the party screen hold the clock by hand, and must
       // not decide how the viewer's own garden opens.
-      const due = c.posterAt < 0 ? now - c.liveAt > POSTER_AFTER_MS : now - c.posterAt > POSTER_EVERY_MS;
+      // never while a visitor (the doe) is in the picture: the still would show her on a day she is not there
+      const due =
+        !visiting && now - c.visitEnd > POSTER_AFTER_MS && (c.posterAt < 0 ? now - c.liveAt > POSTER_AFTER_MS : now - c.posterAt > POSTER_EVERY_MS);
       const g = garden.get();
       const room = governor.roomAbove && !q.pinned && q.plan ? stepTier(g.quality, 1, q.plan.maxTier) : null;
       const remember = () => {

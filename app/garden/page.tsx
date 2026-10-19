@@ -24,11 +24,16 @@ import { WelcomeLine } from "@/components/garden/OpeningMoment";
 import { GardenDoor } from "@/components/gift/GardenDoor";
 import { Hint } from "@/components/gift/Hint";
 import { preloadRememberedCourtyard } from "@/components/lotus/product/preload";
+import { planDeerVisit } from "@/lib/garden/visitor";
 
 // The veil covers the canvas while its chunk loads, so the fallback draws nothing.
 const GardenCanvas = dynamic(() => import("@/components/garden/GardenCanvas"), { ssr: false, loading: () => null });
-// A device that last showed a lotus asks for its courtyard's chunk now, beside the canvas's own.
-if (typeof window !== "undefined") preloadRememberedCourtyard();
+// A device that last showed a lotus asks for its courtyard's chunk now, beside the canvas's own; on a deer day the
+// doe's chunk is asked for now too (lib/garden/visitor).
+if (typeof window !== "undefined") {
+  preloadRememberedCourtyard();
+  planDeerVisit();
+}
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 // The query never changes while the page is open, so there is nothing to subscribe to.
@@ -41,7 +46,7 @@ export default function GardenPage() {
   return (
     // data-garden-layers: the care layer's soft night during a plant swap goes in here, under the card and the pill
     <main className="fixed inset-0 overflow-hidden bg-[#06080f]" data-garden-layers="">
-      <GardenCanvas />
+      <GardenCanvas deer />
       <LoadingVeil />
       <WelcomeLine />
       {showPanel && <DevPanel />}

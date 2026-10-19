@@ -7,8 +7,9 @@
 // (lib/garden/layout.ts: metres, the hero at the origin, the default camera toward -z).
 import * as THREE from "three";
 import type { DoeAnimator, DoeIntent } from "@/components/deer/motion";
+import type { DeerStation } from "@/components/deer/stations";
 
-export type Act = "tour" | "stand" | "graze" | "walk" | "browse";
+export type Act = "visit" | "tour" | "stand" | "graze" | "walk" | "browse";
 
 type Step =
   | { kind: "walk"; to: readonly [number, number]; speed?: number }
@@ -31,10 +32,71 @@ const TO_VIEWER = -0.6;
 /** Three-quarters toward the left-back hedge's face to browse it, her neck and ears still in profile (she faces +x at 0, turning toward -z as it grows). */
 const TO_HEDGE = 0.9;
 
-type Tours = Record<Act, { start: readonly [number, number]; heading: number; steps: Step[] }>;
+interface Plan {
+  start: readonly [number, number];
+  heading: number;
+  steps: Step[];
+  /** A visit's other way out: on behind the bed and out under the arch, for when the camera has come round west. */
+  back?: Step[];
+}
+type Tours = Record<Act, Plan>;
+
+/**
+ * The visit as the garden shows it (lib/garden/deerDays decides the day): she is already there, grazing at the edge of
+ * the garden, when it comes into focus; she grazes, lifts her head to look toward the flower, grazes on and browses the
+ * hedge, looks once more, and walks out through the corridor she came by. About a minute; it does not loop.
+ */
+const VISIT: Step[] = [
+  { kind: "graze", secs: 18 },
+  { kind: "look", secs: 4.5 },
+  { kind: "graze", secs: 14 },
+  { kind: "browse", secs: 6, face: TO_HEDGE },
+  { kind: "look", secs: 3 },
+  { kind: "walk", to: [-3.2, -1.62] },
+  { kind: "walk", to: ENTRY },
+];
+/** Away from the hedge: grazing and looking only. */
+const visitInTheOpen = (out: readonly [number, number]): Step[] => [
+  { kind: "graze", secs: 16 },
+  { kind: "look", secs: 4.5 },
+  { kind: "graze", secs: 12 },
+  { kind: "look", secs: 3 },
+  { kind: "walk", to: out },
+  { kind: "walk", to: ENTRY },
+];
+/** Behind the bed and out under the arch (the concept tour's way out). */
+const UNDER_ARCH: Step[] = [
+  { kind: "walk", to: [-0.45, -2.1] },
+  { kind: "walk", to: [0.55, -2.35] },
+  { kind: "walk", to: [1.35, -3.4] },
+  { kind: "walk", to: [1.9, -4.6] },
+];
+
+/** Each station of the garden's visit (components/deer/stations decides which). */
+const VISITS: Record<DeerStation, Plan> = {
+  // a little toward the viewer, so her four legs read apart and a little of her face shows
+  back: { start: STATION, heading: -0.2, steps: VISIT, back: UNDER_ARCH },
+  backLeft: { start: [-2.25, -1.65], heading: -0.2, steps: VISIT, back: UNDER_ARCH },
+  backNear: { start: [-2.25, -1.45], heading: -0.6, steps: VISIT, back: UNDER_ARCH },
+  // back from the lantern before she turns east, clear of the bed's corner
+  lawn: { start: [-1.75, -1.05], heading: -0.9, steps: visitInTheOpen([-3.1, -1.35]), back: [{ kind: "walk", to: [-2.0, -1.9] }, ...UNDER_ARCH] },
+  portrait: { start: [-0.8, -1.95], heading: -1.2, steps: visitInTheOpen([-3.0, -1.6]), back: UNDER_ARCH },
+};
 
 /** The tall screens' visit: in and out through the corridor, so she never crosses behind the bloom. */
 const TALL: Partial<Tours> = {
+  visit: {
+    start: STATION_TALL,
+    heading: TO_VIEWER,
+    steps: [
+      { kind: "graze", secs: 16 },
+      { kind: "look", secs: 4.5 },
+      { kind: "graze", secs: 12 },
+      { kind: "look", secs: 3 },
+      { kind: "walk", to: [-3.0, -1.6] },
+      { kind: "walk", to: ENTRY },
+    ],
+  },
   tour: {
     start: ENTRY,
     heading: -0.25,
@@ -55,6 +117,7 @@ const TALL: Partial<Tours> = {
 };
 
 const TOURS: Tours = {
+  visit: VISITS.back,
   tour: {
     start: ENTRY,
     heading: -0.25,
@@ -88,32 +151,81 @@ const TOURS: Tours = {
   },
 };
 
+/** The camera this far west (m) when she sets off, and she leaves under the arch rather than walking toward it. */
+const WEST_X = -1.0;
+
 export class Tour {
   private i = 0;
   private t = 0;
+  /** The visit is over: she has walked out of the garden (a visit does not loop). */
+  finished = false;
   private readonly target = new THREE.Vector2();
   readonly intent: DoeIntent = { target: null, speed: 0.55, face: null, graze: 0, browse: 0, look: null };
+  /** Where the viewer's camera stands across the garden (x): her way out keeps away from it. */
+  private viewerX = 0;
 
-  private readonly tours: Tours;
+  private readonly plan: Plan;
+  /** This run's steps: the plan's, with the way out swapped once she sets off (chooseOut). */
+  private steps: Step[];
+  private outChosen = false;
 
-  /** `tall`: a portrait screen (aspect under 0.8), whose frame is narrow at the back of the garden. */
+  /**
+   * `tall`: a portrait screen (aspect under 0.8), whose frame is narrow at the back of the garden; `station`: where the
+   * garden's visit stands (components/deer/stations), which decides the visit instead.
+   */
   constructor(
     private readonly act: Act,
     private readonly lookAt: THREE.Vector3,
     tall = false,
+    station?: DeerStation,
   ) {
-    this.tours = tall ? { ...TOURS, ...TALL } : TOURS;
+    this.plan = act === "visit" && station ? VISITS[station] : (tall ? { ...TOURS, ...TALL } : TOURS)[act];
+    this.steps = this.plan.steps;
   }
 
   start(doe: DoeAnimator) {
-    const tour = this.tours[this.act];
-    doe.place(tour.start[0], tour.start[1], tour.heading);
+    doe.place(this.plan.start[0], this.plan.start[1], this.plan.heading);
+    this.steps = this.plan.steps;
+    this.outChosen = false;
     this.i = 0;
     this.t = 0;
+    this.finished = false;
+  }
+
+  /** Whether she is on her way out already. */
+  get leaving(): boolean {
+    return this.steps.slice(this.i).every((s) => s.kind === "walk");
+  }
+
+  /** Told each frame where the viewer's camera stands across the garden (x). */
+  seeViewer(x: number) {
+    this.viewerX = x;
+  }
+
+  /** Skips to her walk out (someone came too close, or the screen turned): calmly, never a flight. */
+  leave() {
+    if (this.leaving) return;
+    const steps = this.steps;
+    const out = steps.findIndex((_, k) => steps.slice(k).every((s) => s.kind === "walk"));
+    if (out >= 0) {
+      this.i = out;
+      this.t = 0;
+    }
+  }
+
+  /** As she sets off: the way out that keeps away from the viewer (the corridor, or under the arch with the camera west). */
+  private chooseOut() {
+    if (this.outChosen || !this.plan.back || !this.leaving) return;
+    this.outChosen = true;
+    if (this.viewerX < WEST_X) {
+      this.steps = [...this.steps.slice(0, this.i), ...this.plan.back];
+      this.t = 0;
+    }
   }
 
   step(dt: number, doe: DoeAnimator) {
-    const tour = this.tours[this.act];
+    this.chooseOut();
+    const tour = { steps: this.steps };
     let step = tour.steps[this.i];
     this.t += dt;
     const done =
@@ -124,9 +236,15 @@ export class Tour {
       this.i++;
       this.t = 0;
       if (this.i >= tour.steps.length) {
-        // the walk-through loops: she is back in the corridor, out of sight
-        if (this.act === "tour") this.start(doe);
-        this.i = 0;
+        if (this.act === "visit") {
+          // she has gone; she stands out of sight in the corridor until she is taken away
+          this.finished = true;
+          this.i = tour.steps.length - 1;
+        } else {
+          // the walk-through loops: she is back in the corridor, out of sight
+          if (this.act === "tour") this.start(doe);
+          this.i = 0;
+        }
       }
       step = tour.steps[this.i];
     }

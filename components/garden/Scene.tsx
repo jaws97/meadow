@@ -32,6 +32,13 @@
 // (lib/garden/swapGate) until the courtyard has compiled and pre-drawn itself
 // out of sight. A chunk that fails to load (the venue's Wi-Fi) is asked for
 // again a couple of times; the garden page never falls over for it.
+//
+// On a deer day the doe visits a colleague's own flower garden (lib/garden/visitor decides it as the garden page
+// loads, and starts her chunk on its way then; the garden page alone asks for her, with `deer`). She is mounted
+// outside the tier layers, so a tier prepared out of sight never builds a second doe, after the camera rig, and never
+// in a lotus's courtyard. Her chunk is waited for in the canvas's Suspense boundary like the courtyard's, so the opening compiles
+// her under the veil with everything else, but only for a few seconds: if it has not come by then, or fails, the
+// garden opens without her.
 import { Component, createElement, lazy, Suspense, useState, type ReactNode } from "react";
 import { HERO_GROUND_Y } from "@/lib/garden/dressing";
 import { Atmosphere } from "@/components/garden/Atmosphere";
@@ -47,6 +54,7 @@ import { Plant } from "@/components/garden/Plant";
 import { SkyDome } from "@/components/garden/SkyDome";
 import { TierLayers } from "@/components/garden/TierLayers";
 import { holdSwap } from "@/lib/garden/swapGate";
+import { deerPlan, loadDeer } from "@/lib/garden/visitor";
 import { underVeil } from "@/lib/garden/quality";
 import { garden, useGarden } from "@/lib/garden/store";
 import { isLotus } from "@/lib/plant/species";
@@ -80,8 +88,8 @@ let failedLoads = 0;
 /** How long to wait before asking for the chunk again, once per entry; after the last, the courtyard is let go. */
 const RETRY_MS = [1500, 5000] as const;
 
-/** Catches the courtyard's chunk failing to load, inside the canvas, so the page carries on without it. */
-class CourtyardBoundary extends Component<{ onFail: () => void; children: ReactNode }, { failed: boolean }> {
+/** Catches a chunk (the courtyard's, the doe's) failing to load, inside the canvas, so the page carries on without it. */
+class ChunkBoundary extends Component<{ onFail: () => void; children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -108,13 +116,33 @@ function LotusPlace() {
     else courtyardReady();
   };
   return (
-    <CourtyardBoundary key={attempt} onFail={onFail}>
+    <ChunkBoundary key={attempt} onFail={onFail}>
       {createElement(courtyardAt(attempt))}
-    </CourtyardBoundary>
+    </ChunkBoundary>
   );
 }
 
-export function Scene() {
+/** How long the opening waits for the doe's chunk (ms) before the garden goes on without her. */
+const DEER_WAIT_MS = 4000;
+const NoDeer = () => null;
+const DeerChunk = lazy(() =>
+  Promise.race([loadDeer(), new Promise<{ default: () => null }>((done) => window.setTimeout(() => done({ default: NoDeer }), DEER_WAIT_MS))]),
+);
+const ignore = () => {};
+
+/** The doe, on her day (lib/garden/visitor). */
+function DeerPlace() {
+  const [visiting] = useState(() => deerPlan() !== null);
+  if (!visiting) return null;
+  return (
+    <ChunkBoundary onFail={ignore}>
+      <DeerChunk />
+    </ChunkBoundary>
+  );
+}
+
+/** `deer`: the doe may visit (the garden page; never a friend's garden or the party screen). */
+export function Scene({ deer = false }: { deer?: boolean }) {
   const lotus = useGarden((s) => isLotus(s.speciesId));
   return (
     <>
@@ -142,6 +170,8 @@ export function Scene() {
       </TierLayers>
       {lotus ? null : <FarWoods />}
       <CameraRig />
+      {/* after the rig: her frame sees the camera where it is drawn */}
+      {deer && !lotus ? <DeerPlace /> : null}
     </>
   );
 }

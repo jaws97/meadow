@@ -105,6 +105,14 @@ export function compileShadowCasters(
       const im = new THREE.InstancedMesh(src.geometry, depth, 1);
       im.instanceColor = src.instanceColor;
       proxy = im;
+    } else if ((o as THREE.SkinnedMesh).isSkinnedMesh) {
+      // the shadow pass skins the caster in its vertex shader (skinning is in the program's key): a plain Mesh stand-in
+      // would compile the unskinned variant, and the skinned one would link on the first shadow draw (the doe's)
+      const src = o as THREE.SkinnedMesh;
+      const sk = new THREE.SkinnedMesh(src.geometry, depth);
+      // an explicit bind matrix: no inverses computed, the shared skeleton untouched
+      sk.bind(src.skeleton, src.bindMatrix);
+      proxy = sk;
     } else if ((o as THREE.Points).isPoints) proxy = new THREE.Points(o.geometry, depth);
     else if ((o as THREE.Line).isLine) proxy = new THREE.Line(o.geometry, depth);
     else proxy = new THREE.Mesh(o.geometry, depth);
