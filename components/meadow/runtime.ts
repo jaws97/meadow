@@ -13,7 +13,8 @@ export interface VisitRequest {
   journey: boolean;
 }
 
-export type DriveMode = "idle" | "keys" | "drag" | "autopilot";
+/** Who moves the cart this frame; "look" is a drag turning the view round a visited plant, the cart standing still. */
+export type DriveMode = "idle" | "keys" | "drag" | "look" | "autopilot";
 
 export const meadow = {
   moverKind: "physics" as MoverKind,
@@ -36,9 +37,17 @@ export const meadow = {
    * What the camera should frame besides the cart: the plant being visited
    * (once the cart has pulled up), and how much of the screen's bottom (or,
    * on a landscape screen, its right side) the visit card covers (0..1), so
-   * the plant sits in the part left clear.
+   * the plant sits in the part left clear. During a visit a drag turns the
+   * view round the plant (the controller's): `turn` is how far round from the
+   * camera's usual bearing and `tilt` how much higher or lower it looks
+   * (radians); the camera eases both away as the visit ends, then clears them.
    */
-  view: { target: null as { x: number; z: number; y: number } | null, cover: 0, coverSide: 0 },
+  view: { target: null as { x: number; z: number; y: number } | null, cover: 0, coverSide: 0, turn: 0, tilt: 0 },
+  /**
+   * Which way the camera stands from its focus (three's spherical theta, radians): its fixed bearing (CameraRig's
+   * THETA), but for a visit's turn. Written by the camera every frame, for what lies on the water toward the viewer.
+   */
+  bearing: 0.25 * Math.PI,
   /** The camera's smoothed focus on the ground; the sun's shadow box follows it. */
   focus: new THREE.Vector3(),
   /** Roughly how far the view reaches across the ground from the focus, metres: the shadow box covers it. */
@@ -138,6 +147,9 @@ export function resetMeadow(kind: MoverKind): void {
   meadow.tapped = false;
   meadow.view.target = null;
   meadow.view.cover = 0;
+  meadow.view.turn = 0;
+  meadow.view.tilt = 0;
+  meadow.bearing = 0.25 * Math.PI;
   meadow.view.coverSide = 0;
   meadow.requests.visit = null;
   meadow.requests.teleport = false;

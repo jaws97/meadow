@@ -95,9 +95,50 @@ export function VisitCard() {
           <CloseIcon />
         </button>
         {card === ROSE ? <RoseCard /> : <PlantCard plot={card} />}
+        <LookHint rose={card === ROSE} />
       </div>
     </div>
   );
+}
+
+/** This device has turned the view round a visited plant: the hint has done its work. */
+const LOOKED_KEY = "meadow:looked-around";
+
+function lookedBefore(): boolean {
+  try {
+    return window.localStorage.getItem(LOOKED_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * "Drag to turn around the flower": once the camera has come in on the plant (the cart pulled up beside it), until
+ * the visitor has turned the view round a plant once on this device. The visit's state is in the runtime, not React,
+ * so it is looked at a few times a second while the card is open.
+ */
+function LookHint({ rose }: { rose: boolean }) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (lookedBefore()) return;
+    const id = window.setInterval(() => {
+      const v = meadow.view;
+      if (v.turn !== 0 || v.tilt !== 0) {
+        try {
+          window.localStorage.setItem(LOOKED_KEY, "1");
+        } catch {
+          // shown again next time, then
+        }
+        setShown(false);
+        window.clearInterval(id);
+        return;
+      }
+      setShown(v.target !== null);
+    }, 250);
+    return () => window.clearInterval(id);
+  }, []);
+  if (!shown) return null;
+  return <p className="meadow-note meadow-look-hint">{rose ? "Drag to turn around the rose" : "Drag to turn around the flower"}</p>;
 }
 
 function RoseCard() {

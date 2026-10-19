@@ -5,7 +5,10 @@
 // skip to the end of a journey.
 //
 // Priority among inputs: keys, then a live drag, then the autopilot. Keys or a drag cancel the autopilot (and any
-// journey), so the player can always take over.
+// journey), so the player can always take over. During a visit (the cart pulled up beside a plant whose card is open)
+// a drag does not drive: it turns the view round the plant, all the way round if the visitor likes, and tilts it a
+// little higher or lower, gliding to a gentle stop when the finger lifts (meadow.view's turn and tilt, which the camera
+// eases away again as the visit ends). The keys and a tap still drive off, as before.
 // The stuck test and drag mapping follow Bruno Simon's folio-2025 (MIT):
 // approach adapted from PhysicsVehicle.js (stuck) and Player.js / Nipple.js (drag).
 import * as THREE from "three";
@@ -34,6 +37,17 @@ const FADE_HOLD = 0.12;
 const FADE_IN = 0.5;
 /** A parked visit stays "here" until the cart has moved this far. */
 const LEAVE_PARK = 1.2;
+/** Turning round a visited plant: a drag across the whole screen's width is half a turn, and down its height this much tilt. */
+const TURN_PER_WIDTH = Math.PI;
+const TILT_PER_HEIGHT = 0.3 * Math.PI;
+/** How far the tilt may go, above and below the visit's own look down (radians). */
+export const TILT_UP = 0.07 * Math.PI;
+export const TILT_DOWN = 0.12 * Math.PI;
+/** Once the finger lifts, the turn glides on and slows to a stop at this rate (per second). */
+const TURN_GLIDE = 3.2;
+
+/** An angle brought within half a turn either way of zero. */
+const wrapAngle = (a: number) => a - 2 * Math.PI * Math.round(a / (2 * Math.PI));
 
 const ndc = new THREE.Vector2();
 const ray = new THREE.Raycaster();
@@ -62,6 +76,10 @@ export class MeadowController {
   /** The visit the cart is on or has pulled up for, and where it stopped. */
   private visiting: VisitTarget | null = null;
   private parked: { index: number; x: number; z: number } | null = null;
+  /** A drag turning the view round a visited plant: where the finger was last frame, and the turn's speed (rad/s). */
+  private look: { x: number; y: number } | null = null;
+  private turnSpeed = 0;
+  private tiltSpeed = 0;
 
   frame(camera: THREE.Camera, size: ViewSize, dtRaw: number): void {
     const dt = Math.min(dtRaw, 0.1);
@@ -99,10 +117,17 @@ export class MeadowController {
 
     const cmd = m.command;
     meadow.finger.active = false;
+    // a visit's view (published last frame): a drag turns it rather than driving
+    const looking = meadow.view.target !== null && input.drag.active;
+    if (!looking) this.look = null;
     if (input.keyAxes(this.keys)) {
       this.takeOver();
       setWheel(cmd, this.keys.throttle, this.keys.steer, 0);
       meadow.mode = "keys";
+    } else if (looking) {
+      this.lookAround(size, dt);
+      setWheel(cmd, 0, 0, 0);
+      meadow.mode = "look";
     } else if (input.drag.active) {
       this.takeOver();
       this.dragDrive(m, camera, size);
@@ -113,6 +138,7 @@ export class MeadowController {
       setWheel(cmd, 0, 0, 0);
       meadow.mode = "idle";
     }
+    if (!looking) this.glide(dt);
     if (!this.autopilot.active) {
       meadow.goal.active = false;
       meadow.targetPlot = -1;
@@ -248,6 +274,44 @@ export class MeadowController {
     const p = meadowData.get().byPlot.get(card);
     const c = p ? plantCentre(p) : null;
     meadow.view.target = c;
+  }
+
+  /**
+   * A drag during a visit turns the view round the plant as if the finger held the Meadow: across, round the plant
+   * (half a turn for the screen's width, and on round as far as the finger goes); down, from higher up; up, from lower
+   * down, within a little either way. The finger's speed is kept, for the glide once it lifts.
+   */
+  private lookAround(size: ViewSize, dt: number): void {
+    const d = this.input.drag;
+    const v = meadow.view;
+    if (this.look) {
+      const turn = -((d.x - this.look.x) / Math.max(1, size.width)) * TURN_PER_WIDTH;
+      const tilt = -((d.y - this.look.y) / Math.max(1, size.height)) * TILT_PER_HEIGHT;
+      v.turn = wrapAngle(v.turn + turn);
+      v.tilt = Math.min(TILT_DOWN, Math.max(-TILT_UP, v.tilt + tilt));
+      if (dt > 0) {
+        const k = 1 - Math.exp(-12 * dt);
+        this.turnSpeed += (turn / dt - this.turnSpeed) * k;
+        this.tiltSpeed += (tilt / dt - this.tiltSpeed) * k;
+      }
+    }
+    this.look = { x: d.x, y: d.y };
+  }
+
+  /** After the finger lifts, the turn glides on and comes to a gentle stop; a visit that has ended stops it at once. */
+  private glide(dt: number): void {
+    const v = meadow.view;
+    if (v.target === null) {
+      this.turnSpeed = 0;
+      this.tiltSpeed = 0;
+      return;
+    }
+    if (Math.abs(this.turnSpeed) < 1e-3 && Math.abs(this.tiltSpeed) < 1e-3) return;
+    v.turn = wrapAngle(v.turn + this.turnSpeed * dt);
+    v.tilt = Math.min(TILT_DOWN, Math.max(-TILT_UP, v.tilt + this.tiltSpeed * dt));
+    const k = Math.exp(-TURN_GLIDE * dt);
+    this.turnSpeed *= k;
+    this.tiltSpeed *= k;
   }
 
   /** Drive toward the finger: the pull grows with its on-screen distance from the cart. */

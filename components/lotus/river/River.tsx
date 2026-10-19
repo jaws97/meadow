@@ -21,7 +21,7 @@
 // sills' stones a little larger and fewer, the reeds and the sweet flag with fewer blades and the sweet flag in half the
 // clumps, the copings in longer blocks, and no shadows from any of them.
 import { useFrame } from "@react-three/fiber";
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { liveGlowMaterial, seeded } from "@/components/meadow/parts";
 import { meadow } from "@/components/meadow/runtime";
@@ -44,8 +44,8 @@ const POST = { half: 0.21, top: 0.6, cap: 0.06, capHalf: 0.24 } as const;
 const LAMP_FOOT = POST.top + POST.cap;
 /** The follow camera's elevation (CameraRig PHI), for where a lamp's reflection lies on the water. */
 const FOLLOW_ELEVATION = Math.PI / 2 - 0.28 * Math.PI;
-/** The Meadow camera's fixed bearing (CameraRig THETA): from a point toward the camera on the ground. */
-const TOWARD_CAMERA = { x: Math.SQRT1_2, z: Math.SQRT1_2 };
+/** The camera's bearing changes this much (radians, a visit's turn) before the lamps' reflections are laid again. */
+const STREAK_RELAY = 0.01;
 /** How many stones and piers the water's foam is worked out for, nearest the view first (each costs every water pixel). */
 const FOAM_OBSTACLES: Record<RiverTier, number> = { cinematic: MAX_OBSTACLES, balanced: 32, lite: 16 };
 /** Past this camera distance (metres) the foam's lines (a few centimetres) are under a pixel and are not worked out. */
@@ -623,12 +623,32 @@ export function River({ P, tier, still, shadows, clock = "env" }: { P: RiverPart
   const { stones, obstacles } = useMemo(() => stonesOf(P, lite), [P, lite]);
 
   // the lamps' reflections: from each lamp's mirror image (as far under the water as the lamp stands over it) toward
-  // the camera's fixed bearing, the surface point the follow camera sees it at
-  const streaks = useMemo(() => {
-    const h = LEVEL.lamp - 0.18 - LEVEL.water;
-    const shift = h / Math.tan(FOLLOW_ELEVATION);
-    return lampPoints.map((p) => ({ x: p.x + TOWARD_CAMERA.x * shift, z: p.z + TOWARD_CAMERA.z * shift })).filter((p) => onOpenWater(P, p));
-  }, [P, lampPoints]);
+  // the camera's bearing (meadow.bearing: fixed, but for a visit's turn round a plant), the surface point the follow
+  // camera sees it at; only those that fall on open water, each lying along the line toward the viewer. Laid again
+  // when the bearing turns (useFrame below).
+  const layStreaks = useCallback(
+    (mesh: THREE.InstancedMesh, bearing: number) => {
+      const h = LEVEL.lamp - 0.18 - LEVEL.water;
+      const shift = h / Math.tan(FOLLOW_ELEVATION);
+      const tx = Math.sin(bearing), tz = Math.cos(bearing);
+      const m = new THREE.Matrix4();
+      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), bearing);
+      const at = new THREE.Vector3();
+      const one = new THREE.Vector3(1, 1, 1);
+      let n = 0;
+      for (const p of lampPoints) {
+        const s = { x: p.x + tx * shift, z: p.z + tz * shift };
+        if (!onOpenWater(P, s)) continue;
+        m.compose(at.set(s.x, LEVEL.water + 0.004, s.z), q, one);
+        mesh.setMatrixAt(n++, m);
+      }
+      mesh.count = n;
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+    },
+    [P, lampPoints],
+  );
+  const streaksLaid = useRef(Number.NaN);
   const streakAssets = useMemo(() => {
     const g = new THREE.PlaneGeometry(0.42, 2.6).rotateX(-Math.PI / 2);
     const tex = streakTexture();
@@ -700,15 +720,10 @@ export function River({ P, tier, still, shadows, clock = "env" }: { P: RiverPart
       poolMesh.computeBoundingSphere();
     }
     if (streakMesh) {
-      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(TOWARD_CAMERA.x, TOWARD_CAMERA.z));
-      streaks.forEach((p, i) => {
-        m.compose(new THREE.Vector3(p.x, LEVEL.water + 0.004, p.z), q, new THREE.Vector3(1, 1, 1));
-        streakMesh.setMatrixAt(i, m);
-      });
-      streakMesh.instanceMatrix.needsUpdate = true;
-      streakMesh.computeBoundingSphere();
+      layStreaks(streakMesh, meadow.bearing);
+      streaksLaid.current = meadow.bearing;
     }
-  }, [lampPoints, streaks]);
+  }, [lampPoints, layStreaks]);
 
   useFrame((state) => {
     const time = clock === "frame" ? state.clock.elapsedTime : env.time;
@@ -730,7 +745,15 @@ export function River({ P, tier, still, shadows, clock = "env" }: { P: RiverPart
     // (brighter on lite, as its water's night sheen: water.ts)
     streakAssets.mat.opacity = night * (lite ? 0.9 : 0.7) * breath;
     streakAssets.poolMat.opacity = night * 0.7 * breath;
-    if (streakRef.current) streakRef.current.visible = streakAssets.mat.opacity > 0.01;
+    const streakMesh = streakRef.current;
+    if (streakMesh) {
+      streakMesh.visible = streakAssets.mat.opacity > 0.01;
+      // the view turned round a plant: the reflections lie toward it again (only by night, when they show)
+      if (streakMesh.visible && Math.abs(meadow.bearing - streaksLaid.current) > STREAK_RELAY) {
+        layStreaks(streakMesh, meadow.bearing);
+        streaksLaid.current = meadow.bearing;
+      }
+    }
     if (poolRef.current) poolRef.current.visible = streakAssets.poolMat.opacity > 0.01;
   });
 
@@ -742,7 +765,9 @@ export function River({ P, tier, still, shadows, clock = "env" }: { P: RiverPart
       <mesh name="river-bridges" geometry={bridges} material={stoneMat} castShadow={shadows} receiveShadow />
       <instancedMesh name="river-lamps" ref={lampRef} args={[lamps, lampMat, lampPoints.length]} castShadow={shadows} />
       <instancedMesh ref={poolRef} args={[streakAssets.poolGeo, streakAssets.poolMat, lampPoints.length]} renderOrder={4} visible={false} />
-      {streaks.length > 0 ? <instancedMesh ref={streakRef} args={[streakAssets.g, streakAssets.mat, streaks.length]} renderOrder={4} visible={false} /> : null}
+      {lampPoints.length > 0 ? (
+        <instancedMesh ref={streakRef} args={[streakAssets.g, streakAssets.mat, lampPoints.length]} renderOrder={4} visible={false} />
+      ) : null}
       <Stones stones={stones} tier={tier} shadows={shadows} />
       <Reeds P={P} tier={tier} />
       <Margins P={P} tier={tier} />

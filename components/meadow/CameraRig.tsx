@@ -16,7 +16,9 @@
 //   out turns into an overview of the whole Meadow rather than a long look along the ground; pulled right back, the
 //   view no longer follows the cart at all but frames the ring of beds round the rose, centred on the screen;
 // - a visit: once the cart has pulled up beside a plant whose card is open, the camera comes in on the plant and
-//   keeps it in the part of the screen the card leaves clear (meadow.view);
+//   keeps it in the part of the screen the card leaves clear (meadow.view); there, and only there, it leaves its
+//   fixed bearing: a drag turns it round the plant, all the way round if the visitor likes, and a little higher or
+//   lower (meadow.view's turn and tilt, the controller's), and as the visit ends it eases back to the bearing;
 // - the opening's push-in (lib/garden/opening), for a /meadow?plot=N link, which opens beside its plant rather than on
 //   the island: a few per cent farther back while the veil is up, easing in as the Meadow comes into focus behind it,
 //   and stopped where it is the moment someone drives or zooms.
@@ -110,7 +112,7 @@ const before = framing();
 const here = framing();
 
 /** What the framing reads besides the zoom and the target, written at the start of each frame. */
-const ctx = { aspect: 1, fov: FOV, shape: 1, portrait: 0, visiting: false, visit: 0, trail: 0, home: 0 };
+const ctx = { aspect: 1, fov: FOV, shape: 1, portrait: 0, visiting: false, visit: 0, trail: 0, home: 0, theta: THETA };
 
 const smooth = (e0: number, e1: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
@@ -122,7 +124,7 @@ const smooth = (e0: number, e1: number, x: number) => {
  * fireflies' journey, and the start beside the dais (ctx holds how far each is in this frame).
  */
 function compose(out: Framing, zoomIn: number): void {
-  const { aspect, fov, shape, portrait, visiting, visit, trail, home } = ctx;
+  const { aspect, fov, shape, portrait, visiting, visit, trail, home, theta } = ctx;
   const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoomIn));
   const overview = smooth(OVERVIEW_FROM, OVERVIEW_FULL, zoom);
   // from the overview's start to all the way back, the view leaves the cart for the ring of beds
@@ -146,12 +148,13 @@ function compose(out: Framing, zoomIn: number): void {
       const lift = (meadow.view.cover * d * halfV) / Math.sin(elev);
       // a card standing at the side: move the plant into the middle of the part left clear
       const side = meadow.view.coverSide * d * halfV * aspect;
-      // and look at the plant's middle, not the soil under it, so a tall flower is not pushed up the screen
-      spot.set(v.x + Math.sin(THETA) * lift + Math.cos(THETA) * side, v.y * 0.85, v.z + Math.cos(THETA) * lift - Math.sin(THETA) * side);
+      // and look at the plant's middle, not the soil under it, so a tall flower is not pushed up the screen (all of it
+      // from wherever the visitor has turned the view round to)
+      spot.set(v.x + Math.sin(theta) * lift + Math.cos(theta) * side, v.y * 0.85, v.z + Math.cos(theta) * lift - Math.sin(theta) * side);
       w.lerp(spot, visit);
     }
     distance = THREE.MathUtils.lerp(distance, Math.min(VISIT_DISTANCE * shape, distance), visit);
-    phi = THREE.MathUtils.lerp(phi, VISIT_PHI - PORTRAIT_PHI * portrait, visit);
+    phi = THREE.MathUtils.lerp(phi, VISIT_PHI - PORTRAIT_PHI * portrait + meadow.view.tilt, visit);
   }
   // while the fireflies lead the way, the view stands back a little so more of their trail shows
   if (trail > 0.001) distance = THREE.MathUtils.lerp(distance, Math.max(distance, JOURNEY_DISTANCE * shape), trail);
@@ -227,6 +230,13 @@ export function CameraRig() {
     // a visit eases in and out on its own slow clock
     const visiting = meadow.view.target !== null;
     r.visit += ((visiting ? 1 : 0) - r.visit) * (1 - Math.exp(-GENTLE * dt));
+    // the turn round a visited plant counts only as far as the visit does, so it eases away with it; once the visit is
+    // over the next one starts from the usual bearing
+    if (!visiting && r.visit < 0.002) {
+      meadow.view.turn = 0;
+      meadow.view.tilt = 0;
+    }
+    const theta = THETA + meadow.view.turn * r.visit;
     r.trail += ((meadow.journey ? 1 : 0) - r.trail) * (1 - Math.exp(-GENTLE * dt));
     // the start beside the dais holds until the cart sets off (held as it is until there is a cart, so the cart
     // arriving where the view already looks moves nothing: the opening's veil can lift moments after it appears)
@@ -241,6 +251,7 @@ export function CameraRig() {
     ctx.visit = r.visit;
     ctx.trail = r.trail;
     ctx.home = r.home;
+    ctx.theta = theta;
     compose(view, meadow.zoom);
     want.copy(view.want);
     let distance = view.distance;
@@ -312,7 +323,8 @@ export function CameraRig() {
       r.distance += (distance - r.distance) * k;
       r.phi += (phi - r.phi) * k;
     }
-    offset.setFromSphericalCoords(r.distance, r.phi, THETA);
+    offset.setFromSphericalCoords(r.distance, r.phi, theta);
+    meadow.bearing = theta;
     camera.position.copy(focus).add(offset);
     camera.lookAt(focus);
     // roughly how far the view reaches across the ground, for the shadow box
