@@ -1,1 +1,1 @@
-{"version":"0.0.1","configurations":[{"name":"garden","runtimeExecutable":"npm","runtimeArgs":["run","dev"],"port":3000}]}
+{"version":"0.0.1","configurations":[{"name":"garden","runtimeExecutable":"npm","runtimeArgs":["run","dev"],"port":3000},{"name":"garden-prod","runtimeExecutable":"node","runtimeArgs":["-e","process.env.VERCEL_ENV='preview';process.argv=[process.argv[0],'next','start','-p','3100'];require('next/dist/bin/next')"],"port":3100}]}

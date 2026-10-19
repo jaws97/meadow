@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Tailwind scans the project for class names. Local tooling (.claude: worktrees that are whole copies of the repo)
+   and the simulation's weather fixtures (megabytes of JSON) hold none, and scanning them slows every dev rebuild. */
+@source not "../.claude";
+@source not "../lib/sim/__fixtures__";
+
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
