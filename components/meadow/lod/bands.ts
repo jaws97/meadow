@@ -15,14 +15,36 @@
 //
 // The bake view is the Meadow camera's: it never turns (CameraRig's fixed bearing), so a picture of a plant taken
 // from that bearing at a typical elevation is how the camera sees it.
+//
+// A lotus is drawn as one of two kinds: in its brass urli on a bed plot (the "lotus" row), or standing in a river pocket
+// ("lotusRiver", the eighth row: the pond view's plant on its pocket-length stalks, no urli and no floating leaves, which
+// lie on the water as Plants.tsx's pads at every distance). A pocket's plant has no light plant or picture as a sprout
+// (a floating-leaf plant is all pads), and stands turned to whichever of the three angles is nearest to facing its open
+// channel (pocketSpin), so its light plant, its picture and its visit all stand the same way, its back to the wall.
 import * as THREE from "three";
+import type { Plot } from "@/components/meadow/layout";
 import type { MeadowPlot } from "@/lib/server/meadow";
 import type { SpeciesId } from "@/lib/plant/species";
 
 export type Band = "sprout" | "leafy" | "bud" | "bloom";
 export const BANDS: readonly Band[] = ["sprout", "leafy", "bud", "bloom"];
-/** The atlas rows, in order; a new species is appended last so the existing cells keep their places. */
+/** The species with detail levels, in the atlas's row order. */
 export const LOD_SPECIES: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"];
+/** What a detail plant is drawn as: a species (the lotus in its urli), or the lotus standing in a river pocket. */
+export type LodKind = SpeciesId | "lotusRiver";
+/** The atlas rows, in order; a new kind is appended last so the existing cells keep their places. */
+export const LOD_KINDS: readonly LodKind[] = [...LOD_SPECIES, "lotusRiver"];
+
+/** The kind a plant of `species` is drawn as (a lotus in a river pocket stands in the water, not in its urli). */
+export function lodKindOf(species: SpeciesId, pocket: boolean): LodKind {
+  return species === "lotus" && pocket ? "lotusRiver" : species;
+}
+
+/** The species whose flowers (and their glow) a kind draws. */
+export const speciesOfKind = (kind: LodKind): SpeciesId => (kind === "lotusRiver" ? "lotus" : kind);
+
+/** Whether a kind has a light plant and a picture in a band (a pocket's floating-leaf sprout has neither). */
+export const hasLight = (kind: LodKind, band: Band): boolean => !(kind === "lotusRiver" && band === "sprout");
 
 /**
  * Growth and bloom each band is posed at (growth is lib/sim's Visual.growth: a sprout spans about 0.05 to 0.32, a
@@ -55,9 +77,10 @@ export const LOD_SEEDS: Record<SpeciesId, string> = {
 /**
  * How far across a plant reaches at its widest, garden metres, where that is more than it stands tall: the lotus's
  * urli is wider than a sprouting lotus is high, so its levels are chosen by its width on screen (LodPlants.tsx), or its
- * picture would be stretched past its pixels before its light plant took over.
+ * picture would be stretched past its pixels before its light plant took over. A pocket's lotus spreads its three
+ * standing leaves wider than it stands tall too.
  */
-export const LOD_REACH: Partial<Record<SpeciesId, number>> = { lotus: 0.39 };
+export const LOD_REACH: Partial<Record<LodKind, number>> = { lotus: 0.39, lotusRiver: 0.85 };
 
 /** The three angles a detail plant is turned to, radians about its stem. */
 export const SPINS: readonly number[] = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3];
@@ -88,8 +111,33 @@ export function plotTurn(plot: number, a: number, inner: boolean, poorly: boolea
   return out.setFromUnitVectors(UP, plotTilt(plot, a, inner, poorly, undefined, upright)).multiply(spin);
 }
 
-/** Whether a species' plant stands level whatever its health (plotTilt's `upright`): the lotus in its urli. */
-export const standsUpright = (species: SpeciesId) => species === "lotus";
+/** Whether a plant stands level whatever its health (plotTilt's `upright`): the lotus, in its urli or in the river. */
+export const standsUpright = (kind: LodKind) => kind === "lotus" || kind === "lotusRiver";
+
+/** Which of SPINS is nearest to the yaw `yaw` (a pocket's channel-facing yaw): the angle its standing plant is turned to. */
+export function pocketSpin(yaw: number): number {
+  let best = 0;
+  let bestD = Infinity;
+  SPINS.forEach((s, i) => {
+    const d = Math.abs(Math.atan2(Math.sin(yaw - s), Math.cos(yaw - s)));
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  });
+  return best;
+}
+
+/** The angle (index into SPINS) a plot's plant stands at: a pocket's nearest to facing its channel, else plotSpin. */
+export function spinOfPlot(plot: Pick<Plot, "index" | "kind" | "yaw">): number {
+  return plot.kind === "pocket" && plot.yaw !== undefined ? pocketSpin(plot.yaw) : plotSpin(plot.index);
+}
+
+/** How a plot's plant stands (plotTurn); a pocket's level, turned to its own angle (spinOfPlot). */
+export function plotTurnOf(plot: Pick<Plot, "index" | "kind" | "yaw" | "a" | "side">, poorly: boolean, upright: boolean, out = new THREE.Quaternion()): THREE.Quaternion {
+  if (plot.kind === "pocket") return out.setFromAxisAngle(UP, SPINS[spinOfPlot(plot)]);
+  return plotTurn(plot.index, plot.a, plot.side === "inner", poorly, out, upright);
+}
 
 /** The Meadow camera's fixed bearing (CameraRig THETA) and the elevation the pictures are taken from, radians. */
 export const VIEW_THETA = 0.25 * Math.PI;
@@ -112,12 +160,12 @@ export function bandOf(p: Pick<MeadowPlot, "stage" | "bloom">): Band | null {
   }
 }
 
-/** Index of a species, band and angle in the atlas (and in the detail meshes' table). */
-export function cellIndex(species: SpeciesId, band: Band, spin: number): number {
-  return (LOD_SPECIES.indexOf(species) * BANDS.length + BANDS.indexOf(band)) * SPINS.length + spin;
+/** Index of a kind, band and angle in the atlas (and in the detail meshes' table). */
+export function cellIndex(kind: LodKind, band: Band, spin: number): number {
+  return (LOD_KINDS.indexOf(kind) * BANDS.length + BANDS.indexOf(band)) * SPINS.length + spin;
 }
 
-export const CELL_COUNT = LOD_SPECIES.length * BANDS.length * SPINS.length;
+export const CELL_COUNT = LOD_KINDS.length * BANDS.length * SPINS.length;
 
 /** A stable pseudo-random number in [0, 1) for plot i and channel k (as Plants.tsx scatters its plants). */
 export function plotHash(i: number, k: number): number {

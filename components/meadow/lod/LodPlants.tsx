@@ -22,7 +22,9 @@
 // Which plants are near is decided every frame the view moves by how tall each stands on screen (levels.ts), with
 // hysteresis in size and at the edges of the view and a cap per kind of device, and the swap is a short dissolve in
 // which the light plant and its picture share the pixels between them. Seeds and resting plants stay with Plants.tsx,
-// which also keeps drawing the growing plants its old cheap way until the atlas has arrived (or if it never does).
+// which also keeps drawing the growing plants its old cheap way until the atlas has arrived (or if it never does). A
+// lotus is drawn as its kind (bands.ts): in its urli on a bed plot, or standing in a river pocket, its foot on the water
+// (Plants.tsx lays its floating leaves on the water at every distance, and draws a floating-leaf sprout there alone).
 //
 // Every plant keeps its own angle (one of three), lean and tint from its plot (bands.ts plotTurn), and the full plant's
 // size, so it is the same plant at every level, standing exactly as its full plant does, from one visit to the next.
@@ -32,10 +34,27 @@ import { useFrame, useThree, type RootState } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { meadowData, useMeadowData, type MeadowPlot } from "@/components/meadow/data";
-import { BED, type MeadowLayout } from "@/components/meadow/layout";
+import { plotOf, type MeadowLayout } from "@/components/meadow/layout";
 import { ATLAS, CELLS, HEIGHTS } from "@/components/meadow/lod/atlasManifest";
 import { bakeLodPlant } from "@/components/meadow/lod/bake";
-import { bandOf, BANDS, cellIndex, LOD_REACH, LOD_SPECIES, plotHash, plotSpin, plotTilt, plotTurn, standsUpright, type Band } from "@/components/meadow/lod/bands";
+import {
+  bandOf,
+  BANDS,
+  cellIndex,
+  hasLight,
+  LOD_KINDS,
+  LOD_REACH,
+  LOD_SPECIES,
+  lodKindOf,
+  plotHash,
+  plotTilt,
+  plotTurnOf,
+  speciesOfKind,
+  spinOfPlot,
+  standsUpright,
+  type Band,
+  type LodKind,
+} from "@/components/meadow/lod/bands";
 import { handover } from "@/components/meadow/lod/handover";
 import { advanceFades, chooseNear, nearRange, screenHeight, type LevelOptions } from "@/components/meadow/lod/levels";
 import {
@@ -102,6 +121,8 @@ const easeOutBack = (t: number) => {
 
 interface Slot {
   plot: number;
+  /** what it is drawn as (a lotus in a river pocket is its own kind), and the species whose flower and glow it has */
+  kind: LodKind;
   species: SpeciesId;
   band: Band;
   combo: number;
@@ -112,7 +133,7 @@ interface Slot {
   scale: number;
   height: number;
   tint: [number, number, number, number];
-  /** sway phase (the plot number) and the row's angle */
+  /** sway phase (the plot number, or -1: standing still) and the row's angle */
   sway: [number, number];
   /** when it appeared (performance.now() ms) while it is still rising, else -1 */
   appeared: number;
@@ -155,21 +176,24 @@ interface LodState {
   buildMs: number;
 }
 
-/** One species in one band, as an index into the near meshes. */
-const comboOf = (species: SpeciesId, band: Band) => LOD_SPECIES.indexOf(species) * BANDS.length + BANDS.indexOf(band);
+/** One kind in one band, as an index into the near meshes. */
+const comboOf = (kind: LodKind, band: Band) => LOD_KINDS.indexOf(kind) * BANDS.length + BANDS.indexOf(band);
 
 /** Where and how one plant stands: the same numbers at both levels. */
 function placeSlot(p: MeadowPlot, band: Band, L: MeadowLayout, now: number): Slot | null {
-  const plot = L.plots[p.plot];
+  const plot = plotOf(L, p.plot);
   if (!plot) return null;
-  // leaning a touch toward the path (more for a poorly plant; a lotus's urli stands level) and turned to its angle,
-  // as its full plant stands
+  const kind = lodKindOf(p.species, plot.kind === "pocket");
+  // (a pocket's floating-leaf sprout is all pads, Plants.tsx's at every distance)
+  if (!hasLight(kind, band)) return null;
+  // leaning a touch toward the path (more for a poorly plant; a lotus stands level) and turned to its angle (a pocket's
+  // lotus to the one nearest to facing its channel), as its full plant stands
   const inner = plot.side === "inner";
   const poorly = p.health === "poorly";
-  const upright = standsUpright(p.species);
+  const upright = standsUpright(kind);
   const tilt = plotTilt(p.plot, plot.a, inner, poorly, undefined, upright);
-  const spin = plotSpin(p.plot);
-  const quat = plotTurn(p.plot, plot.a, inner, poorly, undefined, upright);
+  const spin = spinOfPlot(plot);
+  const quat = plotTurnOf(plot, poorly, upright);
   // the full plant's size (VisitedPlant.tsx), so the visit's handover never grows or shrinks it
   const scale = PLANT_SCALE;
   const jitter = 0.96 + 0.08 * plotHash(p.plot, 9);
@@ -177,18 +201,20 @@ function placeSlot(p: MeadowPlot, band: Band, L: MeadowLayout, now: number): Slo
   const appeared = meadowData.get().appeared.get(p.plot);
   return {
     plot: p.plot,
+    kind,
     species: p.species,
     band,
-    combo: comboOf(p.species, band),
+    combo: comboOf(kind, band),
     spin,
-    foot: new THREE.Vector3(plot.x, BED.soilH, plot.z),
+    foot: new THREE.Vector3(plot.x, plot.y, plot.z),
     tilt,
     quat,
     scale,
-    // (a lotus is chosen by its urli's width where that is more than its height: bands.ts LOD_REACH)
-    height: Math.max(HEIGHTS[p.species][band], LOD_REACH[p.species] ?? 0) * scale,
+    // (a lotus is chosen by its width where that is more than its height: bands.ts LOD_REACH)
+    height: Math.max(HEIGHTS[kind][band], LOD_REACH[kind] ?? 0) * scale,
     tint: [t[0] * jitter, t[1] * jitter, t[2] * jitter, t[3]],
-    sway: [p.plot, plot.a],
+    // (a pocket's lotus stands still, as its full plant does: VisitedPlant.tsx)
+    sway: [plot.kind === "pocket" ? -1 : p.plot, plot.a],
     appeared: appeared !== undefined && now - appeared < RISE_MS ? appeared : -1,
   };
 }
@@ -212,7 +238,7 @@ function writeFar(slots: Slot[], a: FarAttributes, now: number): void {
   const uv = a.uv.array as Float32Array, tint = a.tint.array as Float32Array, misc = a.misc.array as Float32Array;
   const glow = a.glow.array as Float32Array;
   slots.forEach((slot, i) => {
-    const c = CELLS[cellIndex(slot.species, slot.band, slot.spin)];
+    const c = CELLS[cellIndex(slot.kind, slot.band, slot.spin)];
     base.set([slot.foot.x, slot.foot.y, slot.foot.z], i * 3);
     tilt.set([slot.tilt.x, slot.tilt.y, slot.tilt.z], i * 3);
     uv.set([c[0], c[1], c[2], c[3]], i * 4);
@@ -484,14 +510,15 @@ export function LodPlants({ layout: L, shadows }: { layout: MeadowLayout; shadow
     [group, nearMats, depthMat, farDepth, far],
   );
 
-  /** Builds one species-and-band light plant as an instanced mesh, compiled before it joins the scene. */
+  /** Builds one kind-and-band light plant as an instanced mesh, compiled before it joins the scene. */
   const build = (combo: number) => {
     const s = state.current;
     if (s.meshes.has(combo)) return;
-    const species = LOD_SPECIES[Math.floor(combo / BANDS.length)];
+    const kind = LOD_KINDS[Math.floor(combo / BANDS.length)];
+    const species = speciesOfKind(kind);
     const band = BANDS[combo % BANDS.length];
     const t0 = performance.now();
-    const plant = bakeLodPlant(species, band);
+    const plant = bakeLodPlant(kind, band);
     s.buildMs = performance.now() - t0;
     const n = opts.maxNear;
     const fade = new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2);

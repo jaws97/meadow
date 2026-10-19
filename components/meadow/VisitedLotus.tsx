@@ -6,6 +6,12 @@
 // a flower. This mounts it hidden, dresses every part in its dissolving twin (flowerPlant.ts, so it shares its pixels
 // with its light plant or picture through the handover), compiles it, and only then shows it and says it is ready.
 //
+// A lotus in a river pocket is drawn without its urli: the pond view's plant standing in the pocket on its
+// pocket-length stalks (live/pocketLook.ts), its frame's water line on the river's surface (VisitedPlant stands it
+// there), its floating leaves the very ones the Meadow's pads lay on the pocket (Plants.tsx), which it dissolves in over.
+// The river is always full and clear, so its look is the friend's numbers with no low water and no algae: their own
+// pond's level and green water belong to their personal pond.
+//
 // The lotus's parts animate themselves in their own frame loops, writing the garden's shared materials (the flower's
 // warmth, the water's clarity) and reading the garden's environment (lib/garden/env: the hour, the sky, the wind),
 // which nothing in the Meadow otherwise keeps. So while a lotus is visited, the environment is set from the Meadow's
@@ -17,6 +23,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { Tier } from "@/components/lotus/geometry";
+import { pocketLookFromVisual } from "@/components/lotus/live/pocketLook";
 import { urliLookFromVisual, type MeadowBand } from "@/components/lotus/live/urliLook";
 import { LOTUS_FOOT } from "@/components/lotus/lod";
 import { LotusPlant } from "@/components/lotus/LotusPlant";
@@ -106,12 +113,21 @@ function follow(pair: Pair): void {
 
 const pondOf = (f: FriendGarden): PondVisual | null => ((f.visual as Partial<PondVisual>).medium === "pond" ? (f.visual as PondVisual) : null);
 
-export function VisitedLotus({ friend, tier, onReady }: { friend: FriendGarden; tier: Tier; onReady: () => void }) {
+/**
+ * Draws the visited lotus: in its urli, or (`pocket`) standing in a river pocket, its frame turned `pocket.turn` from the
+ * pocket's own (its floating leaves are laid out in the pocket's frame).
+ */
+export function VisitedLotus({ friend, tier, pocket, onReady }: { friend: FriendGarden; tier: Tier; pocket: { turn: number } | null; onReady: () => void }) {
   const gl = useThree((s) => s.gl);
   const camera = useThree((s) => s.camera);
   const scene = useThree((s) => s.scene);
   // the look at the hour the visit began (it is not rebuilt as the hours pass during one visit)
-  const look = useMemo(() => urliLookFromVisual(pondOf(friend), friend.stage as MeadowBand, meadow.hour, friend.seed), [friend]);
+  const turn = pocket ? pocket.turn : null;
+  const look = useMemo(() => {
+    const v = pondOf(friend);
+    const band = friend.stage as MeadowBand;
+    return turn === null ? urliLookFromVisual(v, band, meadow.hour, friend.seed) : pocketLookFromVisual(v, band, meadow.hour, friend.seed, { index: friend.plot, turn });
+  }, [friend, turn]);
   const group = useRef<THREE.Group>(null);
   const dressing = useRef<Dressing>({ bySrc: new Map(), twins: new Set() });
   const ready = useRef(onReady);
@@ -152,8 +168,8 @@ export function VisitedLotus({ friend, tier, onReady }: { friend: FriendGarden; 
   });
 
   return (
-    <group ref={group} visible={shown} position-y={LOTUS_FOOT}>
-      <Urli vessel="a" tier={tier} look={look} />
+    <group ref={group} visible={shown} position-y={pocket ? 0 : LOTUS_FOOT}>
+      {pocket ? null : <Urli vessel="a" tier={tier} look={look} />}
       <LotusPlant look={look} tier={tier} colour="pink" rain={false} glowLight={false} />
     </group>
   );

@@ -14,10 +14,14 @@
 // - gentle foam: a thin cushion round each stone and bridge pier, broken wake lines trailing downstream, and a faint
 //   line along the upstream side of each pocket's sill, all drifting with the current; a thin bright waterline and a
 //   soft dark band along each wall.
-// The pockets are found analytically (they sit at a fixed pitch either side of each cardinal direction, plan.ts), so
-// the shader needs only a handful of numbers, plus the stones and piers as up to MAX_OBSTACLES segments.
+// The pockets are found analytically (they sit at a fixed pitch either side of each cardinal direction, river.ts and
+// lib/server/plots.ts: so many a quarter on each bank), so the shader needs only a handful of numbers, plus the stones
+// and piers as up to MAX_OBSTACLES segments. Every measure is the Meadow's own (components/meadow/river.ts), which the
+// preview shares.
 import * as THREE from "three";
-import { FLOW, POCKET, RIVER, riverPlan } from "@/components/lotus/river/plan";
+import { FLOW, POCKET, RIVER, riverBand } from "@/components/meadow/river";
+
+const BAND = riverBand();
 
 export const MAX_OBSTACLES = 96;
 /** The ring's texture radius: the ring's length there (2 pi R0) is a whole number of both ripple tiles (11.2 m), so no seam. */
@@ -52,9 +56,11 @@ uniform vec4 uObs[${MAX_OBSTACLES}];
 uniform float uObsR[${MAX_OBSTACLES}];
 uniform int uObsCount;
 uniform float uRipple;
-const float W_IN = ${riverPlan().river.wIn.toFixed(4)};
-const float W_OUT = ${riverPlan().river.wOut.toFixed(4)};
-const float W_MID = ${riverPlan().river.mid.toFixed(4)};
+const float W_IN = ${BAND.wIn.toFixed(4)};
+const float W_OUT = ${BAND.wOut.toFixed(4)};
+const float W_MID = ${BAND.mid.toFixed(4)};
+const float P_IN_N = ${POCKET.perArc.in.toFixed(1)};
+const float P_OUT_N = ${POCKET.perArc.out.toFixed(1)};
 const float LEDGE = ${RIVER.ledge.toFixed(3)};
 const float P_LEN = ${POCKET.len.toFixed(3)};
 const float P_OUT = ${POCKET.out.toFixed(3)};
@@ -70,7 +76,7 @@ vec3 riverPocket(float r, float a) {
   bool inner = r < W_MID;
   float face = inner ? W_IN : W_OUT;
   float dir = inner ? 1.0 : -1.0;
-  float n = inner ? 6.0 : 8.0;
+  float n = inner ? P_IN_N : P_OUT_N;
   float rl = face + dir * P_LOTUS;
   float c = floor(a / HALF_PI + 0.5) * HALF_PI;
   float d = (a - c) * rl;
@@ -109,8 +115,14 @@ vec2 uvB = vec2(rS - FLOW_SLOW * rT + 0.35 * rR, rR * 1.07) / 0.7;
 // in a pocket the ripples stand still, in world space
 vec2 uvP = rW.xz / 1.1 + vec2(0.37, 0.11);
 vec3 nA = texture2D(uNormalMap, uvA).xyz * 2.0 - 1.0;
+#ifdef RIVER_LITE
+// (a phone: the finer layer is a pixel or two at its size)
+vec3 nB = nA;
+vec3 nP = texture2D(uNormalMap, uvP).xyz * 2.0 - 1.0;
+#else
 vec3 nB = texture2D(uNormalMap, uvB).xyz * 2.0 - 1.0;
 vec3 nP = texture2D(uNormalMap, uvP).xyz * 2.0 - 1.0;
+#endif
 float rDist = length(cameraPosition - rW);
 float rFar = smoothstep(14.0, 70.0, rDist);
 // tangent space: x along the flow, y across it (the map is laid on (along, radius))
@@ -188,7 +200,11 @@ const COLOUR = /* glsl */ `#include <color_fragment>
   foam += exp(-pow((pk.x - 0.12) / 0.022, 2.0)) * (0.1 + 0.6 * upEnd) * 0.3 * step(0.0, pk.y);
   // broken into drifting streaks
   float n1 = riverNoise(vec2(drift * 3.1, r * 9.0));
+#ifdef RIVER_LITE
+  float n2 = 0.5;
+#else
   float n2 = riverNoise(vec2(drift * 7.3 + 11.0, r * 21.0 + 3.0));
+#endif
   foam *= smoothstep(0.42, 0.85, n1 * 0.65 + n2 * 0.45);
   foam = clamp(foam, 0.0, 0.42);
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.78, 0.82, 0.79), foam);
@@ -207,9 +223,17 @@ const REFLECT = /* glsl */ `
   // the hedge and the trees beyond it, low round the horizon: a dark green band
   vec3 trees = vec3(0.06, 0.09, 0.05) * (0.3 + 0.7 * (uSkyHorizon.r + uSkyHorizon.g) * 0.5);
   sky = mix(trees, sky, smoothstep(0.12, 0.34, h));
+  // by night the open sky is lit by the moon and the town's glow, and a dark canal shows a deep blue sheen of it (the
+  // paving round it reads moonlit), against which the lamps' streaks stand out (a little more of it on lite, whose
+  // phone screens and plainer light left the channel near black)
+#ifdef RIVER_LITE
+  sky += vec3(0.035, 0.05, 0.11) * 1.6 * uNight * smoothstep(0.12, 0.5, h);
+#else
+  sky += vec3(0.035, 0.05, 0.11) * uNight * smoothstep(0.12, 0.5, h);
+#endif
   float cosT = clamp(dot(nW, V), 0.0, 1.0);
   float F = 0.02 + 0.98 * pow(1.0 - cosT, 5.0);
-  F = clamp(F * 1.5, 0.0, 0.6) * (1.0 - vRiverFoam);
+  F = clamp(F * (1.5 + 2.5 * uNight), 0.0, 0.6) * (1.0 - vRiverFoam);
   // the sky's light scattered back from inside the water, its blue spent on the way and the rest greened by what the
   // water carries (a canal is not a pool)
   vec3 skyLight = mix(uSkyHorizon, uSkyZenith, 0.45);
@@ -280,10 +304,14 @@ export function rippleNormalMap(): THREE.DataTexture {
   return t;
 }
 
-/** The river's surface material (one per tier: the lite tier's glint is a little broader). */
+/**
+ * The river's surface material (one per tier: the lite tier's glint is a little broader, and it reads one ripple layer
+ * and one octave of the foam's breaking where the others read two).
+ */
 export function riverWaterMaterial(lite: boolean): THREE.MeshStandardMaterial {
   waterUniforms.uNormalMap.value = rippleNormalMap();
   const m = new THREE.MeshStandardMaterial({ color: "#2b4f4c", roughness: lite ? 0.18 : 0.12, metalness: 0, envMapIntensity: 0 });
+  if (lite) m.defines = { RIVER_LITE: "" };
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, waterUniforms);
     shader.vertexShader = shader.vertexShader
@@ -295,6 +323,6 @@ export function riverWaterMaterial(lite: boolean): THREE.MeshStandardMaterial {
       .replace("#include <normal_fragment_maps>", NORMAL)
       .replace("#include <opaque_fragment>", REFLECT);
   };
-  m.customProgramCacheKey = () => "lotus-river-water-3" + (lite ? "-lite" : "");
+  m.customProgramCacheKey = () => "lotus-river-water-4" + (lite ? "-lite" : "");
   return m;
 }

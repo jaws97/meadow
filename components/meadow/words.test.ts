@@ -61,6 +61,23 @@ describe("moodLine for a lotus", () => {
     }
   });
 
+  it("says its pond and its koi are at home when it is seen in the Meadow, where the river has no koi", () => {
+    const base = lotusAt("leafy");
+    expect(moodLine(lotusAt("leafy", "poorly"), NOON, true)).toBe("At home, its pond has dropped below its pot. A top-up or two would help.");
+    for (const says of POND_LINES) {
+      const v = { ...(base.visual as PondVisual), says };
+      const home = moodLine({ ...base, visual: v }, NOON);
+      const away = moodLine({ ...base, visual: v }, NOON, true);
+      expect(away, says).toMatch(/^[A-Z].*\.$/);
+      expect(away, says).not.toMatch(/\b(my|me|I)\b/);
+      // every word of the pond's level, its green or its koi is said of home
+      if (/\b(koi|pond)\b/i.test(away)) expect(away, says).toMatch(/\bat home\b/i);
+      if (!/\b(koi|pond)\b/i.test(home)) expect(away, says).toBe(home);
+    }
+    const standing = { ...(base.visual as PondVisual), says: "another bud is on its way" as const, aerialLeaves: 2 };
+    expect(moodLine({ ...base, visual: { ...standing, says: "zzz" as never } }, NOON, true)).toBe("Standing leaves over the water, growing well.");
+  });
+
   it("leaves a soil flower's line as it was", () => {
     const opts = { count: 720 };
     const p = syntheticSnapshot(opts, 0).plots.find((q) => q.species === "rose" && q.stage === "leafy" && q.health === "poorly")!;

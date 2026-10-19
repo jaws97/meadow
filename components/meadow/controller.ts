@@ -13,7 +13,7 @@ import { Autopilot, ROSE, type VisitTarget } from "@/components/meadow/autopilot
 import { ZOOM_MAX, ZOOM_MIN } from "@/components/meadow/CameraRig";
 import { meadowData } from "@/components/meadow/data";
 import { MeadowInput } from "@/components/meadow/input";
-import { DAIS, meadowLayout, nearestPathNode, tangentYaw } from "@/components/meadow/layout";
+import { DAIS, inWater, meadowLayout, nearestPathNode, tangentYaw } from "@/components/meadow/layout";
 import { setWheel, setWish, type Mover } from "@/components/meadow/mover";
 import { plantCentre, plotTarget, roseTarget, ROSE_HEAD_Y } from "@/components/meadow/plantLook";
 import { meadow } from "@/components/meadow/runtime";
@@ -78,7 +78,8 @@ export class MeadowController {
     if (input.respawnPressed || meadow.requests.respawn || meadow.requests.unstuck) this.beginFade(null);
     meadow.requests.respawn = false;
     meadow.requests.unstuck = false;
-    if (m.state.position.y < FALL_Y) this.beginFade(null);
+    // off the world, or (should anything ever find a way past the copings) in the river: back to the nearest path
+    if (m.state.position.y < FALL_Y || inWater(m.state.position.x, m.state.position.z)) this.beginFade(null);
     this.answerRequests(m);
 
     if (this.fadePhase !== "idle") {

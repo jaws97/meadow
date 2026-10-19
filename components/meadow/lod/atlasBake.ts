@@ -1,7 +1,7 @@
-// The far detail level's pictures: every light plant (bake.ts), in every band and at each of its three angles, drawn
-// the way the Meadow camera sees it (raster.ts) and packed into one atlas of cells, with a matching atlas of normals
-// and night glow so the pictures are lit by the Meadow's own sun and sky, hour by hour, exactly as the light plants
-// are. Run by scripts/bake-meadow-plants.mjs, which encodes the two atlases as WebP into public/meadow/ and
+// The far detail level's pictures: every light plant (bake.ts: each species, and the lotus standing in a river pocket),
+// in every band it has and at each of its three angles, drawn the way the Meadow camera sees it (raster.ts) and packed
+// into one atlas of cells, with a matching atlas of normals and night glow so the pictures are lit by the Meadow's own
+// sun and sky, hour by hour, exactly as the light plants are. Run by scripts/bake-meadow-plants.mjs, which encodes the two atlases as WebP into public/meadow/ and
 // writes their measurements to atlasManifest.ts.
 //
 // Each cell holds its plant fitted to the cell with a few pixels of margin (so mipmaps of one plant do not bleed into
@@ -14,9 +14,8 @@
 // in blue. Browsers that keep decoded images premultiplied (Safari) would wipe colour wherever alpha is zero, and the
 // colour atlas is drawn premultiplied for the same reason (its margins then never filter in black).
 import { bakeLodPlant } from "@/components/meadow/lod/bake";
-import { BAKE_ELEVATION, BANDS, cellIndex, CELL_COUNT, LOD_SPECIES, SPINS, VIEW_THETA, type Band } from "@/components/meadow/lod/bands";
+import { BAKE_ELEVATION, BANDS, cellIndex, CELL_COUNT, hasLight, LOD_KINDS, SPINS, VIEW_THETA, type Band, type LodKind } from "@/components/meadow/lod/bands";
 import { dilate, project, rasterize, viewFor } from "@/components/meadow/lod/raster";
-import type { SpeciesId } from "@/lib/plant/species";
 
 export const CELL_W = 96;
 export const CELL_H = 128;
@@ -52,9 +51,9 @@ export interface Atlas {
   /** rgb: the view-space normal's x and y * 0.5 + 0.5, and the glow; rows top-down */
   normal: Uint8Array;
   cells: CellLayout[];
-  /** plant heights (garden metres) per species and band */
-  heights: Record<SpeciesId, Record<Band, number>>;
-  triangles: Record<SpeciesId, Record<Band, number>>;
+  /** plant heights (garden metres) per kind and band (0 where a kind has no light plant: bands.ts hasLight) */
+  heights: Record<LodKind, Record<Band, number>>;
+  triangles: Record<LodKind, Record<Band, number>>;
 }
 
 const toSrgb8 = (linear: number) => {
@@ -75,18 +74,23 @@ export function bakeAtlas(): Atlas {
     normal[i * 3] = 128;
     normal[i * 3 + 1] = 128;
   }
-  const cells: CellLayout[] = new Array(CELL_COUNT);
-  const heights = {} as Record<SpeciesId, Record<Band, number>>;
-  const triangles = {} as Record<SpeciesId, Record<Band, number>>;
+  // a kind with no light plant in a band keeps its cell empty (never drawn: bands.ts hasLight)
+  const empty: CellLayout = { u0: 0, v0: 0, du: 0, dv: 0, width: 0, height: 0, footU: 0, footV: 0, bendV: 0 };
+  const cells: CellLayout[] = Array.from({ length: CELL_COUNT }, () => empty);
+  const heights = {} as Record<LodKind, Record<Band, number>>;
+  const triangles = {} as Record<LodKind, Record<Band, number>>;
   const view = viewFor(VIEW_THETA, BAKE_ELEVATION);
 
-  for (const species of LOD_SPECIES) {
-    heights[species] = {} as Record<Band, number>;
-    triangles[species] = {} as Record<Band, number>;
+  for (const kind of LOD_KINDS) {
+    heights[kind] = {} as Record<Band, number>;
+    triangles[kind] = {} as Record<Band, number>;
     for (const band of BANDS) {
-      const plant = bakeLodPlant(species, band);
-      heights[species][band] = Math.round(plant.height * 1000) / 1000;
-      triangles[species][band] = plant.triangles;
+      heights[kind][band] = 0;
+      triangles[kind][band] = 0;
+      if (!hasLight(kind, band)) continue;
+      const plant = bakeLodPlant(kind, band);
+      heights[kind][band] = Math.round(plant.height * 1000) / 1000;
+      triangles[kind][band] = plant.triangles;
       SPINS.forEach((spin, s) => {
         const pr = project(plant.geometry, spin, view);
         const spanX = pr.max[0] - pr.min[0], spanY = pr.max[1] - pr.min[1];
@@ -111,7 +115,7 @@ export function bakeAtlas(): Atlas {
         x1 = Math.min(CELL_W, x1 + CARD_PAD);
         y1 = Math.min(CELL_H, y1 + CARD_PAD);
         dilate(cell, 5, 2);
-        const i = cellIndex(species, band, s);
+        const i = cellIndex(kind, band, s);
         const cx = (i % COLUMNS) * CELL_W, cy = Math.floor(i / COLUMNS) * CELL_H;
         for (let y = 0; y < CELL_H; y++) {
           // cell rows run bottom-up; the image's run top-down

@@ -11,7 +11,8 @@
 // The sun's shadow box rides along with the camera's focus and grows with the view (so shadows stay crisp near the
 // cart and still reach across the overview), snapped to whole texels so its edges never shimmer as it follows. The
 // key light never comes in lower than twelve degrees, and by night the moon takes over the shadows, faint and cool.
-// A small environment map, rendered once, gives the full plants' petals and leaves something soft to reflect.
+// A small environment map, rendered once, gives the full plants' petals and leaves something soft to reflect. The
+// river's water reflects this sky too: its shader is handed the sky's colours and the sun (water.ts waterUniforms).
 //
 // The cart's guardian light (the jar of fireflies) is mounted here too, from the first frame, and follows whichever
 // trolley is live (GuardianLight in FireflyTrolley.tsx): the cart arriving once the physics has loaded, or the glider
@@ -24,9 +25,12 @@ import * as THREE from "three";
 import { GuardianLight, meadowLite } from "@/components/meadow/FireflyTrolley";
 import { meadowLayout } from "@/components/meadow/layout";
 import { meadow } from "@/components/meadow/runtime";
+import { waterUniforms } from "@/components/lotus/river/water";
 import { istDateAt, istNow, skyState, sunInfo } from "@/lib/sky/sun";
 
 const SUN_DISTANCE = 60;
+/** How far past the hedge the trees' crowns reach (layout.ts buildTrees: trunks up to 11.1 m out, crowns 3 m round). */
+const TREES_REACH = 15;
 const MIN_SUN_Y = Math.sin(THREE.MathUtils.degToRad(12));
 const MOON = new THREE.Color("#9db3ff");
 /** The light's numbers are the garden's sky keys, scaled for an open meadow under the same sky. */
@@ -147,6 +151,12 @@ export function MeadowEnvironment({ shadowSize }: { shadowSize: number }) {
       uniforms.uSun.value.copy(info.dir);
       uniforms.uSunDisc.value = sky.sunDisc;
       uniforms.uStars.value = sky.stars;
+      // the river's water mirrors the same sky and sun
+      waterUniforms.uSkyZenith.value.copy(sky.zenith);
+      waterUniforms.uSkyHorizon.value.copy(sky.horizon);
+      waterUniforms.uSkyGlow.value.copy(sky.glow);
+      waterUniforms.uSunDir.value.copy(info.dir);
+      waterUniforms.uNight.value = sky.nightness;
       meadow.night = sky.nightness;
       meadow.hour = c.hour;
       fog.color.copy(sky.fog);
@@ -183,7 +193,11 @@ export function MeadowEnvironment({ shadowSize }: { shadowSize: number }) {
     }
     const light = sun.current;
     if (!light) return;
-    const half = Math.min(42, Math.max(12, meadow.viewReach));
+    // the box reaches as far as the view does, and pulled right back, everything that casts a shadow (the trees beyond
+    // the hedge, crowns and all, from wherever the view is centred), within the light's own depth
+    const f = meadow.focus;
+    const casters = Math.min(SUN_DISTANCE - 2, meadowLayout().hedgeR + TREES_REACH + Math.hypot(f.x, f.z));
+    const half = Math.min(casters, Math.max(12, meadow.viewReach));
     const cam = light.shadow.camera;
     if (Math.abs(cam.right - half) > 0.5) {
       cam.left = -half;

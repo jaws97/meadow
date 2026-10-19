@@ -162,12 +162,16 @@ class Glider implements Mover {
     }
 
     const before = { x: this.ground.x, z: this.ground.z };
+    const was = Math.hypot(v.x, v.z);
     this.ground.x += v.x * dt;
     this.ground.z += v.z * dt;
     if (pushOut(this.ground, RADIUS)) {
-      // Keep only the velocity the walls allowed, so it slides instead of sticking.
+      // Keep only the velocity the walls allowed, so it slides instead of sticking (and never more than it had: a body
+      // set down where it cannot be, say over the river, is lifted out onto the bank, not thrown across the Meadow).
       v.x = (this.ground.x - before.x) / dt;
       v.z = (this.ground.z - before.z) / dt;
+      const now = Math.hypot(v.x, v.z);
+      if (now > was) v.multiplyScalar(was / now);
     }
 
     // Face where it is going (a wish), or where it was steered (keys).

@@ -12,16 +12,18 @@
 // seed of light in its mound (the instanced one says it best), so a plant is drawn in full from the sprout on. Only
 // one plant is ever drawn this way, and it is released once it has handed back.
 //
-// A lotus is drawn in full by VisitedLotus.tsx (its urli and its plant, from the friend's own pond numbers), which
-// mounts it hidden and compiles it; it begins to dissolve in once that is done, and stands level on its plot (its
-// urli holds water), turned to its plot's angle, as its detail levels stand.
+// A lotus is drawn in full by VisitedLotus.tsx (its urli and its plant, from the friend's own pond numbers; in a river
+// pocket its plant alone, standing on the river's water), which mounts it hidden and compiles it; it begins to dissolve
+// in once that is done, and stands level on its plot (its urli holds water), turned to its plot's angle, as its detail
+// levels stand (a pocket's: the angle nearest to facing its channel, lod/bands.ts spinOfPlot). In a pocket it dissolves
+// in over its light plant or picture and over the pocket's floating leaves (Plants.tsx), which are its own.
 import { useFrame, useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { loadFriend, meadowData, type FriendGarden } from "@/components/meadow/data";
 import { applyPlantEnv, buildFlowerPlant, dissolving, petalGlow, warmDissolve, type BuiltPlant } from "@/components/meadow/flowerPlant";
-import { BED, plotAt } from "@/components/meadow/layout";
-import { bandOf, plotTurn, standsUpright } from "@/components/meadow/lod/bands";
+import { plotAt } from "@/components/meadow/layout";
+import { bandOf, lodKindOf, plotTurnOf, SPINS, spinOfPlot, standsUpright } from "@/components/meadow/lod/bands";
 import { handover, HANDOVER_SECONDS } from "@/components/meadow/lod/handover";
 import { lodStatus } from "@/components/meadow/lod/LodPlants";
 import { FULL_PLANT_DISSOLVE } from "@/components/meadow/lod/materials";
@@ -187,6 +189,7 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
     // the dissolve: in while its card is open, out once it closes; a plant still drawn the old cheap way (or resting)
     // has no detail level to dissolve against, and takes over at once as it always has
     const entry = meadowData.get().byPlot.get(plot);
+    const at = plotAt(plot);
     const snap = !lodStatus.ready || !entry || bandOf(entry) === null;
     let share = handover.plot === plot ? handover.share : 0;
     if (process.env.NODE_ENV !== "production" && handover.pin !== null) share = handover.pin;
@@ -202,13 +205,15 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
     handover.plot = plot;
     handover.share = share;
     FULL_PLANT_DISSOLVE.uLodShare.value = share;
-    const at = plotAt(plot);
-    if (at) FULL_PLANT_DISSOLVE.uLodFoot.value.set(at.x, BED.soilH, at.z);
+    if (at) FULL_PLANT_DISSOLVE.uLodFoot.value.set(at.x, at.y, at.z);
 
-    // the breeze rocks it about its foot round the axis along its row, as its light plant rocks (lod/materials.ts)
+    // the breeze rocks it about its foot round the axis along its row, as its light plant rocks (lod/materials.ts); a
+    // pocket's lotus does not rock, nor its light plant: its floating leaves lie on the still river, a few millimetres
+    // over it, and would dip under the water and out again (its standing leaves and flower sway on their own stalks)
     const sway = swayRef.current;
     const t = state.clock.elapsedTime;
-    if (sway && at) sway.quaternion.setFromAxisAngle(swayAxis.set(-Math.sin(at.a), 0, Math.cos(at.a)), 0.02 * Math.sin(t * 0.9 + plot) + 0.008 * Math.sin(t * 2.1));
+    if (sway && at && at.kind === "pocket") sway.quaternion.identity();
+    else if (sway && at) sway.quaternion.setFromAxisAngle(swayAxis.set(-Math.sin(at.a), 0, Math.cos(at.a)), 0.02 * Math.sin(t * 0.9 + plot) + 0.008 * Math.sin(t * 2.1));
     // (a lotus lights and glows itself, VisitedLotus)
     if (!drawn.plant) return;
     applyPlantEnv(drawn.plant, meadow.plantEnv, meadow.plantEnvStrength);
@@ -221,16 +226,18 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
   if (!drawn) return null;
   const plot = plotAt(drawn.friend.plot);
   if (!plot) return null;
-  // (the lean of a healthy plant: a poorly one droops by its own numbers here; a lotus's urli stands level)
-  const turn = plotTurn(plot.index, plot.a, plot.side === "inner", false, undefined, standsUpright(drawn.friend.species));
+  // (the lean of a healthy plant: a poorly one droops by its own numbers here; a lotus stands level)
+  const turn = plotTurnOf(plot, false, standsUpright(lodKindOf(drawn.friend.species, plot.kind === "pocket")));
+  // a pocket's lotus: from its standing plant's angle to its pocket's frame, where its floating leaves are laid out
+  const pocket = plot.kind === "pocket" ? { turn: (plot.yaw ?? 0) - SPINS[spinOfPlot(plot)] } : null;
   return (
-    <group position={[plot.x, BED.soilH, plot.z]}>
+    <group position={[plot.x, plot.y, plot.z]}>
       <group ref={swayRef}>
         <group quaternion={turn} scale={PLANT_SCALE}>
           {drawn.plant ? (
             <primitive object={drawn.plant.group} />
           ) : (
-            <VisitedLotus key={drawn.id} friend={drawn.friend} tier={quality} onReady={() => onLotusReady(drawn)} />
+            <VisitedLotus key={drawn.id} friend={drawn.friend} tier={quality} pocket={pocket} onReady={() => onLotusReady(drawn)} />
           )}
         </group>
       </group>

@@ -4,14 +4,15 @@
 // people it created itself, recorded in a state file.
 //
 //   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs plant 60     plant 60 seeds (seven species in turn)
-//   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs arrange      move them to the inner rings, as the
-//                                                                               party would fill them, at mixed stages
+//   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs arrange      move them to the inner rings and the
+//                                                                               river, as the party fills them
 //   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs clear        delete every person this script made
 //   add --also "Tester (delete me)" to `clear` to remove one more rehearsal garden made by hand, by its exact name
 //   add --state <file> to keep the record somewhere other than the system temp folder
 //
-// "arrange" writes the rehearsal plants' rows directly: their plots (the lowest free plots, inner rings first, as
-// lib/server/plots.ts hands them out), their planting hour (backdated by their age) and a checkpoint at a chosen
+// "arrange" writes the rehearsal plants' rows directly: their plots (as lib/server/plots.ts hands them out to real
+// plantings: the lowest free plots, inner rings first, and for a lotus the river's next pocket, or once all are taken a
+// bed plot), their planting hour (backdated by their age) and a checkpoint at a chosen
 // stage (seed, sprout, leafy, bud or bloom; a few a little poorly), so the Meadow shows the fortnight's whole range.
 // The dev server never saves a catch-up, so these stay as written until they are cleared. Before 10 Nov only.
 //
@@ -21,7 +22,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "./db-connect.mjs";
-import { ensureTypeScript, importSim } from "./lib/load-sim.mjs";
+import { ensureTypeScript, importProject, importSim } from "./lib/load-sim.mjs";
 
 ensureTypeScript();
 
@@ -101,6 +102,7 @@ async function plant(count) {
 
 async function arrange() {
   const { createPlant, Bideal, SIM_SPECIES, POND, POND_TWIN, isPondState, modelVersionOf, hourIndexOf, GAME_START_MS } = await importSim();
+  const { assignPlot } = await importProject("lib/server/plots.ts");
   // the lotus's ideal twin, as pond.ts reads it (its Bideal is the soil model's formula on POND_TWIN)
   const pondB = (D) => {
     const tab = POND_TWIN.lotus.tab, x = Math.min(1, Math.max(0, D)) * 20, i = Math.min(19, Math.floor(x));
@@ -125,11 +127,11 @@ async function arrange() {
       const taken = new Set(others.map((r) => r.plot_index));
       // park them out of the way first, so moving into a plot one of them holds never collides
       for (let i = 0; i < mine.length; i++) await tx`update meadow.plants set plot_index = ${100000 + i} where id = ${mine[i].plant_id}`;
-      let next = 0;
       let k = 0;
       for (const m of mine) {
-        while (taken.has(next)) next++;
-        const plot = next++;
+        const plot = assignPlot(taken, { water: m.species === "lotus" });
+        if (plot === null) throw new Error("no free plot left to arrange into");
+        taken.add(plot);
         // which stage: walk the shares in order
         const t = (k + 0.5) / mine.length;
         let acc = 0;
@@ -177,7 +179,7 @@ async function arrange() {
         k++;
       }
     });
-    console.log(`arranged ${ids.length} rehearsal plants on the inner rings`);
+    console.log(`arranged ${ids.length} rehearsal plants on the inner rings (a lotus in the river)`);
   } finally {
     await sql.end();
   }

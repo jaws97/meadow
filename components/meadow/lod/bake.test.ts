@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { CELLS, HEIGHTS, TRIANGLES } from "@/components/meadow/lod/atlasManifest";
 import { bakeLodPlant } from "@/components/meadow/lod/bake";
 import * as THREE from "three";
-import { makeLotusPlot } from "@/components/lotus/lod";
-import { bandOf, BANDS, cellIndex, CELL_COUNT, LOD_REACH, LOD_SPECIES, plotTilt, plotTurn, SPINS, plotSpin } from "@/components/meadow/lod/bands";
+import { makeLotusPlot, pocketPadGeometry } from "@/components/lotus/lod";
+import { bandOf, BANDS, cellIndex, CELL_COUNT, hasLight, LOD_KINDS, LOD_REACH, LOD_SPECIES, plotTilt, plotTurn, pocketSpin, SPINS, plotSpin } from "@/components/meadow/lod/bands";
 
 describe("light plants", () => {
   for (const species of LOD_SPECIES) {
@@ -22,11 +22,15 @@ describe("light plants", () => {
   // The atlas in public/meadow/ is a picture of these very plants: if this fails, the plants' look changed and the
   // atlas is stale. Rebake it with `node scripts/bake-meadow-plants.mjs`.
   it("match the baked atlas", () => {
-    for (const species of LOD_SPECIES) {
+    for (const kind of LOD_KINDS) {
       for (const band of BANDS) {
-        const p = bakeLodPlant(species, band);
-        expect(p.triangles).toBe(TRIANGLES[species][band]);
-        expect(p.height).toBeCloseTo(HEIGHTS[species][band], 3);
+        if (!hasLight(kind, band)) {
+          expect(TRIANGLES[kind][band]).toBe(0);
+          continue;
+        }
+        const p = bakeLodPlant(kind, band);
+        expect(p.triangles).toBe(TRIANGLES[kind][band]);
+        expect(p.height).toBeCloseTo(HEIGHTS[kind][band], 3);
         p.geometry.dispose();
       }
     }
@@ -41,12 +45,55 @@ describe("bands", () => {
     expect(bandOf({ stage: "resting", bloom: 0 })).toBeNull();
   });
 
-  it("gives every species, band and angle its own atlas cell", () => {
+  it("gives every kind, band and angle its own atlas cell, the river's lotus appended last", () => {
     const seen = new Set<number>();
-    for (const species of LOD_SPECIES) for (const band of BANDS) SPINS.forEach((_, s) => seen.add(cellIndex(species, band, s)));
+    for (const kind of LOD_KINDS) for (const band of BANDS) SPINS.forEach((_, s) => seen.add(cellIndex(kind, band, s)));
     expect(seen.size).toBe(CELL_COUNT);
+    expect(CELL_COUNT).toBe(96);
     expect(CELLS.length).toBe(CELL_COUNT);
     expect(Math.max(...seen)).toBe(CELL_COUNT - 1);
+    // the seven species keep their cells (the first 84, as before the river)
+    for (const species of LOD_SPECIES) for (const band of BANDS) expect(cellIndex(species, band, 0)).toBeLessThan(84);
+    expect(cellIndex("lotusRiver", "sprout", 0)).toBe(84);
+    // a kind with no light plant in a band has an empty cell, never drawn
+    expect(CELLS[cellIndex("lotusRiver", "sprout", 1)].every((v) => v === 0)).toBe(true);
+  });
+});
+
+describe("the lotus in a river pocket", () => {
+  it("stands its light plant on the water, no urli and no floating leaves, within 700 triangles", () => {
+    expect(hasLight("lotusRiver", "sprout")).toBe(false);
+    expect(() => bakeLodPlant("lotusRiver", "sprout")).toThrow();
+    for (const band of ["leafy", "bud", "bloom"] as const) {
+      const p = bakeLodPlant("lotusRiver", band);
+      expect(p.triangles, band).toBeLessThanOrEqual(700);
+      expect(p.triangles, band).toBeGreaterThan(100);
+      const box = p.geometry.boundingBox!;
+      // nothing under the water (its stalks start at the surface) and nothing lying on it: the lowest leaf stands well up
+      expect(box.min.y, band).toBeGreaterThan(-0.01);
+      const pos = p.geometry.attributes.position as THREE.BufferAttribute;
+      const col = p.geometry.attributes.color as THREE.BufferAttribute;
+      const brass = new THREE.Color("#a9843f"), slate = new THREE.Color("#3a4b55");
+      for (let i = 0; i < pos.count; i++) {
+        const c = new THREE.Color(col.getX(i), col.getY(i), col.getZ(i));
+        expect(c.equals(brass) || c.equals(slate), band).toBe(false);
+      }
+      // a bud or a flower stands about 0.9 m over the water at the Meadow's scale (above the coping's 0.48)
+      if (band !== "leafy") expect(p.head.y * 1.3, band).toBeGreaterThan(0.85);
+      p.geometry.dispose();
+    }
+  });
+
+  it("turns its standing plant to the angle nearest to facing its channel, and draws its leaves on the water as one instanced leaf", () => {
+    expect(SPINS[pocketSpin(0.1)]).toBe(0);
+    expect(SPINS[pocketSpin(2.0)]).toBeCloseTo((2 * Math.PI) / 3, 9);
+    expect(SPINS[pocketSpin(-1.5)]).toBeCloseTo((4 * Math.PI) / 3, 9);
+    const pad = pocketPadGeometry();
+    pad.computeBoundingBox();
+    expect(pad.attributes.position.count / 3).toBeLessThanOrEqual(40);
+    expect(pad.boundingBox!.max.x).toBeCloseTo(1, 1);
+    expect(Math.abs(pad.boundingBox!.min.y)).toBeLessThan(0.02);
+    pad.dispose();
   });
 });
 

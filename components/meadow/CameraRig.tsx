@@ -9,7 +9,8 @@
 //   onto the cart over a few seconds (meadow.intro), framing the rose with it until the cart sets off (not behind the
 //   opening's quote moment, where the push-in below is the one move);
 // - pulling far back: past about twenty metres the focus drifts toward the dais and the view tilts down, so zooming
-//   out turns into an overview of the whole Meadow rather than a long look along the ground;
+//   out turns into an overview of the whole Meadow rather than a long look along the ground; pulled right back, the
+//   view no longer follows the cart at all but frames the ring of beds round the rose, centred on the screen;
 // - a visit: once the cart has pulled up beside a plant whose card is open, the camera comes in on the plant and
 //   keeps it in the part of the screen the card leaves clear (meadow.view);
 // - the opening's push-in (lib/garden/opening): a few per cent farther back while the veil is up, easing in as the
@@ -37,8 +38,12 @@ const VISIT_PHI = 0.23 * Math.PI;
 /** Fixed compass bearing of the camera around its focus. */
 const THETA = 0.25 * Math.PI;
 export const ZOOM_MIN = 7;
-/** Pulled all the way back, the whole Meadow fits the screen, hedge to hedge. */
-export const ZOOM_MAX = 78;
+/**
+ * Pulled all the way back, every bed fits a landscape screen (the party's 16:9 among them), the river's ring and the
+ * beds beyond it with a little room above the far ones' flowers; the hedge's nearest and farthest stretches fall just
+ * outside. (A tall screen keeps its narrow width: it shows the river's ring and the beds' near and far reaches.)
+ */
+export const ZOOM_MAX = 108;
 /** The zoom where the overview starts to take over, and where it is complete. */
 const OVERVIEW_FROM = 20;
 const OVERVIEW_FULL = 50;
@@ -67,8 +72,11 @@ const WIDE_GAIN = 0.1;
 const HOME_SHARE = 0.55;
 const HOME_DISTANCE = 24;
 const HOME_RADIUS = 1.2;
-/** The opening shot's height (its length is runtime's INTRO_SECONDS). */
-const INTRO_DISTANCE = 60;
+/** The opening shot's height (its length is runtime's INTRO_SECONDS): far enough back to hold the whole ring. */
+const INTRO_DISTANCE = 75;
+
+/** Which way the camera stands from its focus, along the ground. */
+const TOWARD_CAMERA = new THREE.Vector3(Math.sin(THETA), 0, Math.cos(THETA));
 
 const target = new THREE.Vector3();
 const ahead = new THREE.Vector3();
@@ -82,6 +90,18 @@ const smooth = (e0: number, e1: number, x: number) => {
 /** The vertical field of view that gives `horizontal` degrees across at this aspect. */
 const verticalFor = (horizontal: number, aspect: number) =>
   THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(horizontal / 2)) / aspect));
+
+/**
+ * How far toward the camera to set the focus, `distance` back and `phi` from straight up, so a ring of radius `r` round
+ * the rose sits centred on the screen: its nearest and farthest points as far below and above the middle (seen from
+ * above at a slant, the near half of a ring looms larger than the far half). Whatever the field of view.
+ */
+function ringFocus(distance: number, phi: number, r: number): number {
+  const h = distance * Math.cos(phi);
+  // where the view's two lines to the ring's near and far points make equal angles with its middle line
+  const a = (-h * Math.cos(2 * phi)) / Math.sin(2 * phi);
+  return a + Math.sqrt(a * a + r * r + h * h) - distance * Math.sin(phi);
+}
 
 export function CameraRig() {
   const rig = useRef({ distance: 13, phi: PHI, visit: 0, home: 1, trail: 0, zoom0: -1 });
@@ -112,14 +132,20 @@ export function CameraRig() {
     const shape = 1 + PORTRAIT_GAIN * portrait + WIDE_GAIN * wide;
     const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, meadow.zoom));
     const overview = smooth(OVERVIEW_FROM, OVERVIEW_FULL, zoom);
+    // from the overview's start to all the way back, the view leaves the cart for the ring of beds
+    const whole = smooth(OVERVIEW_FULL, ZOOM_MAX, zoom);
 
     // a visit eases in and out on its own slow clock
     const visiting = meadow.view.target !== null && meadow.intro <= 0;
     r.visit += ((visiting ? 1 : 0) - r.visit) * (1 - Math.exp(-GENTLE * dt));
     let distance = zoom * shape;
     let phi = THREE.MathUtils.lerp(PHI - PORTRAIT_PHI * portrait, OVERVIEW_PHI, overview);
-    // the overview drifts toward the dais
-    want.copy(target).multiplyScalar(1 - overview * 0.85);
+    // the overview drifts toward the dais, and pulled right back it frames the beds round the rose
+    want.copy(target).multiplyScalar((1 - overview * 0.85) * (1 - whole));
+    if (whole > 0) {
+      const L = meadowLayout();
+      want.addScaledVector(TOWARD_CAMERA, ringFocus(distance, phi, L.beds[L.beds.length - 1].outer) * whole);
+    }
     if (visiting || r.visit > 0.001) {
       const v = meadow.view.target;
       if (v) {

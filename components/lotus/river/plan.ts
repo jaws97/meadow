@@ -1,22 +1,37 @@
-// The Meadow's lazy river, Option A (the Rose Island moat), as plain numbers: a port of the design's own generator
-// (scratchpad lotus\v2\river\gen-a.mjs, the plan the owner chose) onto the Meadow's real constants
-// (components/meadow/layout.ts, lib/server/plots.ts), for the /lotus-concepts preview. Nothing here is the product's
-// plan: layout.ts and plots.ts are untouched, and this file only says where things would stand.
+// The Meadow's lazy river, Option A (the Rose Island moat), as the /lotus-concepts preview draws it: a port of the
+// design's own generator (scratchpad lotus\v2\river\gen-a.mjs, the plan the owner chose) onto the Meadow's real
+// constants. The river itself (its levels, band, bridges, copings, pockets and dressing) is the product's
+// (components/meadow/river.ts, from lib/server/plots.ts), shared here; this file adds the preview's own copy of the
+// grounds round it (beds, paths, avenues, plazas, hedge, trees and bed plots, as layout.ts builds them) and sows the
+// pockets in the design drawing's order (the banks interleaved 3 to 4), not the server's.
 //
-// From the rose outward: the dais, the inner path and bed 0 are unchanged and become the island. The ring path
-// beyond bed 0 becomes the inner towpath; then a granite coping, 4.5 m of slow water, a coping and the outer towpath;
-// beds 1 and 2 and everything beyond them move out 7.6 m. Four flat granite slab bridges cross on the diagonals (the
-// inner bed's avenues), their decks level with the paving, three slabs of 1.27 m on two piers, with 0.45 m parapets
-// flaring from 2.6 m between them over the water to a 4.0 m mouth over each coping, and a 2.2 m lamp post at every
-// parapet end. The cardinal avenues end at the outer towpath. 56 lotus pockets line the walls (6 a quarter on the
-// inner bank, 8 on the outer), each a still planting shelf 2.2 m along the wall and 1.1 m out, one every 2.7 m,
-// ringed by sill stones; reeds and stones dress the bridge mouths and the gaps between pockets. Levels are metres
-// from the paving (y = 0): coping top +0.08, water -0.40, pocket shelf -0.55, wall ledge -0.70, channel bed -1.60.
-// The water flows toward decreasing polar angle, left to right across the near reach as the party screen sees it.
+// From the rose outward: the dais, the inner path and bed 0 are the island. The inner towpath runs round it; then a
+// granite coping, 4.5 m of slow water, a coping and the outer towpath; beds 1 and 2 and everything beyond them lie past
+// the river (plots.ts PLOT_RINGS). Four flat granite slab bridges cross on the diagonals (the inner bed's avenues). The
+// cardinal avenues end at the outer towpath. 56 lotus pockets line the walls (6 a quarter on the inner bank, 8 on the
+// outer). river.ts has every measure.
 //
 // Angles as layout.ts: a point at polar angle a sits at (r cos a, 0, r sin a). Pure: no three, no DOM.
 import { AVENUE_HALF, BED, DAIS, HEDGE_SPEC, tangentYaw, yawOf, type Box2, type P2 } from "@/components/meadow/layout";
-import { AVENUE_GAP, PLOT_RINGS } from "@/lib/server/plots";
+import {
+  buildBridges,
+  buildCopings,
+  buildDressing,
+  polar,
+  riverBand,
+  riverPocket,
+  WATER_BASE,
+  wrapAngle,
+  type Bank,
+  type Bridge,
+  type Dressing,
+  type RiverBand,
+  type RiverPocket,
+} from "@/components/meadow/river";
+import { AVENUE_GAP, PLOT_RINGS, POCKETS_PER_QUARTER } from "@/lib/server/plots";
+
+export { BARRIER_H, BRIDGE, FLOW, LEVEL, POCKET, RIVER, WATER_BASE, flowDir, pocketOutline, pocketReach, polar, wrapAngle } from "@/components/meadow/river";
+export type { Bank, Bridge, Dressing } from "@/components/meadow/river";
 
 const TAU = Math.PI * 2;
 
@@ -24,49 +39,17 @@ const TAU = Math.PI * 2;
 const CHAMFER = 1.05;
 const PROMENADE = 2.6;
 const LAWN = 2.8;
-const PATH_W = 2.6;
 const PARK_OFF = 0.85;
 
 // ---- Option A ----------------------------------------------------------------------------------------------------------
-/** How far beds 1 and 2 (and everything beyond) move out to make room for the river and its towpaths. */
-export const SHIFT = 7.6;
-/** The six planned rings, the outer four moved out by SHIFT (counts unchanged). */
-export const RINGS: ReadonlyArray<{ radius: number; count: number }> = PLOT_RINGS.map((r, i) => ({ radius: i < 2 ? r.radius : Math.round((r.radius + SHIFT) * 100) / 100, count: r.count }));
-/** Heights from the paving (y = 0). */
-export const LEVEL = {
-  coping: 0.08,
-  /** the copings' underside, resting on the wall */
-  copingBase: -0.06,
-  water: -0.4,
-  shelf: -0.55,
-  ledge: -0.7,
-  bed: -1.6,
-  /** the sill stones' tops, 4 cm above the water */
-  sill: -0.36,
-  /** the bridge deck's top (level with the paving's top course) and its soffit */
-  deck: 0.028,
-  soffit: -0.22,
-  parapet: 0.45,
-  lamp: 2.2,
-} as const;
-export const RIVER = { coping: 0.25, water: 4.5, ledge: 0.5 } as const;
-export const POCKET = { len: 2.2, out: 1.1, pitch: 2.7, lotusOut: 0.55, perArc: { in: 6, out: 8 } } as const;
-/** The bridge in its own frame: u = radius along its diagonal, v = across it. */
-export const BRIDGE = { deckHalf: 1.3, mouthHalf: 2.0, parT: 0.3, flare: 1.15, pierT: 0.35, slabT: 0.25 } as const;
-/** The current: metres a second for the two ripple layers, toward decreasing polar angle. */
-export const FLOW = { fast: 0.1, slow: 0.06 } as const;
-/** The cart cannot cross a coping or a parapet: an unseen barrier this tall over each (as the kerbs'). */
-export const BARRIER_H = 1.4;
-/** Pocket plot indexes start here (the write-up's WATER_BASE). */
-export const WATER_BASE = 2000;
-/** Banks alternate in sowing: 3 inner to 4 outer, inner first. */
+/** The six planned rings (plots.ts: the outer four already stand beyond the river). */
+export const RINGS: ReadonlyArray<{ radius: number; count: number }> = PLOT_RINGS;
+/** The design drawing's sowing: the banks alternate 3 inner to 4 outer, inner first (the server sows the inner bank first). */
 const BANK_PATTERN: readonly Bank[] = ["in", "out", "in", "out", "in", "out", "out"];
 
 const INNER_AV: readonly number[] = [1, 3, 5, 7].map((k) => (k * Math.PI) / 4);
 const OUTER_AV: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => (k * Math.PI) / 4);
 const ARC_ORDER: Readonly<Record<number, readonly number[]>> = { 4: [0, 2, 1, 3], 8: [0, 4, 2, 6, 1, 5, 3, 7] };
-
-export type Bank = "in" | "out";
 
 export interface Ring2 {
   inner: number;
@@ -97,45 +80,8 @@ export interface Tree2 extends P2 {
   canopyR: number;
   canopyY: number;
 }
-export interface Pocket {
-  bank: Bank;
-  /** the wall face this pocket stands against, and which way is out from it (+1 outward in radius) */
-  face: number;
-  dir: 1 | -1;
-  /** the quarter (0 starts at the first diagonal) and its place along the bank */
-  arc: number;
-  place: number;
-  /** the lotus's place: polar angle and radius (0.55 m out from the wall), and in plan */
-  a: number;
-  r: number;
-  x: number;
-  z: number;
-  park: P2;
-  stake: P2 & { yaw: number };
-  /** sowing order (0 first) and plot index */
-  order: number;
-  index: number;
-}
-export interface Bridge {
-  a: number;
-  /** the deck's outline (parapets' outer lines), the parapets' footprints, closed, in plan */
-  deck: P2[];
-  parapets: P2[][];
-  /** the parapets' inner face line, u and v, one side (mirror v for the other) */
-  face: ReadonlyArray<readonly [number, number]>;
-  parBoxes: Box2[];
-  /** lamp posts at the parapet ends, in plan */
-  lamps: P2[];
-  /** pier centres along u, and the span between them */
-  piers: number[];
-  span: number;
-}
-export interface Dressing extends P2 {
-  kind: "reeds" | "stones";
-  /** which way is out from the wall (+1 outward in radius) */
-  dir: 1 | -1;
-  seed: number;
-}
+/** A pocket, numbered in the drawing's sowing order. */
+export type Pocket = RiverPocket;
 export interface BedPlot extends P2 {
   index: number;
   ring: number;
@@ -151,7 +97,9 @@ export interface RiverPlan {
   paths: PathRing2[];
   towIn: PathRing2;
   towOut: PathRing2;
-  river: { c0: number; wIn: number; wOut: number; c1: number; mid: number };
+  river: RiverBand;
+  /** the same band, under the name the Meadow's river parts give it (river.ts RiverParts) */
+  band: RiverBand;
   avenues: AvenueSeg[];
   sectors: Sector2[];
   kerbs: Box2[];
@@ -169,13 +117,6 @@ export interface RiverPlan {
 }
 
 // ---- helpers (layout.ts's, copied: it keeps them private) ---------------------------------------------------------------
-export const polar = (r: number, a: number): P2 => ({ x: r * Math.cos(a), z: r * Math.sin(a) });
-export function wrapAngle(a: number): number {
-  a %= TAU;
-  if (a > Math.PI) a -= TAU;
-  else if (a <= -Math.PI) a += TAU;
-  return a;
-}
 function rand(seed: number): () => number {
   let s = seed >>> 0 || 1;
   return () => (s = (s * 16807) % 2147483647) / 2147483647;
@@ -313,25 +254,8 @@ function buildTrees(hedgeR: number): Tree2[] {
 
 // ---- pockets -------------------------------------------------------------------------------------------------------------
 
-/** How far a pocket reaches out from its wall at `along` metres from its middle (a rounded end, 1.1 m at the middle). */
-export function pocketReach(along: number): number {
-  const t = Math.min(1, Math.abs(along) / (POCKET.len / 2));
-  return POCKET.out * Math.pow(Math.max(0, 1 - t * t * t), 1 / 3);
-}
-
-/** A pocket's sill line in plan: from one end on the wall, out round its rounded front and back to the wall. */
-export function pocketOutline(pk: Pick<Pocket, "face" | "dir" | "a">, n = 22): P2[] {
-  const pts: P2[] = [];
-  for (let i = 0; i <= n; i++) {
-    const t = -1 + (2 * i) / n;
-    const along = (t * POCKET.len) / 2;
-    pts.push(polar(pk.face + pk.dir * pocketReach(along), pk.a + along / pk.face));
-  }
-  return pts;
-}
-
 /** The pocket on `bank` at this polar angle (nearest by angle), and where the point sits relative to it. */
-export function pocketAt(plan: RiverPlan, bank: Bank, a: number): { pk: Pocket; along: number } {
+export function pocketAt(plan: Pick<RiverPlan, "pockets">, bank: Bank, a: number): { pk: Pocket; along: number } {
   let best = plan.pockets[0];
   let bestD = Infinity;
   for (const pk of plan.pockets) {
@@ -351,13 +275,10 @@ export function buildRiverPlan(): RiverPlan {
   const beds: Ring2[] = [];
   for (let b = 0; b * 2 < RINGS.length; b++) beds.push({ inner: RINGS[b * 2].radius - BED.margin, outer: RINGS[b * 2 + 1].radius + BED.margin });
   const ring = (inner: number, outer: number, name: string): PathRing2 => ({ inner, outer, r: (inner + outer) / 2, name });
-  const towIn = ring(beds[0].outer, beds[0].outer + PATH_W, "inner towpath");
-  const c0 = towIn.outer;
-  const wIn = c0 + RIVER.coping;
-  const wOut = wIn + RIVER.water;
-  const c1 = wOut + RIVER.coping;
-  const river = { c0, wIn, wOut, c1, mid: (wIn + wOut) / 2 };
-  const towOut = ring(c1, c1 + PATH_W, "outer towpath");
+  const river = riverBand();
+  const { c0, c1 } = river;
+  const towIn = ring(beds[0].outer, c0, "inner towpath");
+  const towOut = ring(c1, beds[1].inner, "outer towpath");
   const paths = [ring(DAIS.r, beds[0].inner, "inner path"), towIn, towOut, ring(beds[1].outer, beds[2].inner, "ring path"), ring(beds[2].outer, beds[2].outer + PROMENADE, "promenade")];
   const promenade = paths[4];
 
@@ -402,111 +323,22 @@ export function buildRiverPlan(): RiverPlan {
   const hedgeR = promenade.outer + LAWN;
   const hedge = arcBoxes(hedgeR + HEDGE_SPEC.t / 2, 0, TAU, 2.2, HEDGE_SPEC.t, HEDGE_SPEC.h);
 
-  // bridges
-  const B = BRIDGE;
-  const uA = c0, uB = wIn + B.flare, uC = wOut - B.flare, uD = c1;
-  const face: ReadonlyArray<readonly [number, number]> = [
-    [uA, B.mouthHalf],
-    [wIn, B.mouthHalf],
-    [uB, B.deckHalf],
-    [uC, B.deckHalf],
-    [wOut, B.mouthHalf],
-    [uD, B.mouthHalf],
-  ];
-  const span = (RIVER.water - 2 * B.pierT) / 3;
-  const bridges: Bridge[] = INNER_AV.map((a) => {
-    const U = { x: Math.cos(a), z: Math.sin(a) }, V = { x: -U.z, z: U.x };
-    const w = (u: number, v: number): P2 => ({ x: U.x * u + V.x * v, z: U.z * u + V.z * v });
-    const deck = [...face.map(([u, v]) => w(u, v + B.parT)), ...face.slice().reverse().map(([u, v]) => w(u, -v - B.parT))];
-    const parapets: P2[][] = [];
-    const parBoxes: Box2[] = [];
-    for (const s of [1, -1]) {
-      const inner = face.map(([u, v]) => w(u, s * v));
-      const outer = face.slice().reverse().map(([u, v]) => w(u, s * (v + B.parT)));
-      parapets.push([...inner, ...outer]);
-      for (let i = 0; i < face.length - 1; i++) {
-        const [u0, v0] = face[i], [u1, v1] = face[i + 1];
-        const p0 = w(u0, s * (v0 + B.parT / 2)), p1 = w(u1, s * (v1 + B.parT / 2));
-        const dx = p1.x - p0.x, dz = p1.z - p0.z, len = Math.hypot(dx, dz);
-        if (len < 0.05) continue;
-        parBoxes.push({ x: (p0.x + p1.x) / 2, z: (p0.z + p1.z) / 2, hx: len / 2 + 0.03, hz: B.parT / 2, yaw: yawOf(dx, dz), h: BARRIER_H });
-      }
-    }
-    const lamps: P2[] = [];
-    for (const u of [uA + 0.12, uD - 0.12]) for (const s of [1, -1]) lamps.push(w(u, s * (B.mouthHalf + B.parT / 2)));
-    const piers = [wIn + span + B.pierT / 2, wIn + 2 * span + 1.5 * B.pierT];
-    return { a, deck, parapets, face, parBoxes, lamps, piers, span };
-  });
-  const mouthOuter = B.mouthHalf + B.parT;
-  const bridgeHalfAngle = (r: number, extra = 0) => Math.asin(Math.min(1, (mouthOuter + extra) / r));
+  const bridges = buildBridges(river);
+  const copings = buildCopings(river);
 
-  // coping barriers, broken at each bridge mouth (they end inside the parapets' end piers)
-  const copings: Box2[] = [];
-  for (const r of [(c0 + wIn) / 2, (wOut + c1) / 2]) {
-    const ha = bridgeHalfAngle(r, -0.12);
-    for (let k = 0; k < 4; k++) copings.push(...arcBoxes(r, INNER_AV[k] + ha, INNER_AV[(k + 1) % 4] + (k === 3 ? TAU : 0) - ha, 1.5, RIVER.coping, BARRIER_H));
-  }
-
-  // pockets: 6 a quarter on the inner bank, 8 on the outer, centred between the bridges at a 2.7 m pitch
+  // pockets: 6 a quarter on the inner bank, 8 on the outer, centred between the bridges at a 2.7 m pitch; sown with the
+  // banks interleaved 3:4 (inner first), within a bank by the bed rings' rule (arcs 0, 2, 1, 3; places spread from the
+  // middle out)
   const pockets: Pocket[] = [];
-  for (const [bank, face, dir] of [
-    ["in", wIn, 1],
-    ["out", wOut, -1],
-  ] as const) {
-    const n = POCKET.perArc[bank];
-    const rl = face + dir * POCKET.lotusOut;
-    for (let arc = 0; arc < 4; arc++) {
-      const mid = INNER_AV[arc] + Math.PI / 4;
-      for (let place = 0; place < n; place++) {
-        const a = (mid + ((place - (n - 1) / 2) * POCKET.pitch) / rl + TAU) % TAU;
-        const parkR = bank === "in" ? c0 - PARK_OFF : c1 + PARK_OFF;
-        const sa = a + 0.45 / rl;
-        const stakeR = bank === "in" ? (c0 + wIn) / 2 : (wOut + c1) / 2;
-        const stakeYaw = bank === "in" ? yawOf(-Math.cos(sa), -Math.sin(sa)) : yawOf(Math.cos(sa), Math.sin(sa));
-        pockets.push({ bank, face, dir, arc, place, a, r: rl, ...polar(rl, a), park: polar(parkR, a), stake: { ...polar(stakeR, sa), yaw: stakeYaw }, order: -1, index: -1 });
-      }
-    }
-  }
-  // sowing order: banks interleaved 3:4 (inner first); within a bank the bed rings' rule (arcs 0, 2, 1, 3; places
-  // spread from the middle out)
   const seen: Record<Bank, number> = { in: 0, out: 0 };
-  for (let k = 0; k < pockets.length; k++) {
+  for (let k = 0; k < 4 * (POCKETS_PER_QUARTER.in + POCKETS_PER_QUARTER.out); k++) {
     const bank = BANK_PATTERN[k % BANK_PATTERN.length];
     const s = seen[bank]++;
-    const n = POCKET.perArc[bank];
     const arc = ARC_ORDER[4][s % 4];
-    const place = spreadOrder(n)[Math.floor(s / 4)];
-    const pk = pockets.find((p) => p.bank === bank && p.arc === arc && p.place === place)!;
-    pk.order = k;
-    pk.index = WATER_BASE + k;
+    const place = spreadOrder(POCKETS_PER_QUARTER[bank])[Math.floor(s / 4)];
+    pockets.push(riverPocket(river, bank, arc, place, k, WATER_BASE + k));
   }
-  pockets.sort((p, q) => p.order - q.order);
-
-  // dressing: reeds at every bridge mouth (both banks, both sides) with stones beside them; in the 0.5 m gaps between
-  // pockets, reeds and stones alternate
-  const dressing: Dressing[] = [];
-  let seed = 1;
-  for (const b of bridges) {
-    for (const [face, dir] of [
-      [wIn, 1],
-      [wOut, -1],
-    ] as const) {
-      for (const s of [1, -1]) {
-        const r = face + dir * 0.32;
-        dressing.push({ kind: "reeds", ...polar(r, b.a + (s * 3.15) / r), dir, seed: seed++ });
-        dressing.push({ kind: "stones", ...polar(r + dir * 0.35, b.a + (s * 2.75) / r), dir, seed: seed++ });
-      }
-    }
-  }
-  for (const bank of ["in", "out"] as const) {
-    const ps = pockets.filter((p) => p.bank === bank).sort((p, q) => p.arc - q.arc || p.place - q.place);
-    for (let i = 0; i < ps.length - 1; i++) {
-      const p = ps[i], q = ps[i + 1];
-      if (p.arc !== q.arc) continue;
-      const r = p.face + p.dir * 0.28;
-      dressing.push({ kind: (p.place + (bank === "in" ? 0 : 1)) % 2 === 0 ? "reeds" : "stones", ...polar(r, (p.a + q.a) / 2), dir: p.dir, seed: seed++ });
-    }
-  }
+  const dressing = buildDressing(river, bridges, pockets);
 
   // bed plots: the server's order and angle rule (plots.ts), on the moved rings
   const plots: BedPlot[] = [];
@@ -544,6 +376,7 @@ export function buildRiverPlan(): RiverPlan {
     towIn,
     towOut,
     river,
+    band: river,
     avenues,
     sectors,
     kerbs,
@@ -582,12 +415,6 @@ export function inPlanBed(plan: RiverPlan, x: number, z: number): boolean {
     if (inside) return true;
   }
   return false;
-}
-
-/** The flow's direction at (x, z): along the ring toward decreasing polar angle. */
-export function flowDir(x: number, z: number): P2 {
-  const r = Math.hypot(x, z) || 1;
-  return { x: z / r, z: -x / r };
 }
 
 // ---- the party, and the section the preview dresses ---------------------------------------------------------------------

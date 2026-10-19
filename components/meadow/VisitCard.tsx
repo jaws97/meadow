@@ -145,7 +145,7 @@ function PlantCard({ plot }: { plot: number }) {
   const name = friend?.name ?? entry?.name ?? "A friend";
   const species = friend?.species ?? entry?.species;
   const sub = [species ? speciesName(species) : null, friend ? dayText(friend.day) : null].filter(Boolean).join(" · ");
-  const mood = friend ? moodLine(friend) : (info?.message ?? "Taking a closer look.");
+  const mood = friend ? moodLine(friend, undefined, true) : (info?.message ?? "Taking a closer look.");
   const mine = me?.signedIn && me.plot === plot;
 
   const onSprinkle = async () => {

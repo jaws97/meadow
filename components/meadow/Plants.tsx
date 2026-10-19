@@ -13,10 +13,17 @@
 // Until its pictures have arrived (or if they never do) they are drawn here the old cheap way: the plant at its stage
 // in its species' leaf colour with the species' own bud or flower on top (a closed flower drawn as its bud).
 //
-// A lotus stands in a brass urli on its plot from the day it is planted (components/lotus/lod.ts makeLotusPlot): its
-// seed of light hovers over the urli's water while the seed is in its jar, its floating leaves lie browned on the water
-// while it rests, and until the pictures arrive a growing lotus is the urli with green floating leaves (never a stem
-// and head). Its urli stands level, turned to its plot's angle, as its detail levels and its full plant stand.
+// A lotus is planted in the river, in one of its pockets (plots.ts), and floats on the pocket's water from the day it is
+// planted: its seed of light over the water while the seed is in its jar, then its floating leaves, spread over the
+// pocket's shelf inside the sill stones (live/pocketLook.ts), green as it grows and browned while it rests. They lie
+// flat on the water, so they are drawn here at every distance (a picture taken at 45 degrees cannot show them from the
+// overview), one instanced leaf apiece, all in one draw; the plant standing over them once it has standing leaves is
+// the detail levels' (LodPlants.tsx, its own kind: lotusRiver). They are the visit's own floating leaves, laid out the
+// same way, and dissolve into the full plant's as it takes over (lod/materials.ts POCKET_HANDOVER).
+// A lotus planted once every pocket was taken stands in a brass urli on its bed plot instead (components/lotus/lod.ts
+// makeLotusPlot): the seed of light hovers over the urli's water while the seed is in its jar, its floating leaves lie
+// browned on the water while it rests, and until the pictures arrive a growing lotus is the urli with green floating
+// leaves (never a stem and head). Either stands level, turned to its plot's angle, as its full plant stands.
 //
 // Cost: about twenty draw calls here, whatever the Meadow's size. Seeds, resting plants, the stakes, the signs (one
 // texture of names, nameAtlas.ts) and the wildflowers are each one instanced mesh; instances are rewritten only when
@@ -27,9 +34,11 @@ import { useFrame } from "@react-three/fiber";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { meadowData, useMeadowData } from "@/components/meadow/data";
-import { BED, type MeadowLayout } from "@/components/meadow/layout";
+import { BED, plotOf, type MeadowLayout } from "@/components/meadow/layout";
 import { plotSpin, SPINS } from "@/components/meadow/lod/bands";
+import { handover } from "@/components/meadow/lod/handover";
 import { LodPlants, lodStatus } from "@/components/meadow/lod/LodPlants";
+import { patchPocketPads, POCKET_HANDOVER } from "@/components/meadow/lod/materials";
 import { NameAtlas, signMaterial, syncSignMaterial } from "@/components/meadow/nameAtlas";
 import { liveGlowMaterial, merge, paint } from "@/components/meadow/parts";
 import { PLANT_SCALE, speciesHeight, STAGE_SHARE } from "@/components/meadow/plantLook";
@@ -46,7 +55,9 @@ import {
   tallGeometry,
 } from "@/components/meadow/sprouts";
 import { URLI, waterY } from "@/components/lotus/frame";
-import { LOTUS_FOOT, makeLotusPlot, type LotusPlotKind } from "@/components/lotus/lod";
+import { pocketPads } from "@/components/lotus/live/pocketLook";
+import type { MeadowBand } from "@/components/lotus/live/urliLook";
+import { LOTUS_FOOT, makeLotusPlot, pocketPadGeometry, type LotusPlotKind } from "@/components/lotus/lod";
 import { lerp } from "@/lib/plant/prng";
 import { isLotus, SPECIES, type SpeciesId } from "@/lib/plant/species";
 
@@ -64,6 +75,11 @@ const UP = new THREE.Vector3(0, 1, 0);
 const GOLD = new THREE.Color("#ffcf66");
 const WHITE = new THREE.Color(1, 1, 1);
 const POORLY = new THREE.Color("#b3a35e");
+/** A river pocket's floating leaves: the pond's floating-leaf green (its textured blade's average) or browned. */
+const PAD_GREEN = new THREE.Color("#447a64");
+const PAD_BROWN = new THREE.Color("#8f7a55");
+/** The most floating leaves a pocket carries (live/pocketLook.ts pocketFloats). */
+const POCKET_PADS_MAX = 14;
 
 /** A stable pseudo-random number in [0, 1) for plot i and channel k. */
 const hash = (i: number, k: number) => {
@@ -164,6 +180,8 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
       bud: Object.fromEntries(HEADED.map((id) => [id, budHeadGeometry(id)])) as Partial<Record<SpeciesId, THREE.BufferGeometry>>,
       bloom: Object.fromEntries(HEADED.map((id) => [id, bloomHeadGeometry(id)])) as Partial<Record<SpeciesId, THREE.BufferGeometry>>,
       lotus: Object.fromEntries(LOTUS_KINDS.map((k) => [k, makeLotusPlot(k)])) as Record<LotusPlotKind, THREE.BufferGeometry>,
+      pocketSeed: makeLotusPlot("seed", { vessel: false }),
+      pad: pocketPadGeometry(),
       stake: stakeGeometry(),
       sign: signFaceGeometry(),
       wildLeaves: wild.leaves,
@@ -172,7 +190,12 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
     };
   }, []);
   const atlas = useMemo(() => new NameAtlas(), []);
+  const padCap = L.river.pockets.length * POCKET_PADS_MAX;
   const mats = useMemo(() => {
+    // the pockets' floating leaves, with their side of a visit's handover
+    const pads = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, side: THREE.DoubleSide });
+    pads.onBeforeCompile = patchPocketPads;
+    pads.customProgramCacheKey = () => "meadow-pocket-pads";
     const seed = liveGlowMaterial({ roughness: 0.9 }, "seed");
     const heads = Object.fromEntries(HEADED.map((id) => [id, liveGlowMaterial({ roughness: 0.6, side: THREE.DoubleSide }, `head-${id}`)])) as Partial<
       Record<SpeciesId, ReturnType<typeof liveGlowMaterial>>
@@ -182,6 +205,7 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
       seed,
       heads,
       wild,
+      pads,
       foliage: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, side: THREE.DoubleSide }),
       stake: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }),
       sign: signMaterial(atlas),
@@ -201,6 +225,9 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
       for (const g of Object.values(geos.bud)) g.dispose();
       for (const g of Object.values(geos.bloom)) g.dispose();
       for (const g of Object.values(geos.lotus)) g.dispose();
+      geos.pocketSeed.dispose();
+      geos.pad.dispose();
+      mats.pads.dispose();
       geos.stake.dispose();
       geos.sign.dispose();
       geos.wildLeaves.dispose();
@@ -226,6 +253,8 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
   const budRefs = useRef<Partial<Record<SpeciesId, THREE.InstancedMesh | null>>>({});
   const bloomRefs = useRef<Partial<Record<SpeciesId, THREE.InstancedMesh | null>>>({});
   const lotusRefs = useRef<Partial<Record<LotusPlotKind, THREE.InstancedMesh | null>>>({});
+  const pocketSeedRef = useRef<THREE.InstancedMesh>(null);
+  const padRef = useRef<THREE.InstancedMesh>(null);
   const stakeRef = useRef<THREE.InstancedMesh>(null);
   const signRef = useRef<THREE.InstancedMesh>(null);
   const wildLeavesRef = useRef<THREE.InstancedMesh>(null);
@@ -247,7 +276,7 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
       counts.set(mesh, i + 1);
       return i;
     };
-    for (const m of [seedRef.current, haloRef.current, stakeRef.current, signRef.current, wildLeavesRef.current, wildBlossomsRef.current, ...Object.values(foliageRefs.current), ...Object.values(budRefs.current), ...Object.values(bloomRefs.current), ...Object.values(lotusRefs.current)]) {
+    for (const m of [seedRef.current, haloRef.current, stakeRef.current, signRef.current, wildLeavesRef.current, wildBlossomsRef.current, ...Object.values(foliageRefs.current), ...Object.values(budRefs.current), ...Object.values(bloomRefs.current), ...Object.values(lotusRefs.current), pocketSeedRef.current, padRef.current]) {
       if (m) {
         counts.set(m, 0);
         all.push(m);
@@ -260,6 +289,8 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
     const scl = new THREE.Vector3();
     const tilt = new THREE.Vector3();
     const color = new THREE.Color();
+    const qPad = new THREE.Quaternion();
+    const leaf = new THREE.Vector3();
     const now = performance.now();
     const risingNow: Rising[] = [];
     const plots = [...d.byPlot.values()].sort((a, b) => a.plot - b.plot);
@@ -270,7 +301,7 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
     syncSignMaterial(mats.sign, atlas);
 
     for (const p of plots) {
-      const plot = L.plots[p.plot];
+      const plot = plotOf(L, p.plot);
       if (!plot) continue;
       const appearedAt = d.appeared.get(p.plot);
       const rise: Rising | null = appearedAt !== undefined && now - appearedAt < RISE_MS ? { start: appearedAt, items: [] } : null;
@@ -279,7 +310,7 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
         if (!mesh || i < 0) return;
         mesh.setMatrixAt(i, matrix);
         if (tint) mesh.setColorAt(i, tint);
-        if (rise) rise.items.push({ mesh, i, base: matrix.clone(), at: new THREE.Vector3(plot.x, BED.soilH, plot.z) });
+        if (rise) rise.items.push({ mesh, i, base: matrix.clone(), at: new THREE.Vector3(plot.x, plot.y, plot.z) });
       };
       // the path side, for leaning a bloom's face toward visitors
       const toward = plot.side === "inner" ? -1 : 1;
@@ -288,7 +319,7 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
 
       // the stake and its name, always (also for the plant being visited)
       q.setFromAxisAngle(UP, plot.stake.yaw);
-      m.compose(pos.set(plot.stake.x, BED.soilH, plot.stake.z), q, scl.set(1, 1, 1));
+      m.compose(pos.set(plot.stake.x, plot.stake.y, plot.stake.z), q, scl.set(1, 1, 1));
       const si = take(stakeRef.current);
       if (stakeRef.current && si >= 0) {
         stakeRef.current.setMatrixAt(si, m);
@@ -300,13 +331,37 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
         const [u, v] = atlas.cellOf(p.name);
         cellAttr.setXY(gi, u, v);
       }
+      // a lotus in a river pocket: its seed of light on the water, or its floating leaves (drawn through a visit too: they
+      // hand over to the full plant's own by the dissolve)
+      if (isLotus(p.species) && plot.kind === "pocket") {
+        if (p.stage === "seed") {
+          m.compose(pos.set(plot.x, plot.y, plot.z), qSpin.identity(), scl.set(PLANT_SCALE, PLANT_SCALE, PLANT_SCALE));
+          place(pocketSeedRef.current, m, null);
+          m.compose(pos.set(plot.x, plot.y + 0.004, plot.z), qSpin.identity(), scl.set(0.62, 1, 0.62));
+          place(haloRef.current, m, null);
+        } else {
+          // laid out in the pocket's frame (facing the channel), as the visit's full plant lays them
+          const face = qSpin.setFromAxisAngle(UP, plot.yaw ?? 0);
+          const tone = 0.94 + 0.12 * hash(p.plot, 9);
+          for (const f of pocketPads(p.stage as MeadowBand, p.plot)) {
+            const s = f.r * PLANT_SCALE;
+            leaf.set(f.x, f.y, f.z).multiplyScalar(PLANT_SCALE).applyQuaternion(face);
+            qPad.setFromAxisAngle(UP, f.yaw).premultiply(face);
+            m.compose(pos.set(plot.x + leaf.x, plot.y + leaf.y, plot.z + leaf.z), qPad, scl.set(s, s, s));
+            place(padRef.current, m, color.copy(f.brown > 0 ? PAD_BROWN : PAD_GREEN).multiplyScalar(tone * (0.96 + 0.08 * hash(p.plot * 31 + f.seed, 2))));
+          }
+        }
+        if (rise) risingNow.push(rise);
+        continue;
+      }
       if (p.plot === meadow.detailPlot) continue;
 
       if (isLotus(p.species)) {
-        // the urli, level on the soil and turned to its plot's angle (as its detail levels stand)
+        // on a bed plot (every pocket was taken), the urli, level on the soil, turned to its plot's angle (as its detail
+        // levels stand)
         const kind: LotusPlotKind | null = p.stage === "seed" ? "seed" : p.stage === "resting" ? "resting" : lod ? null : "pads";
         if (!kind) continue;
-        m.compose(pos.set(plot.x, BED.soilH, plot.z), qSpin.setFromAxisAngle(UP, SPINS[plotSpin(p.plot)]), scl.set(PLANT_SCALE, PLANT_SCALE, PLANT_SCALE));
+        m.compose(pos.set(plot.x, plot.y, plot.z), qSpin.setFromAxisAngle(UP, SPINS[plotSpin(p.plot)]), scl.set(PLANT_SCALE, PLANT_SCALE, PLANT_SCALE));
         place(lotusRefs.current[kind], m, null);
         // the seed's soft glow on the water, a little wider than the urli
         if (kind === "seed") {
@@ -328,11 +383,11 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
 
       if (p.stage === "seed") {
         const s = (0.92 + 0.16 * hash(p.plot, 5)) * PLANT_SCALE;
-        m.compose(pos.set(plot.x, BED.soilH - 0.01, plot.z), qSpin.setFromAxisAngle(UP, spin), scl.set(s, s, s));
+        m.compose(pos.set(plot.x, plot.y - 0.01, plot.z), qSpin.setFromAxisAngle(UP, spin), scl.set(s, s, s));
         place(seedRef.current, m, null);
         // and its soft glow on the soil, so three hundred seeds read as a field of little lights from far away
         // (just above the mound's crown, so the light spreads over the mound rather than ringing a dark hole)
-        m.compose(pos.set(plot.x, BED.soilH + 0.075, plot.z), qSpin.identity(), scl.set(1.15, 1, 1.15));
+        m.compose(pos.set(plot.x, plot.y + 0.075, plot.z), qSpin.identity(), scl.set(1.15, 1, 1.15));
         place(haloRef.current, m, null);
         if (rise) risingNow.push(rise);
         continue;
@@ -342,12 +397,12 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
       // the tall plant is built a metre high: a bud stands at its stage's share of the species' height
       const share = kind === "tall" ? STAGE_SHARE[p.stage] : 1;
       const s = h * share;
-      m.compose(pos.set(plot.x, BED.soilH, plot.z), q, scl.set(s, s, s));
+      m.compose(pos.set(plot.x, plot.y, plot.z), q, scl.set(s, s, s));
       place(foliageRefs.current[kind], m, kind === "resting" ? WHITE : color);
 
       if (p.stage === "bud" || p.stage === "bloom") {
         // the head rides the top of the stem, following the plant's lean
-        const top = pos.set(plot.x, BED.soilH, plot.z).addScaledVector(tilt, s * 0.99);
+        const top = pos.set(plot.x, plot.y, plot.z).addScaledVector(tilt, s * 0.99);
         // a flower open now is drawn open (a practice plant before 10 Nov has no bloom hour, so it reads as a bud)
         const open = p.bloom > 0;
         if (open) {
@@ -366,9 +421,9 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
       if (rise) risingNow.push(rise);
     }
 
-    // wildflowers in every plot nobody has planted yet
+    // wildflowers in every bed plot nobody has planted yet (an empty pocket is open water)
     for (const plot of L.plots) {
-      if (d.byPlot.has(plot.index)) continue;
+      if (plot.kind !== "bed" || d.byPlot.has(plot.index)) continue;
       const s = 0.85 + 0.4 * hash(plot.index, 6);
       m.compose(pos.set(plot.x, BED.soilH, plot.z), qSpin.setFromAxisAngle(UP, hash(plot.index, 7) * Math.PI * 2), scl.set(s, s, s));
       const li = take(wildLeavesRef.current);
@@ -396,7 +451,9 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
     for (const mesh of meshes) {
       if (mesh && !mesh.instanceColor) mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3).fill(1), 3);
     }
-  }, [cap]);
+    const pads = padRef.current;
+    if (pads && !pads.instanceColor) pads.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(padCap * 3).fill(1), 3);
+  }, [cap, padCap]);
 
   useLayoutEffect(() => {
     rebuild();
@@ -425,6 +482,15 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
       mats.heads[id]!.glow.value = Math.max(0.24, lerp(f.emissiveDay * 1.5, f.emissiveNight * 0.9, night) * pulse);
     }
     mats.wild.glow.value = 0.1 + 0.6 * night;
+    // a visited pocket's floating leaves hand over to its full plant's
+    const handed = handover.plot >= 0 ? plotOf(L, handover.plot) : null;
+    if (handed && handed.kind === "pocket") {
+      POCKET_HANDOVER.uHandFoot.value.set(handed.x, handed.y, handed.z);
+      POCKET_HANDOVER.uHandShare.value = handover.share;
+    } else {
+      POCKET_HANDOVER.uHandFoot.value.set(1e4, 0, 1e4);
+      POCKET_HANDOVER.uHandShare.value = 0;
+    }
     // new plants rise out of the soil
     if (rising.current.length === 0) return;
     const now = performance.now();
@@ -494,6 +560,9 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
           frustumCulled={false}
         />
       ))}
+      {/* a lotus in a river pocket: its seed of light on the water, and every pocket's floating leaves */}
+      <instancedMesh ref={pocketSeedRef} args={[geos.pocketSeed, mats.seed.material, L.river.pockets.length]} frustumCulled={false} />
+      <instancedMesh ref={padRef} args={[geos.pad, mats.pads, padCap]} receiveShadow frustumCulled={false} />
       <instancedMesh ref={stakeRef} args={[geos.stake, mats.stake, cap]} castShadow={plantShadows} frustumCulled={false} />
       <instancedMesh ref={signRef} args={[geos.sign, mats.sign, cap]} frustumCulled={false} />
       <instancedMesh ref={wildLeavesRef} args={[geos.wildLeaves, mats.wildLeaves, cap]} receiveShadow frustumCulled={false} />

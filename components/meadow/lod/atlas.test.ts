@@ -9,7 +9,7 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { ATLAS, CELLS } from "@/components/meadow/lod/atlasManifest";
 import { bakeLodPlant } from "@/components/meadow/lod/bake";
-import { BAKE_ELEVATION, BANDS, cellIndex, LOD_SPECIES, SPINS, VIEW_THETA } from "@/components/meadow/lod/bands";
+import { BAKE_ELEVATION, BANDS, cellIndex, hasLight, LOD_KINDS, SPINS, VIEW_THETA } from "@/components/meadow/lod/bands";
 import { project, rasterize, viewFor } from "@/components/meadow/lod/raster";
 
 /** Lights in the bake's view space (x right, y up, z toward the camera): from the front and above, and from the side. */
@@ -31,17 +31,24 @@ async function decode(file: string, channels: 3 | 4) {
 }
 
 describe("the pictures against their light plants", () => {
+  it("are packed eight kinds deep (the river's lotus the eighth row) in one 1152 x 1024 atlas", () => {
+    expect(ATLAS.width).toBe(1152);
+    expect(ATLAS.height).toBe(1024);
+    expect(CELLS.length).toBe(96);
+  });
+
   it("are as bright as the light plants they stand for (2% apart on average, every cell within 10%)", async () => {
     const albedo = await decode(ATLAS.albedo, 4);
     const normal = await decode(ATLAS.normal, 3);
     const view = viewFor(VIEW_THETA, BAKE_ELEVATION);
     const off: string[] = [];
     const all: number[] = [];
-    for (const species of LOD_SPECIES) {
+    for (const kind of LOD_KINDS) {
       for (const band of BANDS) {
-        const plant = bakeLodPlant(species, band);
+        if (!hasLight(kind, band)) continue;
+        const plant = bakeLodPlant(kind, band);
         for (let s = 0; s < SPINS.length; s++) {
-          const [u0, v0, du, dv] = CELLS[cellIndex(species, band, s)];
+          const [u0, v0, du, dv] = CELLS[cellIndex(kind, band, s)];
           const pr = project(plant.geometry, SPINS[s], view);
           for (const l of LIGHTS) {
             // the light plant: every sample lit by its own normal (turned to the camera where its face is turned away,
@@ -77,7 +84,7 @@ describe("the pictures against their light plants", () => {
             }
             const ratio = farSum / Math.max(1e-6, farW) / (nearSum / Math.max(1e-6, nearW));
             all.push(ratio);
-            if (Math.abs(ratio - 1) > 0.1) off.push(`${species} ${band} ${s}: ${ratio.toFixed(3)}`);
+            if (Math.abs(ratio - 1) > 0.1) off.push(`${kind} ${band} ${s}: ${ratio.toFixed(3)}`);
           }
         }
         plant.geometry.dispose();

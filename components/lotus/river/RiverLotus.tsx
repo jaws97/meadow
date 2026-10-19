@@ -21,15 +21,13 @@ import { meadow } from "@/components/meadow/runtime";
 import type { Tier } from "@/components/lotus/geometry";
 import { LotusPlant } from "@/components/lotus/LotusPlant";
 import { LotusPot } from "@/components/lotus/LotusPot";
-import { lookFor, type FloatLeaf, type LotusLook, type V3 } from "@/components/lotus/look";
+import { PLANT_OUT, pondThreeStands, riverLook } from "@/components/lotus/live/pocketLook";
+import { lookFor, type LotusLook } from "@/components/lotus/look";
 import type { ConceptParams, FlowerDay, Stage } from "@/components/lotus/params";
-import { LEVEL, partyFill, pocketReach, type BedPlot, type Pocket, type RiverPlan } from "@/components/lotus/river/plan";
+import { LEVEL, partyFill, type BedPlot, type Pocket, type RiverPlan } from "@/components/lotus/river/plan";
 
-/** How much taller than the pond's the pocket's stalks grow: standing leaves, and the flower. */
-const STAND_LIFT = 2.0;
-const FLOWER_LIFT = 2.25;
-/** The plant's middle stands this far out from the wall (the pocket's middle is 0.55): its spread fits the front. */
-const PLANT_OUT = 0.62;
+// (the pocket's stalk lengths, its floating leaves and the plant's place in the pocket are live/pocketLook.ts's, which
+// the Meadow's own pocket lotus draws from too)
 
 export const HERO = { bank: "in", arc: 3, place: 5 } as const;
 
@@ -57,66 +55,6 @@ function stageOf(pk: Pocket): Stage {
   if (seq) return seq[pk.place];
   const h = hash(pk.index, 5);
   return h < 0.4 ? "bloom" : h < 0.6 ? "bud" : h < 0.8 ? "aerial" : h < 0.95 ? "floating" : "pod";
-}
-
-/** Pond-leaf seeds (look.ts uses 11 + 7i): reused so the pockets share the pond's eight floating-leaf textures. */
-const FLOAT_SEEDS = [11, 18, 25, 32, 39, 46, 53, 60];
-
-/**
- * Floating leaves filling a pocket's still shelf, in the plant's frame (pond-plant units, before the Meadow's 1.3; the
- * frame's +z points out from the wall to the open channel, its middle PLANT_OUT from the wall): each wholly on the
- * shelf inside the sill stones and clear of its neighbours, the larger first. A pond plant's leaves crowd its patch
- * of water; a pocket of mud carries a dozen or so by its second month.
- */
-export function pocketFloats(stage: Stage, seed: number, lie: boolean): FloatLeaf[] {
-  const count = stage === "floating" ? 8 : stage === "aerial" ? 11 : stage === "pod" ? 14 : 14;
-  const [rMin, rMax] = stage === "floating" ? [0.055, 0.095] : [0.07, 0.135];
-  let s = seed * 7919 + 101;
-  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
-  const k = PLANT_SCALE;
-  const fits = (x: number, z: number, r: number) => {
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * Math.PI * 2;
-      const along = (x + Math.cos(a) * r) * k;
-      const out = PLANT_OUT + (z + Math.sin(a) * r) * k;
-      if (out < 0.06 || out > pocketReach(along) - 0.15) return false;
-    }
-    return true;
-  };
-  const out: FloatLeaf[] = [];
-  for (let tries = 0; tries < 900 && out.length < count; tries++) {
-    const t = out.length / Math.max(1, count - 1);
-    const r = rMax - (rMax - rMin) * (t * 0.8 + 0.2 * rnd());
-    const x = (rnd() * 2 - 1) * 0.8;
-    const z = -0.45 + rnd() * 0.75;
-    if (!fits(x, z, r)) continue;
-    // crowding as a lotus patch does, a leaf's rim now and then lying over its neighbour's (they float at three heights)
-    if (out.some((f) => Math.hypot(f.x - x, f.z - z) < (f.r + r) * 0.86)) continue;
-    const i = out.length;
-    out.push({ x, z, r, y: 0.0012 + (i % 3) * 0.0011, yaw: rnd() * Math.PI * 2, seed: FLOAT_SEEDS[i % FLOAT_SEEDS.length], onMud: lie, tilt: 0, brown: 0, pale: 0 });
-  }
-  return out;
-}
-
-/**
- * The pond look made a pocket's: the pocket's own floating leaves, three standing leaves (the pond's own three; a
- * floating-leaf plant has none yet), and the standing leaves and the flower raised on longer stalks.
- */
-export function riverLook(l: LotusLook, seed: number, lie: boolean, threeStands: LotusLook["standing"] | null): LotusLook {
-  const lift = (v: V3, k: number): V3 => [v[0], v[1] * k, v[2]];
-  const stands = l.standing.length > 0 && threeStands ? threeStands : l.standing;
-  return {
-    ...l,
-    floating: pocketFloats(l.stage, seed, lie),
-    standing: stands.map((st, i) => ({ ...st, top: [st.top[0] * 1.15, st.top[1] * STAND_LIFT * (1 - 0.05 * i), st.top[2] * 1.1] as V3 })),
-    flower: { ...l.flower, head: lift(l.flower.head, FLOWER_LIFT) },
-    focus: lift(l.focus, l.flower.kind === "none" ? STAND_LIFT : FLOWER_LIFT),
-  };
-}
-
-/** The pond's three standing leaves (as its seed-pod plant carries them), for every river plant past its floating leaves. */
-function pondThreeStands(params: ConceptParams): LotusLook["standing"] {
-  return lookFor({ ...params, view: "pond", stage: "pod", mood: "happy", overrides: {} }).standing;
 }
 
 /** Where a pocket's lotus stands: its frame on the water, turned to face the open channel. */

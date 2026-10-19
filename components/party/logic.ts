@@ -119,20 +119,17 @@ export const plantingKey = (p: FeedPlot): string => `${p.plot}|${p.species}|${p.
 const toPlanting = (p: FeedPlot): Planting => ({ key: plantingKey(p), name: p.name, species: p.species });
 
 /**
- * The plantings in a snapshot that `known` has not seen, oldest first. Plots
- * are handed out in planting order (the lowest free one), so within one poll
- * a lower plot was planted earlier.
+ * The plantings in a snapshot that `known` has not seen, oldest first. The
+ * snapshot lists its plots in sowing order (lib/server/meadow.ts), which the
+ * plot numbers do not show: a lotus in the river is numbered past every bed.
  */
 export function newPlantings(known: ReadonlySet<string>, plots: readonly FeedPlot[]): Planting[] {
-  return plots
-    .filter((p) => !known.has(plantingKey(p)))
-    .sort((a, b) => a.plot - b.plot)
-    .map(toPlanting);
+  return plots.filter((p) => !known.has(plantingKey(p))).map(toPlanting);
 }
 
 /** The latest `n` plantings of a snapshot, newest first: what the feed shows when the screen first opens. */
 export function latestPlantings(plots: readonly FeedPlot[], n: number): Planting[] {
-  return [...plots].sort((a, b) => b.plot - a.plot).slice(0, Math.max(0, n)).map(toPlanting);
+  return plots.slice(Math.max(0, plots.length - Math.max(0, n))).reverse().map(toPlanting);
 }
 
 /** "a Night Jasmine", "an Enchanted Rose". */

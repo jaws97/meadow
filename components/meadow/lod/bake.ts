@@ -16,12 +16,13 @@
 //
 // The lotus is the exception: its light plant is the urli with the plant in it for each band, built by
 // components/lotus/lod.ts (the plant in its pond and urli is not the procedural flower), handed over here in the same
-// form, its foot on the soil.
+// form, its foot on the soil; and a lotus in a river pocket is its own kind (bands.ts lotusRiver), the pond view's plant
+// standing on the water without its urli, its foot on the river's surface.
 //
 // Pure (three.js maths and the plant library): the atlas script runs it in Node.
 import * as THREE from "three";
 import { LOTUS_FOOT, lodLotusHead, makeLodLotus } from "@/components/lotus/lod";
-import { BAND_LOOK, LOD_SEEDS, type Band } from "@/components/meadow/lod/bands";
+import { BAND_LOOK, LOD_SEEDS, type Band, type LodKind } from "@/components/meadow/lod/bands";
 import { bakeMorph, posePlant, type PartMaterials, type PoseDetail } from "@/components/meadow/lod/pose";
 import { smoothstep } from "@/lib/plant/prng";
 import { SPECIES, type Species, type SpeciesId } from "@/lib/plant/species";
@@ -229,8 +230,13 @@ const TAGS: PartMaterials<Tag> = {
 
 // ---- the bake --------------------------------------------------------------------------------------------------------
 
-/** Poses `species` in `band` at the light tessellation and merges it into one vertex-coloured mesh. */
-export function bakeLodPlant(species: SpeciesId, band: Band): BakedPlant {
+/**
+ * Poses a kind (a species, or the lotus standing in a river pocket) in `band` at the light tessellation and merges it
+ * into one vertex-coloured mesh. A pocket's lotus has none as a sprout (bands.ts hasLight).
+ */
+export function bakeLodPlant(kind: LodKind, band: Band): BakedPlant {
+  if (kind === "lotusRiver") return bakeLodLotusRiver(band);
+  const species: SpeciesId = kind;
   if (species === "lotus") return bakeLodLotus(band);
   const sp = SPECIES[species];
   const look = BAND_LOOK[band];
@@ -307,4 +313,12 @@ function bakeLodLotus(band: Band): BakedPlant {
   const head = lodLotusHead(band);
   head.y += LOTUS_FOOT;
   return { geometry, height: geometry.boundingBox!.max.y, head, triangles: geometry.attributes.position.count / 3 };
+}
+
+/** The lotus standing in a river pocket for a band (components/lotus/lod.ts), its foot on the water (y = 0). */
+function bakeLodLotusRiver(band: Band): BakedPlant {
+  const geometry = makeLodLotus(band, "river");
+  geometry.computeBoundingSphere();
+  geometry.computeBoundingBox();
+  return { geometry, height: geometry.boundingBox!.max.y, head: lodLotusHead(band, "river"), triangles: geometry.attributes.position.count / 3 };
 }

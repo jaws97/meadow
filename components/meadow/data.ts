@@ -17,6 +17,7 @@
 import { useSyncExternalStore } from "react";
 import { readSynthetic, syntheticFriend, syntheticSnapshot, type SyntheticOptions } from "@/components/meadow/lod/synthetic";
 import type { FriendGarden, MeadowPlot, MeadowSnapshot } from "@/lib/server/meadow";
+import { assignPlot, isBedIndex } from "@/lib/server/plots";
 
 export type { FriendGarden, MeadowPlot, MeadowSnapshot };
 
@@ -27,7 +28,7 @@ export interface MeadowData {
   status: "loading" | "ready" | "error";
   snapshot: MeadowSnapshot | null;
   byPlot: ReadonlyMap<number, MeadowPlot>;
-  /** the highest planted plot index, or -1 */
+  /** the highest planted bed plot's index (pockets aside: they never grow the rings), or -1 */
   highest: number;
   /** bumped whenever the snapshot's plants change */
   version: number;
@@ -80,7 +81,8 @@ export function syntheticMeadow(): SyntheticOptions | null {
 
 /**
  * Development only: `?demo=360` tops the real snapshot up with made-up plants (in this browser alone, nothing is
- * stored anywhere) to see how the Meadow holds up full, as it will be at the party.
+ * stored anywhere) to see how the Meadow holds up full, as it will be at the party. Each is given its plot as the server
+ * would hand it out (plots.ts assignPlot: a lotus to the river's next pocket, or once they are full a bed plot's urli).
  */
 function withDemoPlants(snapshot: MeadowSnapshot): MeadowSnapshot {
   if (process.env.NODE_ENV === "production") return snapshot;
@@ -91,9 +93,12 @@ function withDemoPlants(snapshot: MeadowSnapshot): MeadowSnapshot {
   const taken = new Set(snapshot.plots.map((p) => p.plot));
   const plots = [...snapshot.plots];
   for (let i = 0; plots.length < want && i < 1152; i++) {
-    if (taken.has(i)) continue;
+    const kind = species[(i * 5) % species.length];
+    const plot = assignPlot(taken, { water: kind === "lotus" });
+    if (plot === null) break;
+    taken.add(plot);
     const stage = stages[(i * 7) % stages.length];
-    plots.push({ plot: i, species: species[(i * 5) % species.length], name: `Demo ${i}`, stage, health: i % 11 === 0 ? "poorly" : "thriving", bloom: stage === "bloom" ? 3 : 0, generation: 1 });
+    plots.push({ plot, species: kind, name: `Demo ${plot}`, stage, health: i % 11 === 0 ? "poorly" : "thriving", bloom: stage === "bloom" ? 3 : 0, generation: 1 });
   }
   return { ...snapshot, count: plots.length, plots };
 }
@@ -108,7 +113,8 @@ function absorb(fresh: MeadowSnapshot) {
   const now = performance.now();
   for (const p of snapshot.plots) {
     byPlot.set(p.plot, p);
-    highest = Math.max(highest, p.plot);
+    // a pocket in the river is numbered past every bed plot: only a bed plot says how many rings the Meadow needs
+    if (isBedIndex(p.plot)) highest = Math.max(highest, p.plot);
     const before = data.byPlot.get(p.plot);
     if (!before) {
       changed = true;

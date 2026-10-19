@@ -100,6 +100,21 @@ describe("river plan: dressing, colliders and the party", () => {
   it("dresses the banks with 40 reed clumps and 40 pairs of stones", () => {
     expect(P.dressing.filter((d) => d.kind === "reeds").length).toBe(40);
     expect(P.dressing.filter((d) => d.kind === "stones").length).toBe(40);
+    // each where it is meant to be: none on another (the quarter across angle 0 included), and every gap dressed
+    for (let i = 0; i < P.dressing.length; i++) {
+      for (let j = i + 1; j < P.dressing.length; j++) {
+        expect(Math.hypot(P.dressing[i].x - P.dressing[j].x, P.dressing[i].z - P.dressing[j].z)).toBeGreaterThan(0.3);
+      }
+    }
+    for (const bank of ["in", "out"] as const) {
+      const ps = P.pockets.filter((p) => p.bank === bank);
+      for (const p of ps) {
+        const q = ps.find((o) => o.arc === p.arc && o.place === p.place + 1);
+        if (!q) continue;
+        const mid = { x: (p.x + q.x) / 2, z: (p.z + q.z) / 2 };
+        expect(P.dressing.some((d) => Math.hypot(d.x - mid.x, d.z - mid.z) < 0.6), `${bank} ${p.arc}.${p.place}`).toBe(true);
+      }
+    }
   });
 
   it("counts the write-up's colliders: 760 kerb stones, 124 coping barriers, 40 parapet boxes, 110 hedge boxes", () => {

@@ -7,7 +7,9 @@
 // paths, avenues and plazas, the raised beds of dark mulch with their stone kerbs and a soft carpet of low growth,
 // the lanterns that stand at every plaza (brightening as night falls), the hedge that rings the Meadow and the trees
 // beyond it. A calm palette (sage lawn, cream sand, warm stone, deep hedge green) and a handful of draw calls: every
-// repeated part is one instanced or merged mesh. The dais and its rose are DaisRose; the plants are Plants.
+// repeated part is one instanced or merged mesh. The dais and its rose are DaisRose; the plants are Plants; the river
+// round the island (its water, walls, copings, bridges, lamps, stones and reeds) is components/lotus/river/River.tsx.
+// The paving rings carry the river's two towpaths, and a towpath's plazas stop at its coping.
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
@@ -150,6 +152,15 @@ function pavingGeometries(L: MeadowLayout): { rings: THREE.BufferGeometry; avenu
   const plazaParts = L.plazas.map((c) => {
     const disc = new THREE.RingGeometry(0.03, c.r, 40, 6);
     disc.translate(c.x, -c.z, 0);
+    // a towpath's plaza stops at the river's coping: what reaches past it is drawn in onto the coping's line
+    if (c.rMin > 0 || Number.isFinite(c.rMax)) {
+      const pos = disc.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), y = pos.getY(i), r = Math.hypot(x, y);
+        const to = Math.min(c.rMax, Math.max(c.rMin, r));
+        if (to !== r && r > 0) pos.setXY(i, (x / r) * to, (y / r) * to);
+      }
+    }
     return disc;
   });
   const plazas = laidFlat(plazaParts, (x, y, k) => {

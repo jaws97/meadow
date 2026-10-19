@@ -12,7 +12,8 @@
 // (never in production on or after 10 Nov). An instance shares one build among concurrent requests and reuses it for
 // a few seconds, short enough that a new sprout reaches the big screen quickly. A plant of a species this build does not
 // know is never loaded, and one that fails to catch up is logged and left out, so one plant never fails the whole
-// snapshot (species-guard.ts).
+// snapshot (species-guard.ts). Its plots are listed in sowing order (oldest first), which the party screen's feed reads
+// for the newest: plot numbers no longer say it, as a lotus in the river is numbered past every bed plot.
 //
 // A friend's garden (gardenOfPlot, GET /api/garden/[plot]) is the read-only view behind "See their garden": the plant in
 // one plot, caught up the same way, with only what the Meadow already shows plus what the garden scene needs to draw it
@@ -100,7 +101,7 @@ async function buildSnapshot(now: Date): Promise<MeadowSnapshot> {
     join meadow.people pe on pe.id = g.person_id
     join meadow.checkpoints c on c.plant_id = p.id
     where (${includeRehearsal} or not p.rehearsal) and p.species = any(${KNOWN_SPECIES as string[]}::text[])
-    order by p.plot_index`);
+    order by p.created_at, p.plot_index`);
 
   // A plant that cannot be read (a broken checkpoint, a species the model cannot step) is logged and left out: one plant
   // must never fail the snapshot everyone shares.

@@ -11,7 +11,8 @@ import { meadow } from "@/components/meadow/runtime";
 
 const MAX_DOTS = 96;
 const SPACING = 0.55;
-const DOT_Y = 0.03;
+/** The trail's dots and the goal ring stand this high, clear of the paving and of the bridges' decks (0.028). */
+const DOT_Y = 0.04;
 const GUIDE = "#fff1cf";
 const mtx = new THREE.Matrix4();
 

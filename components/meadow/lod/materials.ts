@@ -128,10 +128,12 @@ vec3 lodTint(vec3 c, vec4 tint, float flower) {
 }
 `;
 
-// The breeze: the plant rocks about its foot round the axis along its row, as VisitedPlant.tsx rocks the full plant.
+// The breeze: the plant rocks about its foot round the axis along its row, as VisitedPlant.tsx rocks the full plant
+// (sway: its phase, the plot number, and the row's angle). A negative phase stands it still, as a river pocket's lotus
+// stands (LodPlants.tsx).
 const SWAY = /* glsl */ `
 vec3 lodSway(vec3 d, vec2 sway, float t) {
-  float ang = 0.02 * sin(t * 0.9 + sway.x) + 0.008 * sin(t * 2.1);
+  float ang = step(0.0, sway.x) * (0.02 * sin(t * 0.9 + sway.x) + 0.008 * sin(t * 2.1));
   vec3 ax = vec3(-sin(sway.y), 0.0, cos(sway.y));
   float c = cos(ang), s = sin(ang);
   return d * c + cross(ax, d) * s + ax * dot(ax, d) * (1.0 - c);
@@ -505,6 +507,56 @@ export function patchFullPlant(shader: THREE.WebGLProgramParametersWithUniforms)
       "#include <clipping_planes_fragment>",
       `#include <clipping_planes_fragment>
 if (lodDither(gl_FragCoord.xy - vLodAnchor) >= uLodShare) discard;`,
+    );
+}
+
+/**
+ * How far from a visited pocket's lotus its own floating leaves lie (their centres reach 1.04 m along the shelf), and
+ * short of the nearest leaf of any other pocket (1.66 m on the same bank, 2.2 m across): the handover's reach.
+ */
+export const POCKET_HAND_REACH = 1.3;
+
+/**
+ * The handover for a river pocket's floating leaves, which Plants.tsx draws instanced at every distance: the leaves
+ * within POCKET_HAND_REACH of the plot being visited draw the steps its full plant leaves to them (they and the full
+ * plant's own floating leaves are the same leaves, live/pocketLook.ts), so one dissolves into the other, and back.
+ * Plants.tsx keeps these current from the handover (handover.ts); the foot is far away while no pocket is being visited.
+ */
+export const POCKET_HANDOVER = {
+  uHandShare: { value: 0 },
+  uHandFoot: { value: new THREE.Vector3(1e4, 0, 1e4) },
+};
+
+/** Adds the pocket leaves' side of the handover to their instanced material as it compiles. */
+export function patchPocketPads(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.uniforms.uHandShare = POCKET_HANDOVER.uHandShare;
+  shader.uniforms.uHandFoot = POCKET_HANDOVER.uHandFoot;
+  shader.uniforms.uLodRes = LOD_SCREEN;
+  shader.vertexShader = shader.vertexShader
+    .replace("#include <common>", `#include <common>
+uniform vec3 uHandFoot;
+varying float vHanded;
+${ANCHOR}`)
+    .replace(
+      "#include <project_vertex>",
+      `#include <project_vertex>
+vLodAnchor = lodAnchor(uHandFoot);
+#ifdef USE_INSTANCING
+vHanded = step(distance(instanceMatrix[3].xz, uHandFoot.xz), ${POCKET_HAND_REACH.toFixed(2)});
+#else
+vHanded = 0.0;
+#endif`,
+    );
+  shader.fragmentShader = shader.fragmentShader
+    .replace("#include <common>", `#include <common>
+uniform float uHandShare;
+varying vec2 vLodAnchor;
+varying float vHanded;
+${DITHER}`)
+    .replace(
+      "#include <clipping_planes_fragment>",
+      `#include <clipping_planes_fragment>
+if (vHanded > 0.5 && lodDither(gl_FragCoord.xy - vLodAnchor) < uHandShare) discard;`,
     );
 }
 

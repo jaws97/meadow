@@ -23,7 +23,11 @@ const GRAVITY: [number, number, number] = [0, -19.62, 0];
  */
 const BARRIER_H = 1.4;
 
-/** The Meadow's walls: the ground, the dais, every kerb stone and the hedge ring (layout.ts). */
+/**
+ * The Meadow's walls: the ground, the dais, every kerb stone, the river's copings and the bridges' parapets, and the
+ * hedge ring (layout.ts). The ground runs on unbroken under the river: the copings and parapets keep the cart out of the
+ * water, and the bridges' decks lie level with the paving, so the cart rolls over them on the ground itself.
+ */
 function MeadowColliders({ layout: L }: { layout: MeadowLayout }) {
   return (
     <RigidBody type="fixed" colliders={false}>
@@ -31,6 +35,9 @@ function MeadowColliders({ layout: L }: { layout: MeadowLayout }) {
       <CylinderCollider args={[BARRIER_H / 2, DAIS.r]} position={[0, BARRIER_H / 2, 0]} />
       {L.kerbs.map((b, i) => (
         <CuboidCollider key={`k${i}`} args={[b.hx, BARRIER_H / 2, b.hz]} position={[b.x, BARRIER_H / 2, b.z]} rotation={[0, b.yaw, 0]} />
+      ))}
+      {[...L.copings, ...L.parapets].map((b, i) => (
+        <CuboidCollider key={`r${i}`} args={[b.hx, BARRIER_H / 2, b.hz]} position={[b.x, BARRIER_H / 2, b.z]} rotation={[0, b.yaw, 0]} />
       ))}
       {L.hedge.map((b, i) => (
         <CuboidCollider key={`h${i}`} args={[b.hx, BARRIER_H / 2, b.hz]} position={[b.x, BARRIER_H / 2, b.z]} rotation={[0, b.yaw, 0]} />

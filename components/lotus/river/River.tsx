@@ -3,12 +3,23 @@
    The water's uniforms, the lamps' glow uniform and the instanced meshes are three.js objects written in layout
    effects and the frame loop, which is how an R3F part animates without re-rendering; the React Compiler lint reads
    those writes as mutating a hook's value. Nothing they write feeds back into what React renders. */
-// The lazy river itself (Option A, plan.ts): the water (water.ts), the granite copings in blocks overhanging the water
-// a little, the stone walls with their damp band, the four flat granite slab bridges (three slabs on two piers with
-// pointed cutwaters upstream, parapets flaring to the mouths, an end post at each parapet end carrying a 2.2 m lamp
-// post), the 56 pockets' sill stones, the stones and reed clumps at the bridge mouths and between the pockets, and by
-// night a soft streak on the water under each lamp. Every repeated part is one merged or instanced mesh: water,
-// walls, copings, bridges, lamps, sills, stones, reeds, streaks and the lamps' pools, ten draw calls (plus shadows).
+// The lazy river itself (Option A, components/meadow/river.ts), drawn in the Meadow (MeadowCanvas) and on the river
+// preview (RiverScene) from the same parts: the water (water.ts), the granite copings in blocks overhanging the water a
+// little, the stone walls with their damp band, the four flat granite slab bridges (three slabs on two piers with
+// pointed cutwaters upstream, open parapets flaring to the mouths, an end post at each parapet end carrying a 2.2 m lamp
+// post), the 56 pockets' sill stones, the stones and reed clumps at the bridge mouths and between the pockets, the
+// sweet-flag margins, and by night a soft streak on the water under each lamp and a pool of light on each bridge's
+// mouth. Every repeated part is one merged or instanced mesh: water, walls, copings, bridges, lamps, three stone
+// shapes, reeds, margins, streaks and the lamps' pools, a dozen draw calls (plus shadows). No fish: the owner keeps koi
+// to the personal pond.
+//
+// Below the preview's own cinematic tier it is drawn lighter, measured in the Meadow (whose whole frame it shares): the
+// sill and ledge stones as coarser rocks casting no shadow (some fourteen hundred stones a few centimetres across, at
+// the water), the sweet flag casting none either, the copings' arcs in longer pieces, and the water's foam round only
+// the stones and piers nearest the view (the water's shader looks at each one it is given, for every pixel of water).
+// The phone tier (lite) more again: the water ring at half the segments and its surface reading one ripple layer, the
+// sills' stones a little larger and fewer, the reeds and the sweet flag with fewer blades and the sweet flag in half the
+// clumps, the copings in longer blocks, and no shadows from any of them.
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
@@ -16,11 +27,12 @@ import { liveGlowMaterial, seeded } from "@/components/meadow/parts";
 import { meadow } from "@/components/meadow/runtime";
 import { env } from "@/lib/garden/env";
 import { marginMaterial, marginUniforms } from "@/components/lotus/materials";
-import { BRIDGE, LEVEL, POCKET, pocketOutline, polar, type Bridge, type RiverPlan } from "@/components/lotus/river/plan";
+import { BRIDGE, LEVEL, POCKET, pocketOutline, polar, type Bridge, type RiverParts } from "@/components/meadow/river";
 import { bevelPrism, copingGeometry, lampGeometry, mergeAll, prism, reedClumpGeometry, rockGeometry, Tris, wallGeometry } from "@/components/lotus/river/riverGeometry";
 import { MAX_OBSTACLES, riverWaterMaterial, waterUniforms } from "@/components/lotus/river/water";
-import { poolTexture } from "@/components/lotus/river/RiverGrounds";
 import type { P2 } from "@/components/meadow/layout";
+
+type RiverTier = "cinematic" | "balanced" | "lite";
 
 const TAU = Math.PI * 2;
 /** The walls' face runs from just under the coping down below the waterline (the water is opaque). */
@@ -34,6 +46,14 @@ const LAMP_FOOT = POST.top + POST.cap;
 const FOLLOW_ELEVATION = Math.PI / 2 - 0.28 * Math.PI;
 /** The Meadow camera's fixed bearing (CameraRig THETA): from a point toward the camera on the ground. */
 const TOWARD_CAMERA = { x: Math.SQRT1_2, z: Math.SQRT1_2 };
+/** How many stones and piers the water's foam is worked out for, nearest the view first (each costs every water pixel). */
+const FOAM_OBSTACLES: Record<RiverTier, number> = { cinematic: MAX_OBSTACLES, balanced: 32, lite: 16 };
+/** Past this camera distance (metres) the foam's lines (a few centimetres) are under a pixel and are not worked out. */
+const FOAM_FAR = 40;
+/** The copings' blocks (metres) and the longest piece of their arcs (sweepBlock). */
+const COPING: Record<RiverTier, { block: number; step: number }> = { cinematic: { block: 0.9, step: 0.25 }, balanced: { block: 0.9, step: 0.45 }, lite: { block: 1.8, step: 0.6 } };
+/** The Meadow's breeze for the reeds and the sweet flag (the garden's calm default), where the river keeps its own clock. */
+const MEADOW_WIND = 0.5;
 
 /**
  * Light thrown back onto the stonework's upright faces by the sunlit paving and water round it. The Meadow's lights
@@ -206,6 +226,24 @@ function wallTexture(): THREE.CanvasTexture {
   return t;
 }
 
+/** A warm pool of lamplight on the paving, bright at the foot and gone by the edge (as the plaza lanterns throw). */
+function lampPoolTexture(): THREE.CanvasTexture {
+  const s = 128;
+  const c = document.createElement("canvas");
+  c.width = s;
+  c.height = s;
+  const ctx = c.getContext("2d")!;
+  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  g.addColorStop(0, "rgba(255,200,130,0.9)");
+  g.addColorStop(0.35, "rgba(255,170,90,0.35)");
+  g.addColorStop(1, "rgba(255,150,70,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 /** The parapets' inner face at u: half the width between them (piecewise linear between the plan's breakpoints). */
 function faceAt(b: Bridge, u: number): number {
   const f = b.face;
@@ -234,8 +272,8 @@ function band(b: Bridge, u0: number, u1: number, inner: (u: number) => number, o
 }
 
 /** One bridge, merged: its five slabs, both parapets with their caps, four end posts with caps, and two piers. */
-function bridgeTris(b: Bridge, P: RiverPlan, out: Tris, rnd: () => number) {
-  const { c0, wIn, wOut, c1 } = P.river;
+function bridgeTris(b: Bridge, P: RiverParts, out: Tris, rnd: () => number) {
+  const { c0, wIn, wOut, c1 } = P.band;
   const B = BRIDGE;
   const tone = () => {
     const t = 0.82 + rnd() * 0.16;
@@ -312,7 +350,10 @@ interface Stone {
   shape: number;
 }
 
-function stonesOf(P: RiverPlan): { stones: Stone[]; obstacles: Array<{ a: P2; b: P2; r: number }> } {
+/** The sills' stones and the ledges' pairs; `sparse` (a phone) lays the sills' a little larger and further apart. */
+function stonesOf(P: RiverParts, sparse = false): { stones: Stone[]; obstacles: Array<{ a: P2; b: P2; r: number }> } {
+  const grow = sparse ? 1.15 : 1;
+  const apart = sparse ? 1.35 : 1;
   const rnd = seeded(2024);
   const stones: Stone[] = [];
   const obstacles: Array<{ a: P2; b: P2; r: number }> = [];
@@ -330,13 +371,13 @@ function stonesOf(P: RiverPlan): { stones: Stone[]; obstacles: Array<{ a: P2; b:
         // a mix of sizes, rounded and chunky, some barely awash, with gaps where the current has rolled one away: a
         // laid edge, not a necklace
         const big = rnd() < 0.3;
-        const size = big ? 0.12 + rnd() * 0.06 : 0.06 + rnd() * 0.05;
+        const size = (big ? 0.12 + rnd() * 0.06 : 0.06 + rnd() * 0.05) * grow;
         const sy = size * (0.75 + rnd() * 0.3);
         const top = LEVEL.sill + (rnd() - 0.55) * 0.08;
         const jx = (rnd() - 0.5) * 0.05, jz = (rnd() - 0.5) * 0.05;
         // wet and darker than the copings, some barely awash
         stones.push({ x: x + jx, y: top - 0.79 * sy, z: z + jz, sx: size * (1 + rnd() * 0.45), sy, sz: size, yaw: rnd() * TAU, tone: 0.42 + rnd() * 0.3, moss: rnd() < 0.35 ? 0.4 + rnd() * 0.6 : 0, shape: Math.floor(rnd() * 3) });
-        next += size * (1.3 + rnd() * 0.6) + (rnd() < 0.12 ? 0.12 + rnd() * 0.2 : 0);
+        next += size * (1.3 + rnd() * 0.6) * apart + (rnd() < 0.12 ? 0.12 + rnd() * 0.2 : 0);
       }
       acc += seg;
     }
@@ -367,8 +408,11 @@ function stonesOf(P: RiverPlan): { stones: Stone[]; obstacles: Array<{ a: P2; b:
   return { stones, obstacles };
 }
 
-function Stones({ stones }: { stones: Stone[] }) {
-  const shapes = useMemo(() => [rockGeometry(1), rockGeometry(2), rockGeometry(3)], []);
+function Stones({ stones, tier, shadows }: { stones: Stone[]; tier: RiverTier; shadows: boolean }) {
+  // (coarser rocks below the cinematic tier: a stone is a few pixels across from the Meadow's cameras, and there are
+  // some fourteen hundred; they cast no shadow there either, lying at the water)
+  const detail = tier === "cinematic" ? 1 : 0;
+  const shapes = useMemo(() => [rockGeometry(1, detail), rockGeometry(2, detail), rockGeometry(3, detail)], [detail]);
   useEffect(() => () => shapes.forEach((g) => g.dispose()), [shapes]);
   const material = useMemo(() => withWetBand(withBounce(new THREE.MeshStandardMaterial({ color: "#9a9284", roughness: 0.7, metalness: 0 }), "stones"), "stones"), []);
   useEffect(() => () => material.dispose(), [material]);
@@ -404,7 +448,7 @@ function Stones({ stones }: { stones: Stone[] }) {
             refs.current[k] = m;
           }}
           args={[shapes[k], material, list.length]}
-          castShadow
+          castShadow={shadows && tier === "cinematic"}
           receiveShadow
         />
       ))}
@@ -412,7 +456,7 @@ function Stones({ stones }: { stones: Stone[] }) {
   );
 }
 
-function Reeds({ P, tier }: { P: RiverPlan; tier: "cinematic" | "balanced" | "lite" }) {
+function Reeds({ P, tier }: { P: RiverParts; tier: RiverTier }) {
   const geo = useMemo(() => {
     const blades = tier === "lite" ? 18 : tier === "balanced" ? 30 : 42;
     const segs = tier === "lite" ? 3 : 5;
@@ -427,7 +471,7 @@ function Reeds({ P, tier }: { P: RiverPlan; tier: "cinematic" | "balanced" | "li
     return mergeAll(parts);
   }, [P, tier]);
   useEffect(() => () => geo.dispose(), [geo]);
-  return <mesh name="river-reeds" geometry={geo} material={marginMaterial()} castShadow receiveShadow />;
+  return <mesh name="river-reeds" geometry={geo} material={marginMaterial()} castShadow={tier !== "lite"} receiveShadow />;
 }
 
 
@@ -438,16 +482,18 @@ function Reeds({ P, tier }: { P: RiverPlan; tier: "cinematic" | "balanced" | "li
  * clump, now two together, now a gap, so the hard granite channel reads softened and planted rather than as a moat.
  * Tufts are also set on a few pockets' sills.
  */
-function Margins({ P, tier }: { P: RiverPlan; tier: "cinematic" | "balanced" | "lite" }) {
+function Margins({ P, tier }: { P: RiverParts; tier: RiverTier }) {
   const geo = useMemo(() => {
-    const blades = tier === "lite" ? 12 : tier === "balanced" ? 18 : 24;
+    const blades = tier === "lite" ? 9 : tier === "balanced" ? 18 : 24;
+    // a phone keeps about half the clumps (the drifts read the same at its size)
+    const keep = tier === "lite" ? 0.5 : 1;
     const segs = tier === "lite" ? 3 : 4;
     const rnd = seeded(5150);
     const parts: THREE.BufferGeometry[] = [];
     const crown = LEVEL.water - 0.1;
     let seed = 400;
     for (const bank of ["in", "out"] as const) {
-      const face = bank === "in" ? P.river.wIn : P.river.wOut;
+      const face = bank === "in" ? P.band.wIn : P.band.wOut;
       const dir = bank === "in" ? 1 : -1;
       const pocketsHere = P.pockets.filter((p) => p.bank === bank);
       const step = 0.45 / face;
@@ -460,6 +506,7 @@ function Margins({ P, tier }: { P: RiverPlan; tier: "cinematic" | "balanced" | "
         const drift = 0.5 + 0.5 * Math.sin(a * 7.3 + Math.sin(a * 2.1) * 2.0);
         if (rnd() > 0.35 + 0.6 * drift) continue;
         const r = face + dir * (0.16 + 0.12 * rnd());
+        if (keep < 1 && rnd() > keep) continue;
         const p = polar(r, a);
         const g = reedClumpGeometry(blades, 0.42 + 0.18 * rnd(), seed++, segs);
         g.scale(1.25, 1, 1.25);
@@ -481,7 +528,7 @@ function Margins({ P, tier }: { P: RiverPlan; tier: "cinematic" | "balanced" | "
     return mergeAll(parts);
   }, [P, tier]);
   useEffect(() => () => geo.dispose(), [geo]);
-  return <mesh name="river-margins" geometry={geo} material={marginMaterial()} castShadow receiveShadow />;
+  return <mesh name="river-margins" geometry={geo} material={marginMaterial()} castShadow={tier === "cinematic"} receiveShadow />;
 }
 
 /** Soft streaks of lamplight on the water under each lamp whose reflection falls on open water (night only). */
@@ -512,9 +559,9 @@ function streakTexture(): THREE.CanvasTexture {
   return t;
 }
 
-function onOpenWater(P: RiverPlan, p: P2): boolean {
+function onOpenWater(P: RiverParts, p: P2): boolean {
   const r = Math.hypot(p.x, p.z);
-  if (r < P.river.wIn + 0.3 || r > P.river.wOut - 0.3) return false;
+  if (r < P.band.wIn + 0.3 || r > P.band.wOut - 0.3) return false;
   const a = Math.atan2(p.z, p.x);
   return P.bridges.every((b) => {
     let d = a - b.a;
@@ -524,10 +571,17 @@ function onOpenWater(P: RiverPlan, p: P2): boolean {
   });
 }
 
-export function River({ P, tier, still, shadows }: { P: RiverPlan; tier: "cinematic" | "balanced" | "lite"; still: boolean; shadows: boolean }) {
+/**
+ * The river. `clock`: "env" reads the garden's shared clock and breeze (lib/garden/env, which the preview's page keeps
+ * and holds still for its frames); "frame" keeps the river's own, as the Meadow does (it keeps no garden clock).
+ */
+export function River({ P, tier, still, shadows, clock = "env" }: { P: RiverParts; tier: RiverTier; still: boolean; shadows: boolean; clock?: "env" | "frame" }) {
   const lite = tier === "lite";
-  const { c0, wIn, wOut, c1 } = P.river;
-  const water = useMemo(() => new THREE.RingGeometry(wIn - 0.03, wOut + 0.03, 720, 4).rotateX(-Math.PI / 2).translate(0, LEVEL.water, 0), [wIn, wOut]);
+  const { c0, wIn, wOut, c1 } = P.band;
+  const water = useMemo(
+    () => new THREE.RingGeometry(wIn - 0.03, wOut + 0.03, lite ? 360 : 720, lite ? 2 : 4).rotateX(-Math.PI / 2).translate(0, LEVEL.water, 0),
+    [wIn, wOut, lite],
+  );
   const waterMat = useMemo(() => riverWaterMaterial(lite), [lite]);
   const granite = useMemo(() => graniteTexture(), []);
   const stoneMat = useMemo(() => withWetBand(withBounce(new THREE.MeshStandardMaterial({ map: granite, vertexColors: true, roughness: 0.82, metalness: 0 }), "granite"), "granite"), [granite]);
@@ -553,10 +607,10 @@ export function River({ P, tier, still, shadows }: { P: RiverPlan; tier: "cinema
         const next = P.bridges[(k + 1) % P.bridges.length].a + (k === P.bridges.length - 1 ? TAU : 0);
         return [b.a + ha, next - ha];
       });
-      parts.push(copingGeometry(stretches, r0, r1, LEVEL.copingBase, LEVEL.coping, 0.9, seed));
+      parts.push(copingGeometry(stretches, r0, r1, LEVEL.copingBase, LEVEL.coping, COPING[tier].block, seed, COPING[tier].step));
     }
     return mergeAll(parts);
-  }, [P, c0, wIn, wOut, c1]);
+  }, [P, c0, wIn, wOut, c1, tier]);
   const bridges = useMemo(() => {
     const out = new Tris();
     const rnd = seeded(31);
@@ -566,7 +620,7 @@ export function River({ P, tier, still, shadows }: { P: RiverPlan; tier: "cinema
   const lamps = useMemo(() => lampGeometry(LAMP_FOOT, LEVEL.lamp), []);
   const lampPoints = useMemo(() => P.bridges.flatMap((b) => b.lamps), [P]);
   const { material: lampMat, glow } = useMemo(() => liveGlowMaterial({ roughness: 0.55, metalness: 0.25 }, "river-lamp"), []);
-  const { stones, obstacles } = useMemo(() => stonesOf(P), [P]);
+  const { stones, obstacles } = useMemo(() => stonesOf(P, lite), [P, lite]);
 
   // the lamps' reflections: from each lamp's mirror image (as far under the water as the lamp stands over it) toward
   // the camera's fixed bearing, the surface point the follow camera sees it at
@@ -579,7 +633,7 @@ export function River({ P, tier, still, shadows }: { P: RiverPlan; tier: "cinema
     const g = new THREE.PlaneGeometry(0.42, 2.6).rotateX(-Math.PI / 2);
     const tex = streakTexture();
     const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending, opacity: 0 });
-    const pool = poolTexture();
+    const pool = lampPoolTexture();
     const poolMat = new THREE.MeshBasicMaterial({ map: pool, transparent: true, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending, opacity: 0 });
     const poolGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     return { g, tex, mat, pool, poolMat, poolGeo };
@@ -608,15 +662,24 @@ export function River({ P, tier, still, shadows }: { P: RiverPlan; tier: "cinema
     [water, waterMat, granite, stoneMat, wallTex, wallMat, walls, copings, bridges, lamps, lampMat, streakAssets],
   );
 
-  // the water's stones and piers, nearest the Meadow's camera side first (the shader takes MAX_OBSTACLES)
-  useLayoutEffect(() => {
-    const list = obstacles.slice().sort((p, q) => Math.hypot(p.a.x - 12, p.a.z - 12) - Math.hypot(q.a.x - 12, q.a.z - 12)).slice(0, MAX_OBSTACLES);
+  // the water's stones and piers whose foam is drawn: the nearest the view's focus (meadow.focus), chosen again as the
+  // view moves on (the Meadow camera's side of the river first until there is a focus)
+  const foamBudget = Math.min(MAX_OBSTACLES, FOAM_OBSTACLES[tier]);
+  const foamAt = useRef({ x: NaN, z: NaN, count: 0 });
+  const chooseFoam = (fx: number, fz: number) => {
+    const d = (o: { a: P2; b: P2 }) => Math.hypot((o.a.x + o.b.x) / 2 - fx, (o.a.z + o.b.z) / 2 - fz);
+    const list = obstacles.slice().sort((p, q) => d(p) - d(q)).slice(0, foamBudget);
     list.forEach((o, i) => {
       waterUniforms.uObs.value[i].set(o.a.x, o.a.z, o.b.x, o.b.z);
       waterUniforms.uObsR.value[i] = o.r;
     });
     waterUniforms.uObsCount.value = list.length;
-  }, [obstacles]);
+    foamAt.current = { x: fx, z: fz, count: list.length };
+  };
+  useLayoutEffect(() => {
+    chooseFoam(12, 12);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obstacles, foamBudget]);
 
   const lampRef = useRef<THREE.InstancedMesh>(null);
   const streakRef = useRef<THREE.InstancedMesh>(null);
@@ -648,16 +711,24 @@ export function River({ P, tier, still, shadows }: { P: RiverPlan; tier: "cinema
   }, [lampPoints, streaks]);
 
   useFrame((state) => {
-    waterUniforms.uTime.value = env.time;
+    const time = clock === "frame" ? state.clock.elapsedTime : env.time;
+    waterUniforms.uTime.value = time;
     waterUniforms.uRipple.value = 1;
-    marginUniforms.uMarginTime.value = env.time;
-    marginUniforms.uMarginWind.value = env.wind;
+    marginUniforms.uMarginTime.value = time;
+    marginUniforms.uMarginWind.value = clock === "frame" ? MEADOW_WIND : env.wind;
+    // the foam follows the view, once it has moved a few metres (all of it is drawn where the budget covers every stone)
+    if (foamBudget < obstacles.length && meadow.focus.lengthSq() > 0) {
+      const f = meadow.focus, at = foamAt.current;
+      if (!(Math.hypot(f.x - at.x, f.z - at.z) < 3)) chooseFoam(f.x, f.z);
+    }
+    waterUniforms.uObsCount.value = meadow.cameraDistance > FOAM_FAR ? 0 : foamAt.current.count;
     const breath = still ? 1 : 0.94 + 0.06 * Math.sin(state.clock.elapsedTime * 1.3);
     glow.value = (0.4 + 2.6 * meadow.night) * breath;
     wallMat.emissiveIntensity = 1 - meadow.night;
     bounceUniforms.uBounce.value.copy(BOUNCE).multiplyScalar(0.3 * (1 - meadow.night));
     const night = Math.max(0, meadow.night - 0.2);
-    streakAssets.mat.opacity = night * 0.7 * breath;
+    // (brighter on lite, as its water's night sheen: water.ts)
+    streakAssets.mat.opacity = night * (lite ? 0.9 : 0.7) * breath;
     streakAssets.poolMat.opacity = night * 0.7 * breath;
     if (streakRef.current) streakRef.current.visible = streakAssets.mat.opacity > 0.01;
     if (poolRef.current) poolRef.current.visible = streakAssets.poolMat.opacity > 0.01;
@@ -668,11 +739,11 @@ export function River({ P, tier, still, shadows }: { P: RiverPlan; tier: "cinema
       <mesh name="river-water" geometry={water} material={waterMat} receiveShadow />
       <mesh name="river-walls" geometry={walls} material={wallMat} receiveShadow />
       <mesh name="river-copings" geometry={copings} material={stoneMat} castShadow={shadows} receiveShadow />
-      <mesh name="river-bridges" geometry={bridges} material={stoneMat} castShadow receiveShadow />
-      <instancedMesh name="river-lamps" ref={lampRef} args={[lamps, lampMat, lampPoints.length]} castShadow />
+      <mesh name="river-bridges" geometry={bridges} material={stoneMat} castShadow={shadows} receiveShadow />
+      <instancedMesh name="river-lamps" ref={lampRef} args={[lamps, lampMat, lampPoints.length]} castShadow={shadows} />
       <instancedMesh ref={poolRef} args={[streakAssets.poolGeo, streakAssets.poolMat, lampPoints.length]} renderOrder={4} visible={false} />
       {streaks.length > 0 ? <instancedMesh ref={streakRef} args={[streakAssets.g, streakAssets.mat, streaks.length]} renderOrder={4} visible={false} /> : null}
-      <Stones stones={stones} />
+      <Stones stones={stones} tier={tier} shadows={shadows} />
       <Reeds P={P} tier={tier} />
       <Margins P={P} tier={tier} />
     </group>

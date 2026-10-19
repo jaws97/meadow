@@ -11,7 +11,8 @@
 // locking transaction runs through db.ts transaction(), which bounds its waits.
 //
 // Planting: a seed needs the party code from the QR link (party.ts), so the internet at large cannot plant. Plots are
-// handed out under one advisory lock, inner rings first, growing past the planned rings when needed (plots.ts). A
+// handed out under one advisory lock, inner rings first, growing past the planned rings when needed (plots.ts); a lotus
+// takes the next of the river's 56 pockets instead (plot numbers from 2000), and a bed plot once they are all taken. A
 // global throttle (PLANTINGS_PER_MINUTE) slows a runaway script; the UI retries a 429 or 503 by itself with the same
 // clientEventId. A retried planting is answered with the original only for the same name and species, within half an
 // hour, and from no session or its own (rules.ts decideSeedReplay).
@@ -55,7 +56,7 @@ import { ApiError } from "./http";
 import { createGardenLink, createSession } from "./identity";
 import { requirePartyCode } from "./party";
 import { KNOWN_SPECIES } from "./species-guard";
-import { PLOT_CAPACITY, assignPlot } from "./plots";
+import { PLOT_CAPACITY, assignPlot, isBedIndex } from "./plots";
 import {
   careStatus,
   decideCare,
@@ -451,12 +452,15 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
         throw new ApiError(429, "busy_planting", "Lots of seeds are going in at once. Yours will follow in a moment.", { retryAfterS: plantingRetryAfterS() });
       }
       const taken = await tx<{ plot_index: number }[]>`select plot_index from meadow.plants`;
-      const plot = assignPlot(taken.map((r) => r.plot_index), { from: rehearsal ? "outer" : "inner" });
+      // a lotus is planted in the river: the next free pocket, or (all taken) a bed plot, where it stands in a brass urli
+      const water = species === "lotus";
+      const plot = assignPlot(taken.map((r) => r.plot_index), { from: rehearsal ? "outer" : "inner", water });
       if (plot === null) {
         console.error(`[meadow api] the Meadow is full: all ${taken.length} plots are taken`);
         throw new ApiError(503, "meadow_full", "The Meadow has no free plot just now. The committee has been told; please try again a little later.");
       }
-      if (plot >= PLOT_CAPACITY) console.warn(`[meadow api] plot ${plot} is beyond the ${PLOT_CAPACITY} planned plots; the Meadow is growing outward`);
+      if (water && isBedIndex(plot)) console.info(`[meadow api] every river pocket is taken: this lotus goes to bed plot ${plot}, in an urli`);
+      if (isBedIndex(plot) && plot >= PLOT_CAPACITY) console.warn(`[meadow api] plot ${plot} is beyond the ${PLOT_CAPACITY} planned plots; the Meadow is growing outward`);
       const [person] = await tx<{ id: string }[]>`
         insert into meadow.people (first_name, show_name, seed_request_hash)
         values (${input.firstName}, ${input.showName}, ${requestHash}) returning id`;

@@ -5,7 +5,9 @@
 //
 // A lotus speaks for itself in its own lines (lib/sim POND_LINES: "the pond could use a top-up"); the card says them of
 // it, in the third person ("The pond could use a top-up."), and names its stages as a lotus grows them: in its jar,
-// floating leaves, standing leaves, in bud, in bloom, a seed pod.
+// floating leaves, standing leaves, in bud, in bloom, a seed pod. Seen in the Meadow (a river pocket, always full, with
+// no koi, or a brass urli), its pond and its koi are back home, and the card says so ("At home, its pond could use a
+// top-up."); its friend's own garden says them as they are.
 import type { FriendGarden, MeadowPlot } from "@/lib/server/meadow";
 import { SPECIES, type SpeciesId } from "@/lib/plant/species";
 import type { PondLine, PondVisual, Visual } from "@/lib/sim";
@@ -80,31 +82,56 @@ const POND_SAID: Partial<Record<PondLine, string>> = {
   "a second-chance seedling; my flower will be smaller": "A second-chance seedling, finding its feet.",
 };
 
-/** A contented lotus, by its stage. */
-function lotusStageLine(f: Pick<FriendGarden, "stage" | "day">, v: PondVisual): string {
+/** Its lines about its pond and its koi, said in the Meadow, away from them. */
+const POND_SAID_AWAY: Partial<Record<PondLine, string>> = {
+  "my root and first leaf are out and my water is murky; plant me in my pot in the pond": "Its root and first leaf are out, ready for its pond at home.",
+  "my root and first leaf are out; plant me in my pot in the pond": "Its root and first leaf are out, ready for its pond at home.",
+  "my pot has dried out; my leaves are crisping": "At home, the water in its pot is gone. Its pond would love a top-up.",
+  "the water in my pot is gone; the mud is drying": "At home, the water in its pot is gone. Its pond would love a top-up.",
+  "the koi keep eating my young leaves, so I cannot grow; feed them, please": "At home, the koi are nibbling its young leaves. They are hungry.",
+  "the pond has dropped below the rim of my pot; a top-up or two, please": "At home, its pond has dropped below its pot. A top-up or two would help.",
+  "the koi have nibbled many of my floating leaves; they are hungry": "At home, the koi are nibbling its floating leaves. They are hungry.",
+  "the koi are nibbling my young leaves; they are hungry": "At home, the koi are nibbling its young leaves. They are hungry.",
+  "the koi are nosing at my bud; they are hungry": "At home, the koi are nosing at its bud. They are hungry.",
+  "the pond is low": "At home, its pond is low. A top-up would help.",
+  "the koi are gulping at the surface this morning; the pond is too green": "At home, the koi are gulping at the surface. Its pond has turned green.",
+  "the pond has turned green; go easy on the koi food": "At home, its pond has turned green.",
+  "I have settled into my pot in the pond": "Just settled into its pot, in its pond at home.",
+  "the koi are hungry": "At home, the koi are hungry.",
+  "the pond could use a top-up": "At home, its pond could use a top-up.",
+  "the pond is turning a little green": "At home, its pond is turning a little green.",
+  "the koi have had plenty today; leftover food clouds the water": "At home, the koi have had plenty today.",
+};
+
+/** A contented lotus, by its stage (`away`: seen in the Meadow, on the river's water or the urli's). */
+function lotusStageLine(f: Pick<FriendGarden, "stage" | "day">, v: PondVisual, away: boolean): string {
+  const water = away ? "the water" : "the pond";
   if (v.stage === "jar") return f.day <= 1 ? "Just planted, a seed in a jar of water." : "A seed in clear water, waking up.";
-  if (v.aerialLeaves === 0) return "Floating leaves on the pond, growing well.";
+  if (v.aerialLeaves === 0) return `Floating leaves on ${water}, growing well.`;
   if (f.stage === "bud") return "A bud is rising. The flower is on its way.";
-  return "Standing leaves over the pond, growing well.";
+  return `Standing leaves over ${water}, growing well.`;
 }
 
 /** One kind line about how a friend's lotus is doing, from its own words. */
-function lotusMoodLine(f: Pick<FriendGarden, "stage" | "day">, v: PondVisual, at: number): string {
+function lotusMoodLine(f: Pick<FriendGarden, "stage" | "day">, v: PondVisual, at: number, away: boolean): string {
   if (f.stage === "resting" || !v.alive) return "Resting for now. Every garden has quiet days.";
-  const said = POND_SAID[v.says];
+  const said = (away ? POND_SAID_AWAY[v.says] : undefined) ?? POND_SAID[v.says];
   if (said) return said;
   const h = istHour(at);
   if (v.mood === "resting" && (h >= 19 || h < 5)) return "Resting for the night.";
-  return lotusStageLine(f, v);
+  return lotusStageLine(f, v, away);
 }
 
 /** The hour in Bangalore, fractional. */
 const istHour = (at = Date.now()) => (((at / 3_600_000 + 5.5) % 24) + 24) % 24;
 
-/** One kind line about how a friend's plant is doing. */
-export function moodLine(f: Pick<FriendGarden, "species" | "stage" | "visual" | "day" | "generation">, at = Date.now()): string {
+/**
+ * One kind line about how a friend's plant is doing. `away`: said in the Meadow, where a lotus stands away from its own
+ * pond and koi (its friend's garden says it as it is).
+ */
+export function moodLine(f: Pick<FriendGarden, "species" | "stage" | "visual" | "day" | "generation">, at = Date.now(), away = false): string {
   const pond = pondOf(f.visual);
-  if (pond) return lotusMoodLine(f, pond, at);
+  if (pond) return lotusMoodLine(f, pond, at, away);
   const mood = f.visual.mood;
   // a plant that has died back is resting; a living one "rests" at night, or while it gathers itself after a hard spell
   if (f.stage === "resting" || !f.visual.alive) return "Resting for now. Every garden has quiet days.";

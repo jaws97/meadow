@@ -2,7 +2,7 @@
 // it uses, and returns either a clean value or a calm, specific message the UI can show as it is. Pure, so the tests
 // run without a server.
 import type { SpeciesId } from "@/lib/plant/species";
-import { PLOT_LIMIT } from "./plots";
+import { isPlotIndex } from "./plots";
 import { isTokenShape } from "./tokens";
 
 export type Invalid = { ok: false; code: string; message: string; field?: string };
@@ -145,11 +145,11 @@ export function parseCareBody(body: unknown): Result<CareInput> {
   return ok({ kind: kind as CareKind, clientEventId: body.clientEventId, on });
 }
 
-/** POST /api/sprinkle: { plot, clientEventId } where plot is the friend's plot in the Meadow. */
+/** POST /api/sprinkle: { plot, clientEventId } where plot is the friend's plot in the Meadow (a bed plot or a river pocket). */
 export function parseSprinkleBody(body: unknown): Result<SprinkleInput> {
   if (!isRecord(body)) return invalid("bad_body", "Please send the sprinkle as a JSON object.");
   const plot = body.plot;
-  if (typeof plot !== "number" || !Number.isInteger(plot) || plot < 0 || plot >= PLOT_LIMIT) {
+  if (typeof plot !== "number" || !isPlotIndex(plot)) {
     return invalid("plot_unknown", "That plot is not in the Meadow; pick a friend's flower to sprinkle.", "plot");
   }
   if (!isClientEventId(body.clientEventId)) {

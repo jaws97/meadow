@@ -134,13 +134,22 @@ describe("the counter and the feed", () => {
     expect(seedColour("marigold")).not.toBe(seedColour("lotus"));
   });
 
-  it("finds new plantings oldest first, and the latest ones newest first", () => {
+  it("finds new plantings oldest first, and the latest ones newest first, in the snapshot's sowing order", () => {
     const known = new Set([plantingKey(plot(0, "Priya"))]);
-    const plots = [plot(5, "Meera", "sundrop"), plot(0, "Priya"), plot(2, "Ravi", "island")];
+    const plots = [plot(0, "Priya"), plot(2, "Ravi", "island"), plot(5, "Meera", "sundrop")];
     expect(newPlantings(known, plots).map((p) => p.name)).toEqual(["Ravi", "Meera"]);
     expect(latestPlantings(plots, 2).map((p) => p.name)).toEqual(["Meera", "Ravi"]);
+    expect(latestPlantings(plots, 9).map((p) => p.name)).toEqual(["Meera", "Ravi", "Priya"]);
+    expect(latestPlantings(plots, 0)).toEqual([]);
     // a removed test plant's plot taken by someone else is a new planting
     expect(newPlantings(known, [plot(0, "Asha")]).map((p) => p.name)).toEqual(["Asha"]);
+  });
+
+  it("does not take a lotus in the river (its plot numbered past every bed) for the newest planting", () => {
+    // sown in this order: a lotus into pocket 2003, then a rose into bed plot 40
+    const plots = [plot(2003, "Lata", "lotus"), plot(40, "Arun", "rose")];
+    expect(latestPlantings(plots, 1).map((p) => p.name)).toEqual(["Arun"]);
+    expect(newPlantings(new Set(), plots).map((p) => p.name)).toEqual(["Lata", "Arun"]);
   });
 
   it("keeps the waiting line short in a rush", () => {

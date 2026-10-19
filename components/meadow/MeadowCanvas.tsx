@@ -28,7 +28,9 @@
 // as the rest of the scene instead of each guessing from the device.
 //
 // The plan. The ground plan follows the rings in use (layout.ts): six planned rings, and whole beds more only if
-// the Meadow outgrows them, rebuilt under a new key when that happens.
+// the Meadow outgrows them, rebuilt under a new key when that happens. The lazy river round the rose's island is drawn
+// with the grounds (components/lotus/river/River.tsx, from the plan's river parts), at the device's tier, keeping its
+// own clock.
 //
 // Frame order, by useFrame priority: perf probe (-10), controller (-6), Rapier's stepper and its timer
 // (-5.01..-4.99), cart and glider sync (-5..-4.9), camera (-1), guides, sky and sun (-0.5), then R3F renders.
@@ -66,6 +68,7 @@ import { meadow, perf, resetMeadow, setStart, setZoom } from "@/components/meado
 import { ui } from "@/components/meadow/ui";
 import { VisitedPlant } from "@/components/meadow/VisitedPlant";
 import { GLIDE_NOTICE } from "@/components/meadow/words";
+import { River } from "@/components/lotus/river/River";
 import { dprForBudget, MIN_DPR, readDevice, type DeviceKind } from "@/lib/garden/device";
 import { opening, quoteRuns } from "@/lib/garden/opening";
 import { ringsToDraw } from "@/lib/server/plots";
@@ -445,6 +448,7 @@ export default function MeadowCanvas() {
         <MeadowEnvironment shadowSize={phone ? 1024 : 2048} />
         <group key={layoutKey}>
           <MeadowScene layout={layout} shadows={!phone} />
+          <River P={layout.river} tier={quality} still={false} shadows={!phone} clock="frame" />
           <Plants layout={layout} shadows={!phone} />
         </group>
         <DaisRose quality={quality} />

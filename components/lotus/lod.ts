@@ -5,13 +5,17 @@
 // plant near, and its picture in the atlas farther off), and the concepts page shows it beside the full plant so the
 // two can be judged together. Also here, the cheap urli shapes the Meadow's Plants.tsx draws instanced for a lotus
 // that is not a growing plant (makeLotusPlot): the seed of light over the water while the seed is in its jar, and the
-// browned leaves of a lotus at rest. Pure three.js.
+// browned leaves of a lotus at rest. A lotus in a river pocket has its own light plant (makeLodLotus(band, "river"):
+// the pond view's plant on its pocket-length stalks, with no urli), and its floating leaves are drawn on the water
+// as instances of one leaf (pocketPadGeometry). Pure three.js.
 import * as THREE from "three";
 import { lathe } from "@/lib/garden/dressing";
 import { makePetalGeometry, makeSepalGeometry } from "@/lib/plant/geometry";
 import { merge, paint } from "@/components/meadow/parts";
 import { floatingPad, makePadGeometry, makeStalkGeometry, stalkCurve, standingPad } from "@/components/lotus/geometry";
 import { innerR, URLI, waterY } from "@/components/lotus/frame";
+import { FLOWER_LIFT, riverStand } from "@/components/lotus/live/pocketLook";
+import { POND_FLOWER, pondStandingLeaves, type StandLeaf } from "@/components/lotus/look";
 import type { Stage } from "@/components/lotus/params";
 
 export type LodBand = "seed" | "sprout" | "leafy" | "bud" | "bloom" | "pod";
@@ -136,8 +140,82 @@ function openPetal(shape: Parameters<typeof makePetalGeometry>[0], seed: number,
   return g;
 }
 
-/** The L1 lotus for a band, in the urli frame at garden scale (the Meadow scales it with every plant). */
-export function makeLodLotus(band: LodBand): THREE.BufferGeometry {
+/** The L1 flower head for a band (the bud, the open flower or the pod), laid out by `headM` (its foot and lean). */
+function headParts(band: LodBand, headM: THREE.Matrix4, parts: THREE.BufferGeometry[]): void {
+  const add = (g: THREE.BufferGeometry, color: string, glow = 0) => parts.push(paint(g, color, glow));
+  if (band === "pod") {
+    const pod = lathe(
+      [
+        [0.012, 0],
+        [0.022, 0.012],
+        [0.032, 0.026],
+        [0.034, 0.031],
+        [0.0, 0.033],
+      ],
+      6,
+    );
+    pod.applyMatrix4(headM);
+    add(pod, POD);
+  } else {
+    const open = band === "bloom";
+    const whorls = [
+      { n: 7, len: 0.11, w: 0.055, ang: open ? 1.15 : -0.1, r: 0.02 },
+      { n: 6, len: 0.1, w: 0.05, ang: open ? 0.75 : -0.12, r: 0.016 },
+      { n: 5, len: 0.08, w: 0.042, ang: open ? 0.4 : -0.14, r: 0.012 },
+    ];
+    whorls.forEach((wh, wi) => {
+      for (let k = 0; k < wh.n; k++) {
+        const g = openPetal({ length: wh.len, width: wh.w, bend: -0.06, cup: 1.15, ruffle: 0.03, tip: 0.35 }, wi * 10 + k, open);
+        const painted = paintPetal(g, wh.len);
+        const yaw = (k / wh.n) * Math.PI * 2 + wi * 0.45;
+        const pm = new THREE.Matrix4().compose(
+          new THREE.Vector3(Math.sin(yaw) * wh.r, -0.002 * (2 - wi), Math.cos(yaw) * wh.r),
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(wh.ang, yaw, 0, "YXZ")),
+          new THREE.Vector3(1, 1, 1),
+        );
+        painted.applyMatrix4(pm).applyMatrix4(headM);
+        parts.push(painted);
+      }
+    });
+    if (!open) {
+      for (let k = 0; k < 4; k++) {
+        const t = makeSepalGeometry(0.03, 0.02, k, 2, 3);
+        const yaw = (k / 4) * Math.PI * 2;
+        t.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(Math.sin(yaw) * 0.018, -0.004, Math.cos(yaw) * 0.018), new THREE.Quaternion().setFromEuler(new THREE.Euler(0.1, yaw, 0, "YXZ")), new THREE.Vector3(1, 1, 1)));
+        t.applyMatrix4(headM);
+        add(t, TEPAL);
+      }
+    } else {
+      // the receptacle (a 6-facet lathe) and the stamens as one short ring band
+      const rec = lathe(
+        [
+          [0.007, 0],
+          [0.012, 0.008],
+          [0.017, 0.017],
+          [0.02, 0.023],
+          [0.0, 0.025],
+        ],
+        6,
+      );
+      rec.applyMatrix4(headM);
+      add(rec, RECEPTACLE, 1);
+      const ring = new THREE.CylinderGeometry(0.03, 0.02, 0.02, 6, 1, true);
+      ring.translate(0, 0.01, 0);
+      ring.applyMatrix4(headM);
+      add(ring, STAMEN, 0.8);
+    }
+  }
+}
+
+/** Which lotus a light plant is: in its urli on a bed plot, or standing in a river pocket. */
+export type LodFrame = "urli" | "river";
+
+/**
+ * The L1 lotus for a band at garden scale (the Meadow scales it with every plant): in the urli frame, its foot on the
+ * soil; or, for a river pocket, in the pond view's frame (y = 0 on the water) without its urli or its floating leaves.
+ */
+export function makeLodLotus(band: LodBand, frame: LodFrame = "urli"): THREE.BufferGeometry {
+  if (frame === "river") return makeRiverLotus(band);
   const parts: THREE.BufferGeometry[] = [];
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
@@ -187,80 +265,91 @@ export function makeLodLotus(band: LodBand): THREE.BufferGeometry {
     dir.set(0, Math.cos(0.2), Math.sin(0.2));
     add(makeStalkGeometry(stalkCurve(from, head, dir), 0.0042, 0.0036, 3, 4, 0, 2), STALK);
     q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-    const headM = new THREE.Matrix4().compose(head, q, new THREE.Vector3(1, 1, 1));
-    if (band === "pod") {
-      const pod = lathe(
-        [
-          [0.012, 0],
-          [0.022, 0.012],
-          [0.032, 0.026],
-          [0.034, 0.031],
-          [0.0, 0.033],
-        ],
-        6,
-      );
-      pod.applyMatrix4(headM);
-      add(pod, POD);
-    } else {
-      const open = band === "bloom";
-      const whorls = [
-        { n: 7, len: 0.11, w: 0.055, ang: open ? 1.15 : -0.1, r: 0.02 },
-        { n: 6, len: 0.1, w: 0.05, ang: open ? 0.75 : -0.12, r: 0.016 },
-        { n: 5, len: 0.08, w: 0.042, ang: open ? 0.4 : -0.14, r: 0.012 },
-      ];
-      whorls.forEach((wh, wi) => {
-        for (let k = 0; k < wh.n; k++) {
-          const g = openPetal({ length: wh.len, width: wh.w, bend: -0.06, cup: 1.15, ruffle: 0.03, tip: 0.35 }, wi * 10 + k, open);
-          const painted = paintPetal(g, wh.len);
-          const yaw = (k / wh.n) * Math.PI * 2 + wi * 0.45;
-          const pm = new THREE.Matrix4().compose(
-            new THREE.Vector3(Math.sin(yaw) * wh.r, -0.002 * (2 - wi), Math.cos(yaw) * wh.r),
-            new THREE.Quaternion().setFromEuler(new THREE.Euler(wh.ang, yaw, 0, "YXZ")),
-            new THREE.Vector3(1, 1, 1),
-          );
-          painted.applyMatrix4(pm).applyMatrix4(headM);
-          parts.push(painted);
-        }
-      });
-      if (!open) {
-        for (let k = 0; k < 4; k++) {
-          const t = makeSepalGeometry(0.03, 0.02, k, 2, 3);
-          const yaw = (k / 4) * Math.PI * 2;
-          t.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(Math.sin(yaw) * 0.018, -0.004, Math.cos(yaw) * 0.018), new THREE.Quaternion().setFromEuler(new THREE.Euler(0.1, yaw, 0, "YXZ")), new THREE.Vector3(1, 1, 1)));
-          t.applyMatrix4(headM);
-          add(t, TEPAL);
-        }
-      } else {
-        // the receptacle (a 6-facet lathe) and the stamens as one short ring band
-        const rec = lathe(
-          [
-            [0.007, 0],
-            [0.012, 0.008],
-            [0.017, 0.017],
-            [0.02, 0.023],
-            [0.0, 0.025],
-          ],
-          6,
-        );
-        rec.applyMatrix4(headM);
-        add(rec, RECEPTACLE, 1);
-        const ring = new THREE.CylinderGeometry(0.03, 0.02, 0.02, 6, 1, true);
-        ring.translate(0, 0.01, 0);
-        ring.applyMatrix4(headM);
-        add(ring, STAMEN, 0.8);
-      }
-    }
+    headParts(band, new THREE.Matrix4().compose(head, q, new THREE.Vector3(1, 1, 1)), parts);
   }
   return merge(parts);
 }
 
-/** Where the L1 lotus's flower head is for a band (or, without one, its highest leaf), in the urli frame. */
-export function lodLotusHead(band: LodBand): THREE.Vector3 {
+/** Where the L1 lotus's flower head is for a band (or, without one, its highest leaf), in its frame. */
+export function lodLotusHead(band: LodBand, frame: LodFrame = "urli"): THREE.Vector3 {
+  if (frame === "river") {
+    const p = riverPose(band);
+    return p.head ? p.head.clone() : new THREE.Vector3(...p.stands[0].top);
+  }
   const wy = waterY(URLI.fillMM);
   if (band === "bud" || band === "bloom") return new THREE.Vector3(0, wy + 0.45, 0.045);
   if (band === "pod") return new THREE.Vector3(0, wy + 0.43, 0.045);
   if (band === "leafy") return new THREE.Vector3(-0.04, wy + 0.33, -0.125);
   return new THREE.Vector3(0, wy, 0);
+}
+
+/** Where a river pocket's light plant's stalks start, just under the water. */
+const WATER_CUT = -0.006;
+
+/** A river pocket's light plant as posed: its three standing leaves and its flower head (none before the bud), lifted. */
+interface RiverPose {
+  stands: StandLeaf[];
+  head: THREE.Vector3 | null;
+  lean: { x: number; z: number };
+}
+
+function riverPose(band: LodBand): RiverPose {
+  // a pocket's lotus is all floating leaves until it stands (Plants.tsx draws those on the water at every distance)
+  if (band === "seed" || band === "sprout") return { stands: [], head: null, lean: { x: 0, z: 0 } };
+  const stands = pondStandingLeaves(3, 0, 0).map(riverStand);
+  const f = band === "pod" ? POND_FLOWER.pod : band === "bud" ? POND_FLOWER.bud : band === "bloom" ? POND_FLOWER.flower : null;
+  if (!f) return { stands, head: null, lean: { x: 0, z: 0 } };
+  return { stands, head: new THREE.Vector3(f.head[0], f.head[1] * FLOWER_LIFT, f.head[2]), lean: { x: f.leanX, z: "leanZ" in f ? f.leanZ : 0 } };
+}
+
+/**
+ * The L1 lotus standing in a river pocket (live/pocketLook.ts, the visit's look): the pond's three standing leaves on
+ * their pocket-length stalks and the flower on its gentle S, the head at the pond flower's size (1.2), about 690
+ * triangles in bloom. No urli and no floating leaves: those lie on the water as the instanced pads every plant has.
+ */
+function makeRiverLotus(band: LodBand): THREE.BufferGeometry {
+  const pose = riverPose(band);
+  if (pose.stands.length === 0) throw new Error(`lotus: no light plant stands in a river pocket at ${band}`);
+  const parts: THREE.BufferGeometry[] = [];
+  const add = (g: THREE.BufferGeometry, color: string, glow = 0) => parts.push(paint(g, color, glow));
+  const up = new THREE.Vector3(0, 1, 0);
+  // the stalks start just under the surface (the water is opaque, and the picture of the plant must show nothing below it)
+  const foot = (v: readonly [number, number, number]) => new THREE.Vector3(v[0], WATER_CUT, v[2]);
+  for (const st of pose.stands) {
+    // as the full plant stands its leaf (build.ts): tipped, then turned about its stalk; the stalk ends in the blade's dip
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(st.tiltZ, 0, -st.tiltX, "XYZ")).multiply(new THREE.Quaternion().setFromAxisAngle(up, st.yaw));
+    const dir = up.clone().applyQuaternion(q);
+    const top = new THREE.Vector3(...st.top);
+    add(makeStalkGeometry(stalkCurve(foot(st.base), top.clone().addScaledVector(dir, -0.012), dir, st.bow), 0.0032, 0.0027, 4, 3, 0, st.seed), STALK);
+    const pad = makePadGeometry(standingPad(st.r, st.cup, 0, 0), st.seed, 2, 10);
+    pad.applyMatrix4(new THREE.Matrix4().compose(top, q, new THREE.Vector3(1, 1, 1)));
+    add(pad, PAD);
+  }
+  if (pose.head) {
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(pose.lean.x, 0, pose.lean.z, "XYZ"));
+    const dir = up.clone().applyQuaternion(q);
+    const from = foot(POND_FLOWER.base);
+    const head = pose.head;
+    const h = head.distanceTo(from);
+    const side = new THREE.Vector3(head.x - from.x, 0, head.z - from.z);
+    const c1 = from.clone().add(new THREE.Vector3(0, h * 0.4, 0)).addScaledVector(side, -0.6);
+    const c2 = head.clone().addScaledVector(dir, -h * 0.34);
+    add(makeStalkGeometry(new THREE.CubicBezierCurve3(from, c1, c2, head.clone()), 0.0042, 0.0036, 6, 3, 0, 2), STALK);
+    headParts(band, new THREE.Matrix4().compose(head, q, new THREE.Vector3(1.2, 1.2, 1.2)), parts);
+  }
+  return merge(parts);
+}
+
+/**
+ * One floating leaf of unit radius, flat on the water (y = 0), white: the Meadow draws a river pocket's floating leaves
+ * as instances of it (Plants.tsx), each scaled, turned and coloured (green, or browned at rest) as live/pocketLook.ts
+ * lays them out. About thirty triangles.
+ */
+export function pocketPadGeometry(): THREE.BufferGeometry {
+  const g = paint(makePadGeometry(floatingPad(1, 0), 25, 2, 9), "#ffffff");
+  if (g.attributes.uv) g.deleteAttribute("uv");
+  g.computeBoundingSphere();
+  return g;
 }
 
 /**
@@ -269,12 +358,14 @@ export function lodLotusHead(band: LodBand): THREE.Vector3 {
  *   for the Meadow's seed material);
  * - "pads": floating leaves on the water, for a growing lotus while the Meadow's pictures are still on their way;
  * - "resting": the floating leaves browned and curling, the lotus asleep.
+ * With `vessel: false` the same without the urli, for a lotus in a river pocket: the water line at y = 0, so it lies
+ * on the river's surface where the Meadow stands it.
  */
 export type LotusPlotKind = "seed" | "pads" | "resting";
 
-export function makeLotusPlot(kind: LotusPlotKind): THREE.BufferGeometry {
+export function makeLotusPlot(kind: LotusPlotKind, { vessel = true }: { vessel?: boolean } = {}): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  urliParts(parts);
+  if (vessel) urliParts(parts);
   if (kind === "seed") {
     const seed = new THREE.SphereGeometry(0.02, 8, 6);
     seed.scale(1, 0.8, 1);
@@ -284,7 +375,7 @@ export function makeLotusPlot(kind: LotusPlotKind): THREE.BufferGeometry {
   else floatingPads(parts, 5, 0.9, BROWN_PAD, 0.6);
   for (const p of parts) if (p.attributes.uv) p.deleteAttribute("uv");
   const g = merge(parts);
-  g.translate(0, LOTUS_FOOT, 0);
+  g.translate(0, vessel ? LOTUS_FOOT : -waterY(URLI.fillMM), 0);
   g.computeBoundingSphere();
   return g;
 }

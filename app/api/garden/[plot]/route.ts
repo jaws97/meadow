@@ -11,7 +11,7 @@ import { unstable_rethrow } from "next/navigation";
 import type { NextRequest } from "next/server";
 import { ApiError, errorResponse } from "@/lib/server/http";
 import { gardenOfPlot } from "@/lib/server/meadow";
-import { PLOT_LIMIT } from "@/lib/server/plots";
+import { isPlotIndex } from "@/lib/server/plots";
 
 // The plant changes once an hour, and its flower opens and closes with the clock, so a minute is fresh enough.
 const CACHE = "public, max-age=0, s-maxage=60, stale-while-revalidate=300";
@@ -24,9 +24,10 @@ function matches(ifNoneMatch: string | null, etag: string): boolean {
   });
 }
 
+/** A bed plot or a river pocket (plots.ts). */
 function parsePlot(raw: string): number {
   const plot = /^\d{1,5}$/.test(raw) ? Number(raw) : NaN;
-  if (!Number.isInteger(plot) || plot < 0 || plot >= PLOT_LIMIT) {
+  if (!isPlotIndex(plot)) {
     throw new ApiError(404, "plot_unknown", "That plot is not in the Meadow.");
   }
   return plot;

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { LOD_SPECIES } from "@/components/meadow/lod/bands";
 import { readSynthetic, syntheticFriend, syntheticSnapshot, SYNTHETIC_MAX } from "@/components/meadow/lod/synthetic";
 import type { PondVisual } from "@/lib/sim";
+import { POCKET_COUNT, WATER_BASE, isPocketIndex } from "@/lib/server/plots";
+
+const range = (n: number, from = 0) => Array.from({ length: n }, (_, i) => from + i);
 
 describe("readSynthetic", () => {
   it("reads a count and an optional stage", () => {
@@ -26,7 +29,12 @@ describe("syntheticSnapshot", () => {
   it("fills the first plots with a mix of species, stages and health", () => {
     const s = syntheticSnapshot({ count: 400 }, 0);
     expect(s.count).toBe(400);
-    expect(s.plots.map((p) => p.plot)).toEqual(Array.from({ length: 400 }, (_, i) => i));
+    // the first bed plots, and the river's first pockets, each once
+    const beds = s.plots.filter((p) => !isPocketIndex(p.plot)).map((p) => p.plot).sort((a, b) => a - b);
+    const pockets = s.plots.filter((p) => isPocketIndex(p.plot)).map((p) => p.plot).sort((a, b) => a - b);
+    expect(beds).toEqual(range(beds.length));
+    expect(pockets).toEqual(range(pockets.length, WATER_BASE));
+    expect(beds.length + pockets.length).toBe(400);
     expect(new Set(s.plots.map((p) => p.species)).size).toBe(LOD_SPECIES.length);
     expect(new Set(s.plots.map((p) => p.stage))).toEqual(new Set(["seed", "sprout", "leafy", "bud", "bloom", "resting"]));
     expect(new Set(s.plots.map((p) => p.health))).toEqual(new Set(["thriving", "fine", "poorly", "resting"]));
@@ -46,20 +54,49 @@ describe("syntheticSnapshot", () => {
   });
 });
 
+describe("a made-up Meadow's lotus", () => {
+  it("sows them into the river's pockets in order, and once all 56 are taken into bed plots' urlis", () => {
+    for (const count of [120, 300, 400, 720]) {
+      const plots = syntheticSnapshot({ count }, 0).plots;
+      const lotus = plots.filter((p) => p.species === "lotus");
+      const inPockets = lotus.slice(0, POCKET_COUNT);
+      expect(inPockets.map((p) => p.plot)).toEqual(range(inPockets.length, WATER_BASE));
+      expect(lotus.slice(POCKET_COUNT).every((p) => !isPocketIndex(p.plot))).toBe(true);
+      // nothing but a lotus in a pocket
+      expect(plots.filter((p) => isPocketIndex(p.plot)).every((p) => p.species === "lotus")).toBe(true);
+    }
+    // ?synthetic=300 sows its lotus all into the river, 400 fills every pocket, and 420 puts the next lotus in an urli
+    const lotusOf = (count: number) => syntheticSnapshot({ count }, 0).plots.filter((p) => p.species === "lotus");
+    expect(lotusOf(300).every((p) => isPocketIndex(p.plot))).toBe(true);
+    expect(lotusOf(400).length).toBe(POCKET_COUNT);
+    expect(lotusOf(400).every((p) => isPocketIndex(p.plot))).toBe(true);
+    expect(lotusOf(420).filter((p) => !isPocketIndex(p.plot)).length).toBe(1);
+  });
+});
+
 describe("syntheticFriend", () => {
   it("answers a visit with numbers that match the plant's stage", () => {
     const opts = { count: 40 };
     const plant = syntheticSnapshot(opts, 0).plots[7];
-    const friend = syntheticFriend(7, opts)!;
+    const friend = syntheticFriend(plant.plot, opts)!;
     expect(friend.species).toBe(plant.species);
     expect(friend.stage).toBe(plant.stage);
     expect(friend.visual.alive).toBe(plant.stage !== "resting");
     expect(friend.visual.growth).toBeGreaterThan(0);
   });
 
-  it("finds nothing past the made-up Meadow", () => {
-    expect(syntheticFriend(40, { count: 40 })).toBeNull();
-    expect(syntheticFriend(-1, { count: 40 })).toBeNull();
+  it("answers a lotus in the river by its pocket", () => {
+    const opts = { count: 40 };
+    const lotus = syntheticSnapshot(opts, 0).plots.find((p) => isPocketIndex(p.plot))!;
+    expect(syntheticFriend(lotus.plot, opts)).toMatchObject({ plot: lotus.plot, species: "lotus" });
+  });
+
+  it("finds nothing where nobody was sown", () => {
+    const opts = { count: 40 };
+    const beds = syntheticSnapshot(opts, 0).plots.filter((p) => !isPocketIndex(p.plot)).length;
+    expect(syntheticFriend(beds, opts)).toBeNull();
+    expect(syntheticFriend(-1, opts)).toBeNull();
+    expect(syntheticFriend(WATER_BASE + POCKET_COUNT - 1, opts)).toBeNull();
   });
 });
 

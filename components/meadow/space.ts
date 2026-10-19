@@ -1,8 +1,11 @@
 // Planar geometry queries over the Meadow's footprints in layout.ts. The route planner asks whether a straight run is
-// clear for a body of some radius, the glide mover pushes itself out of walls, and taps that land in a bed or on the
-// dais are moved to the nearest spot a cart can actually reach. None of this touches Rapier, so the physics-free
-// fallback works without the WASM build. The hedge ring is the edge of the world: nothing drives past its inner face.
-import { BED, inBed, meadowLayout, pathOf, type Box2, type P2 } from "@/components/meadow/layout";
+// clear for a body of some radius, the glide mover pushes itself out of walls, and taps that land in a bed, on the dais
+// or on the river are moved to the nearest spot a cart can actually reach. None of this touches Rapier, so the
+// physics-free fallback works without the WASM build. The hedge ring is the edge of the world: nothing drives past its
+// inner face. The river is walled by its copings and the bridges' parapets (boxes like the kerbs), so a straight run
+// can only cross it along a bridge; the water itself is also out of bounds here, in case anything ever finds a way in.
+import { BED, inBed, inWater, meadowLayout, onBridge, pathOf, type Box2, type P2 } from "@/components/meadow/layout";
+import { LEVEL } from "@/components/meadow/river";
 
 export type { P2 };
 
@@ -80,18 +83,31 @@ export function segmentClear(ax: number, az: number, bx: number, bz: number, rad
 }
 
 export function pointClear(x: number, z: number, radius: number): boolean {
-  return segmentClear(x, z, x, z, radius) && !inBed(x, z);
+  return segmentClear(x, z, x, z, radius) && !inBed(x, z) && !inWater(x, z);
+}
+
+/** A disc over the water (and not on a bridge) is lifted out onto the nearer bank, clear of its coping. */
+function outOfWater(p: P2, radius: number): boolean {
+  if (!inWater(p.x, p.z)) return false;
+  const { band } = meadowLayout().river;
+  const r = Math.hypot(p.x, p.z) || 1;
+  const to = r < band.mid ? band.c0 - radius : band.c1 + radius;
+  p.x *= to / r;
+  p.z *= to / r;
+  return true;
 }
 
 const lp: P2 = { x: 0, z: 0 };
 
 /**
  * Moves a disc out of anything it overlaps, in place. Returns true if it had to move. Two passes settle the corners
- * where two kerb stones meet.
+ * where two kerb stones meet. A box pushes the disc straight out from the nearest point of its rectangle, so a corner
+ * is round to a disc that meets it: a disc sliding along a curved wall of boxes (a coping, whose stones overlap by a
+ * few centimetres) rides over the joints, where a square corner would push it back along the wall and hold it there.
  */
 export function pushOut(p: P2, radius: number): boolean {
   const L = meadowLayout();
-  let moved = false;
+  let moved = outOfWater(p, radius);
   for (let pass = 0; pass < 2; pass++) {
     for (const c of L.circles) {
       const dx = p.x - c.x;
@@ -109,12 +125,28 @@ export function pushOut(p: P2, radius: number): boolean {
     for (const b of L.boxes) {
       if (Math.abs(Math.hypot(b.x, b.z) - r) > radius + b.hx + 0.3) continue;
       toLocal(b, p.x, p.z, lp);
-      const ex = b.hx + radius - Math.abs(lp.x);
-      const ez = b.hz + radius - Math.abs(lp.z);
-      if (ex <= 0 || ez <= 0) continue;
-      // Out along the shallower axis, back into world space.
-      if (ex < ez) lp.x += Math.sign(lp.x || 1) * ex;
-      else lp.z += Math.sign(lp.z || 1) * ez;
+      const ax = Math.abs(lp.x);
+      const az = Math.abs(lp.z);
+      if (ax >= b.hx + radius || az >= b.hz + radius) continue;
+      if (ax <= b.hx && az <= b.hz) {
+        // The centre inside the box: out along the shallower axis.
+        const ex = b.hx + radius - ax;
+        const ez = b.hz + radius - az;
+        if (ex < ez) lp.x += Math.sign(lp.x || 1) * ex;
+        else lp.z += Math.sign(lp.z || 1) * ez;
+      } else {
+        // Out from the nearest point of the rectangle (on a face, or its corner), to a radius from it.
+        const cx = Math.min(b.hx, Math.max(-b.hx, lp.x));
+        const cz = Math.min(b.hz, Math.max(-b.hz, lp.z));
+        const dx = lp.x - cx;
+        const dz = lp.z - cz;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= radius * radius) continue;
+        const d = Math.sqrt(d2);
+        lp.x = cx + (dx / d) * radius;
+        lp.z = cz + (dz / d) * radius;
+      }
+      // Back into world space.
       const c = Math.cos(b.yaw);
       const s = Math.sin(b.yaw);
       p.x = b.x + lp.x * c + lp.z * s;
@@ -134,11 +166,18 @@ export function pushOut(p: P2, radius: number): boolean {
 
 /**
  * The reachable spot nearest to a tap. A tap inside a bed goes to whichever of its two faces is nearer, onto the
- * path a little off the kerb; a tap on the dais or past the hedge is pushed clear of it.
+ * path a little off the kerb; a tap on the river (its water or its copings, but not a bridge) goes to the nearer
+ * towpath, as far off the coping; a tap on the dais or past the hedge is pushed clear of it.
  */
 export function reachableNear(x: number, z: number, radius: number): P2 {
   const p: P2 = { x, z };
-  if (inBed(x, z)) {
+  const { band } = meadowLayout().river;
+  const rr = Math.hypot(x, z);
+  if (rr > band.c0 && rr < band.c1 && !onBridge(x, z)) {
+    const target = rr < band.mid ? band.c0 - radius - 0.25 : band.c1 + radius + 0.25;
+    p.x = (x / rr) * target;
+    p.z = (z / rr) * target;
+  } else if (inBed(x, z)) {
     const r = Math.hypot(x, z) || 1;
     const L = meadowLayout();
     const bed = L.beds.find((b) => r >= b.inner - 0.3 && r <= b.outer + 0.3) ?? L.beds[0];
@@ -152,9 +191,9 @@ export function reachableNear(x: number, z: number, radius: number): P2 {
   return p;
 }
 
-/** Height of the walking surface under a point: the soil top inside a bed, the ground elsewhere. */
+/** Height of the walking surface under a point: the soil top inside a bed, a bridge's deck, the ground elsewhere. */
 export function groundHeight(x: number, z: number): number {
-  return inBed(x, z) ? BED.soilH : 0;
+  return inBed(x, z) ? BED.soilH : onBridge(x, z) ? LEVEL.deck : 0;
 }
 
 /** The centre radius of the ring path nearest to a point, for keeping guides on the paving. */

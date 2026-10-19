@@ -8,7 +8,7 @@ import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { meadowData } from "@/components/meadow/data";
-import { BED, plotAt } from "@/components/meadow/layout";
+import { plotAt } from "@/components/meadow/layout";
 
 const POOL = 12;
 const MOTES = 10;
@@ -18,6 +18,8 @@ const WATER = new THREE.Color("#a8dcff");
 
 interface Burst {
   x: number;
+  /** the plot's foot: a bed's soil, or the river's water in a pocket */
+  y: number;
   z: number;
   start: number;
   /** a planting rises in gold; a friend's sprinkle falls as a soft shower of blue-white motes */
@@ -105,7 +107,7 @@ export function Bursts() {
         seen.current.add(plot);
         const p = plotAt(plot);
         if (!p) continue;
-        bursts.current.push({ x: p.x, z: p.z, start: at / 1000, kind: "plant" });
+        bursts.current.push({ x: p.x, y: p.y, z: p.z, start: at / 1000, kind: "plant" });
         if (bursts.current.length > POOL) bursts.current.shift();
       }
     };
@@ -119,7 +121,7 @@ export function Bursts() {
     while (asked.length > 0) {
       const a = asked.shift()!;
       const p = plotAt(a.plot);
-      if (p) bursts.current.push({ x: p.x, z: p.z, start: a.at / 1000, kind: "sprinkle" });
+      if (p) bursts.current.push({ x: p.x, y: p.y, z: p.z, start: a.at / 1000, kind: "sprinkle" });
       if (bursts.current.length > POOL) bursts.current.shift();
     }
     bursts.current = bursts.current.filter((b) => now - b.start < LIFE);
@@ -134,11 +136,11 @@ export function Bursts() {
       const sprinkle = b.kind === "sprinkle";
       const tone = sprinkle ? WATER : GOLD;
       const columnK = sprinkle ? 0.12 : 0.55;
-      tmp.m.compose(tmp.p.set(b.x, BED.soilH, b.z), tmp.q.identity(), tmp.s.set(1 + t * 0.4, 0.4 + t * 0.9, 1 + t * 0.4));
+      tmp.m.compose(tmp.p.set(b.x, b.y, b.z), tmp.q.identity(), tmp.s.set(1 + t * 0.4, 0.4 + t * 0.9, 1 + t * 0.4));
       col.setMatrixAt(n, tmp.m);
       col.setColorAt(n, tmp.c.copy(tone).multiplyScalar(fade * columnK));
       const r = (sprinkle ? 0.3 : 0.5) + t * (sprinkle ? 1.4 : 2.6);
-      tmp.m.compose(tmp.p.set(b.x, BED.soilH + 0.02, b.z), tmp.q.identity(), tmp.s.set(r, 1, r));
+      tmp.m.compose(tmp.p.set(b.x, b.y + 0.02, b.z), tmp.q.identity(), tmp.s.set(r, 1, r));
       ring.setMatrixAt(n, tmp.m);
       ring.setColorAt(n, tmp.c.copy(tone).multiplyScalar(fade * 0.8));
       n++;
@@ -146,7 +148,7 @@ export function Bursts() {
         const a = (i / MOTES) * Math.PI * 2 + t * 2.2;
         const rr = sprinkle ? 0.12 + (i % 4) * 0.07 : 0.18 + 0.35 * t + (i % 3) * 0.05;
         // a planting's motes drift up; a sprinkle's fall softly onto the plant
-        const y = sprinkle ? BED.soilH + 1.6 - ((t * 1.6 + (i % 5) * 0.21) % 1) * 1.5 : BED.soilH + 0.2 + t * (1.6 + (i % 4) * 0.35);
+        const y = sprinkle ? b.y + 1.6 - ((t * 1.6 + (i % 5) * 0.21) % 1) * 1.5 : b.y + 0.2 + t * (1.6 + (i % 4) * 0.35);
         const s = (0.7 + (i % 3) * 0.3) * (1 - t * 0.6);
         tmp.m.compose(tmp.p.set(b.x + Math.cos(a) * rr, y, b.z + Math.sin(a) * rr), tmp.q.identity(), tmp.s.set(s, s, s));
         mote.setMatrixAt(k, tmp.m);

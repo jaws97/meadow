@@ -4,17 +4,22 @@
 // physics cart driving exactly the same Meadow.
 //
 // The plan, from the middle out: the dais with the owner's rose; a wide inner path (wide enough that a visit to the
-// innermost plants is a calm pull-up, not a shuffle); then raised beds, two plot rows each, separated by ring paths;
-// an outer promenade; a lawn; a hedge; a ring of trees. Avenues cut across the beds (four through the inner bed on
-// the diagonals, eight through the rest), and where an avenue meets a ring path the bed corners are cut back into a
-// little plaza with a lantern on each corner, so the cart turns without scraping. The plot rows and the avenue
-// angles come from lib/server/plots.ts, which the server hands plots out by, so a plot is always drawn where the
-// server put it. The beds grow outward in pairs of rings only if the Meadow ever outgrows the six planned rings
-// (meadowLayout is rebuilt for the rings in use; see setLayoutRings).
+// innermost plants is a calm pull-up, not a shuffle); the inner bed; then the river (river.ts), a slow ring of water
+// with a towpath on each bank, which makes the rose, the inner path and the inner bed an island; then the outer raised
+// beds, two plot rows each, separated by ring paths; an outer promenade; a lawn; a hedge; a ring of trees. Avenues cut
+// across the beds (four through the inner bed on the diagonals, eight through the rest), and where an avenue meets a
+// ring path the bed corners are cut back into a little plaza with a lantern on each corner, so the cart turns without
+// scraping. The diagonals cross the river on four flat granite bridges, decks level with the paving, the only ways
+// over: the copings and the bridges' parapets are walls like the kerbs. The plot rows, the avenue angles, the river's
+// walls and its lotus pockets come from lib/server/plots.ts, which the server hands plots out by, so a plot is always
+// drawn where the server put it: the bed plots first, then the 56 pockets (plotAt finds either by its number). The
+// beds grow outward in pairs of rings only if the Meadow ever outgrows the six planned rings (meadowLayout is rebuilt
+// for the rings in use; see setLayoutRings).
 //
 // Angles: a point at polar angle `a` sits at (r cos a, 0, r sin a). Yaw is a rotation about +y as three.js applies
 // it, so a body with yaw `y` faces (cos y, 0, -sin y) along its local +x, which is the cart's forward axis.
-import { avenueAngles, firstPlotOfRing, PLOT_RINGS, plotRing, ringAt } from "@/lib/server/plots";
+import { avenueAngles, firstPlotOfRing, isPocketIndex, PLOT_RINGS, plotRing, ringAt, WATER_BASE } from "@/lib/server/plots";
+import { buildRiver, LEVEL, type RiverBand, type RiverParts } from "@/components/meadow/river";
 
 export interface P2 {
   x: number;
@@ -52,12 +57,14 @@ export interface PathNode {
   yaw: number;
 }
 
-/** One ring path (index 0 is the inner path round the dais, the last the outer promenade). */
+/** One ring path (index 0 is the inner path round the dais, 1 and 2 the river's towpaths, the last the outer promenade). */
 export interface PathRing {
   inner: number;
   outer: number;
   /** centreline radius */
   r: number;
+  /** a ring path between beds, or one of the towpaths along the river's banks */
+  kind: "path" | "towpath";
 }
 
 export interface BedRing {
@@ -83,24 +90,41 @@ export interface Sector {
 /** Where an avenue crosses a ring path: the plaza's centre and the radius its paving reaches. */
 export interface Plaza extends P2 {
   r: number;
+  /** its paving clipped to this band of radius from the rose (a towpath's plaza stops at the river's coping) */
+  rMin: number;
+  rMax: number;
 }
 
 export interface Plot {
   index: number;
+  /** a bed plot, or a lotus pocket in the river */
+  kind: "bed" | "pocket";
+  /** the plot ring (-1 for a pocket) */
   ring: number;
-  /** the plant's place */
+  /** a pocket's bank */
+  bank?: "in" | "out";
+  /** the plant's place, and the height of its foot: the soil of a bed, the river's surface in a pocket */
   x: number;
+  y: number;
   z: number;
   /** polar angle and radius of the plant */
   a: number;
   r: number;
-  /** which ring path the plant is visited from, and which side of the bed faces it */
+  /** which ring path the plant is visited from, and which side of the bed (or of the river) faces it */
   path: number;
   side: "inner" | "outer";
-  /** where the cart pulls up to visit: on the path, beside the bed, level with the plant */
+  /** where the cart pulls up to visit: on the path, beside the bed or the coping, level with the plant */
   park: P2;
-  /** the name stake: in front of the plant toward the path, a little to one side, facing the path */
-  stake: P2 & { yaw: number };
+  /**
+   * the name stake: in front of the plant toward the path, a little to one side, facing the path (a pocket's stands on
+   * the coping), and the height it stands on
+   */
+  stake: P2 & { yaw: number; y: number };
+  /**
+   * a pocket's yaw facing straight out from its wall to the open channel (its floating leaves are laid out that way;
+   * its standing plant turns to the nearest of the detail levels' three angles, lod/bands.ts spinOfPlot)
+   */
+  yaw?: number;
 }
 
 export interface MeadowLayout {
@@ -111,6 +135,9 @@ export interface MeadowLayout {
   avenues: Avenue[];
   sectors: Sector[];
   kerbs: Box2[];
+  /** the unseen barriers over the river's copings and the bridges' parapets */
+  copings: Box2[];
+  parapets: Box2[];
   hedge: Box2[];
   trees: Tree[];
   lanterns: P2[];
@@ -122,7 +149,11 @@ export interface MeadowLayout {
   hedgeR: number;
   /** radius of the lawn as drawn (the far ground carries on under the fog) */
   groundR: number;
+  /** the river: its band, bridges, pockets and dressing (river.ts) */
+  river: RiverParts;
+  /** every bed plot of the rings drawn (in index order), then the pockets: the first `bedPlots` are the bed plots */
   plots: Plot[];
+  bedPlots: number;
   nodes: PathNode[];
   edges: number[][];
   spawn: PathNode;
@@ -184,26 +215,40 @@ function buildBeds(rings: number): BedRing[] {
   return beds;
 }
 
-function buildPaths(beds: BedRing[]): PathRing[] {
+/** The ring paths: the inner path, the river's two towpaths, a ring path between each pair of outer beds, the promenade. */
+function buildPaths(beds: BedRing[], band: RiverBand): PathRing[] {
   const paths: PathRing[] = [];
-  const ring = (inner: number, outer: number) => ({ inner, outer, r: (inner + outer) / 2 });
+  const ring = (inner: number, outer: number, kind: PathRing["kind"] = "path") => ({ inner, outer, r: (inner + outer) / 2, kind });
   paths.push(ring(DAIS.r, beds[0].inner));
-  for (let b = 1; b < beds.length; b++) paths.push(ring(beds[b - 1].outer, beds[b].inner));
+  // round the island to the inner coping, and from the outer coping to the first bed beyond the river
+  paths.push(ring(beds[0].outer, band.c0, "towpath"));
+  paths.push(ring(band.c1, beds[1].inner, "towpath"));
+  for (let b = 2; b < beds.length; b++) paths.push(ring(beds[b - 1].outer, beds[b].inner));
   const last = beds[beds.length - 1].outer;
   paths.push(ring(last, last + PROMENADE));
   return paths;
 }
 
-function buildAvenues(beds: BedRing[], paths: PathRing[]): Avenue[] {
+/** The ring path along the inside of bed b, and along its outside (the island's bed has the inner towpath outside). */
+const pathInside = (bed: number) => (bed === 0 ? 0 : bed + 1);
+const pathOutside = (bed: number) => (bed === 0 ? 1 : bed + 2);
+
+/**
+ * The avenues, as straight runs of paving: each diagonal from the inner path across the island to the inner coping, then
+ * from the outer coping on to the promenade (its bridge carries it over the water between); the other four from the
+ * outer towpath to the promenade.
+ */
+function buildAvenues(beds: BedRing[], paths: PathRing[], band: RiverBand): Avenue[] {
   const inner = avenueAngles(0);
   const all = new Set<number>();
   for (let b = 0; b < beds.length; b++) for (const a of avenueAngles(b)) all.add(Math.round(a * 1e6) / 1e6);
+  const promenade = paths[paths.length - 1].r;
   const out: Avenue[] = [];
   for (const a of [...all].sort((p, q) => p - q)) {
-    // the inner bed's avenues start at the inner path; the rest start at the first ring path
-    const fromBed = inner.some((x) => Math.abs(x - a) < 1e-6) ? 0 : 1;
-    if (fromBed >= beds.length) continue;
-    out.push({ angle: a, from: paths[fromBed].r, to: paths[paths.length - 1].r });
+    if (inner.some((x) => Math.abs(x - a) < 1e-6)) {
+      out.push({ angle: a, from: paths[0].r, to: band.c0 });
+      out.push({ angle: a, from: band.c1, to: promenade });
+    } else out.push({ angle: a, from: paths[2].r, to: promenade });
   }
   return out;
 }
@@ -341,7 +386,8 @@ function buildTrees(hedgeR: number): Tree[] {
 
 // ---- plots -----------------------------------------------------------------------------------------------------
 
-function buildPlots(rings: number, beds: BedRing[]): Plot[] {
+/** Every bed plot of the rings drawn, in index order, then the river's pockets in theirs. */
+function buildPlots(rings: number, beds: BedRing[], river: RiverParts): Plot[] {
   const plots: Plot[] = [];
   const total = firstPlotOfRing(rings);
   for (let i = 0; i < total; i++) {
@@ -357,15 +403,37 @@ function buildPlots(rings: number, beds: BedRing[]): Plot[] {
     const sa = a + 0.3 / p.radius;
     plots.push({
       index: i,
+      kind: "bed",
       ring: p.ring,
       x: p.radius * Math.cos(a),
+      y: BED.soilH,
       z: p.radius * Math.sin(a),
       a,
       r: p.radius,
-      path: inner ? bed : bed + 1,
+      path: inner ? pathInside(bed) : pathOutside(bed),
       side: inner ? "inner" : "outer",
       park: polar(parkR, a),
-      stake: { ...polar(sr, sa), yaw: inner ? yawOf(-Math.cos(sa), -Math.sin(sa)) : yawOf(Math.cos(sa), Math.sin(sa)) },
+      stake: { ...polar(sr, sa), yaw: inner ? yawOf(-Math.cos(sa), -Math.sin(sa)) : yawOf(Math.cos(sa), Math.sin(sa)), y: BED.soilH },
+    });
+  }
+  // a pocket's lotus stands on the water, visited from its bank's towpath (the inner bank's is the island's)
+  for (const pk of river.pockets) {
+    const inner = pk.bank === "in";
+    plots.push({
+      index: pk.index,
+      kind: "pocket",
+      ring: -1,
+      bank: pk.bank,
+      x: pk.x,
+      y: LEVEL.water,
+      z: pk.z,
+      a: pk.a,
+      r: pk.r,
+      path: inner ? 1 : 2,
+      side: inner ? "inner" : "outer",
+      park: pk.park,
+      stake: { ...pk.stake, y: LEVEL.coping },
+      yaw: Math.atan2(pk.dir * Math.cos(pk.a), pk.dir * Math.sin(pk.a)),
     });
   }
   return plots;
@@ -373,7 +441,7 @@ function buildPlots(rings: number, beds: BedRing[]): Plot[] {
 
 // ---- the route graph -------------------------------------------------------------------------------------------
 
-function buildGraph(paths: PathRing[], beds: BedRing[], avenues: Avenue[]): { nodes: PathNode[]; edges: number[][] } {
+function buildGraph(paths: PathRing[], avenues: Avenue[], river: RiverParts): { nodes: PathNode[]; edges: number[][] } {
   const nodes: PathNode[] = [];
   const edges: number[][] = [];
   const link = (i: number, j: number) => {
@@ -402,18 +470,30 @@ function buildGraph(paths: PathRing[], beds: BedRing[], avenues: Avenue[]): { no
   // avenue nodes: from each crossing out across the next bed (through its middle) to the next crossing
   for (const av of avenues) {
     let prev = -1;
+    let prevPath = -1;
     paths.forEach((path, k) => {
       if (path.r < av.from - 0.01 || path.r > av.to + 0.01) return;
       const here = crossing.get(`${k}:${av.angle.toFixed(5)}`);
       if (here === undefined) return;
       if (prev >= 0) {
-        const bed = beds[k - 1];
-        const mid = add({ ...polar((bed.inner + bed.outer) / 2, av.angle), yaw: yawOf(Math.cos(av.angle), Math.sin(av.angle)) });
+        const midR = (paths[prevPath].outer + path.inner) / 2;
+        const mid = add({ ...polar(midR, av.angle), yaw: yawOf(Math.cos(av.angle), Math.sin(av.angle)) });
         link(prev, mid);
         link(mid, here);
       }
       prev = here;
+      prevPath = k;
     });
+  }
+  // the bridges, the only ways over the water: each from its avenue's crossing on the inner towpath, over the middle
+  // of its deck, to the crossing on the outer towpath
+  for (const b of river.bridges) {
+    const from = crossing.get(`1:${b.a.toFixed(5)}`);
+    const to = crossing.get(`2:${b.a.toFixed(5)}`);
+    if (from === undefined || to === undefined) continue;
+    const mid = add({ ...polar(river.band.mid, b.a), yaw: yawOf(Math.cos(b.a), Math.sin(b.a)) });
+    link(from, mid);
+    link(mid, to);
   }
   return { nodes, edges };
 }
@@ -422,8 +502,9 @@ function buildGraph(paths: PathRing[], beds: BedRing[], avenues: Avenue[]): { no
 
 export function buildLayout(rings: number = PLOT_RINGS.length): MeadowLayout {
   const beds = buildBeds(rings);
-  const paths = buildPaths(beds);
-  const avenues = buildAvenues(beds, paths);
+  const { copings, parapets, ...river } = buildRiver();
+  const paths = buildPaths(beds, river.band);
+  const avenues = buildAvenues(beds, paths, river.band);
   const sectors: Sector[] = [];
   const kerbs: Box2[] = [];
   const lanterns: P2[] = [];
@@ -437,20 +518,25 @@ export function buildLayout(rings: number = PLOT_RINGS.length): MeadowLayout {
       lanterns.push(...lanternsOf(points, beds, b));
     }
   });
-  // each plaza's paving reaches just past the cut corners of the beds round it
+  // each plaza's paving reaches just past the cut corners of the beds round it (on a towpath, no further than its coping)
   const plazas: Plaza[] = [];
   for (const av of avenues) {
-    for (const p of paths) {
-      if (p.r < av.from - 0.01 || p.r > av.to + 0.01) continue;
+    paths.forEach((p, k) => {
+      if (p.r < av.from - 0.01 || p.r > av.to + 0.01) return;
       const half = (p.outer - p.inner) / 2;
-      plazas.push({ ...polar(p.r, av.angle), r: Math.hypot(half + 0.3, AVENUE_HALF + CHAMFER) + 0.1 });
-    }
+      plazas.push({
+        ...polar(p.r, av.angle),
+        r: Math.hypot(half + 0.3, AVENUE_HALF + CHAMFER) + 0.1,
+        rMin: k === 2 ? river.band.c1 : 0,
+        rMax: k === 1 ? river.band.c0 : Infinity,
+      });
+    });
   }
   const promenade = paths[paths.length - 1];
   const hedgeR = promenade.outer + LAWN;
   const hedge = arcBoxes(hedgeR + HEDGE_SPEC.t / 2, 2.2, HEDGE_SPEC.t, HEDGE_SPEC.h);
   const trees = buildTrees(hedgeR);
-  const { nodes, edges } = buildGraph(paths, beds, avenues);
+  const { nodes, edges } = buildGraph(paths, avenues, river);
   // On the inner path where the camera's avenue meets it, rolling round anticlockwise: the rose fills the view behind.
   // Turned a little out toward the avenue (and the camera), so the first view is the cart's front three-quarter, the
   // jar framed by its hoop, rather than side-on with the hoop seen edge-on.
@@ -463,15 +549,19 @@ export function buildLayout(rings: number = PLOT_RINGS.length): MeadowLayout {
     avenues,
     sectors,
     kerbs,
+    copings,
+    parapets,
     hedge,
     trees,
     lanterns,
     plazas,
     circles: [{ x: 0, z: 0, r: DAIS.r, h: DAIS.h }],
-    boxes: [...kerbs, ...hedge],
+    boxes: [...kerbs, ...copings, ...parapets, ...hedge],
     hedgeR,
     groundR: hedgeR + 16,
-    plots: buildPlots(rings, beds),
+    river,
+    plots: buildPlots(rings, beds, river),
+    bedPlots: firstPlotOfRing(rings),
     nodes,
     edges,
     spawn,
@@ -501,9 +591,22 @@ export function setLayoutRings(rings: number): boolean {
   return true;
 }
 
+/** Where plot `index` is kept in a plan's plots: a bed plot at its own index, a pocket after the bed plots; -1 if not drawn. */
+export function plotSlotIn(L: MeadowLayout, index: number): number {
+  if (Number.isInteger(index) && index >= 0 && index < L.bedPlots) return index;
+  if (isPocketIndex(index)) return L.bedPlots + index - WATER_BASE;
+  return -1;
+}
+
+/** The plot with this index on a plan, or null when it is not drawn. */
+export function plotOf(L: MeadowLayout, index: number): Plot | null {
+  const slot = plotSlotIn(L, index);
+  return slot >= 0 && slot < L.plots.length ? L.plots[slot] : null;
+}
+
 /** The plot with this index on the current plan, or null when it is not drawn. */
 export function plotAt(index: number): Plot | null {
-  return index >= 0 && index < current.plots.length ? current.plots[index] : null;
+  return plotOf(current, index);
 }
 
 export function nearestPathNode(x: number, z: number): PathNode {
@@ -536,6 +639,21 @@ export function inBed(x: number, z: number): boolean {
     if (insidePolygon(s.points, x, z)) return true;
   }
   return false;
+}
+
+/** True on a bridge's deck (within its parapets' outer lines). */
+export function onBridge(x: number, z: number): boolean {
+  const { band, bridges } = current.river;
+  const r = Math.hypot(x, z);
+  if (r < band.c0 - 0.05 || r > band.c1 + 0.05) return false;
+  return bridges.some((b) => insidePolygon(b.deck, x, z));
+}
+
+/** True over the river's water (between its walls, and not on a bridge). */
+export function inWater(x: number, z: number): boolean {
+  const { band } = current.river;
+  const r = Math.hypot(x, z);
+  return r > band.wIn && r < band.wOut && !onBridge(x, z);
 }
 
 /** The ring path a point is on (or nearest to), by radius. */

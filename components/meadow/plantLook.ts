@@ -4,11 +4,12 @@
 // the camera, so they always agree on where a plant's head is.
 import type { VisitTarget } from "@/components/meadow/autopilot";
 import { ROSE } from "@/components/meadow/autopilot";
-import { BED, DAIS, meadowLayout, plotAt } from "@/components/meadow/layout";
+import { DAIS, meadowLayout, plotAt } from "@/components/meadow/layout";
 import { HEIGHTS } from "@/components/meadow/lod/atlasManifest";
 import { bandOf } from "@/components/meadow/lod/bands";
 import { SPECIES, type SpeciesId } from "@/lib/plant/species";
 import type { MeadowPlot } from "@/lib/server/meadow";
+import { isPocketIndex } from "@/lib/server/plots";
 
 export type Stage = MeadowPlot["stage"];
 
@@ -37,9 +38,19 @@ export function speciesHeight(id: SpeciesId): number {
 
 /** The lotus's urli from the soil to its rim (components/lotus/frame.ts VESSEL_OUTER, its foot on the soil), metres. */
 const URLI_HEIGHT = 0.1425 * PLANT_SCALE;
+/** A lotus in a river pocket, from the water: its floating leaves, or its seed of light, before it stands, metres. */
+const POCKET_LOTUS_LOW = 0.12;
 
-/** Metres from the soil to the top of a plant drawn for this snapshot entry (before its own few percent of size). */
-export function plantHeight(p: Pick<MeadowPlot, "species" | "stage" | "bloom">): number {
+/**
+ * Metres from the plot's foot (the soil, or the water of a river pocket) to the top of a plant drawn for this snapshot
+ * entry (before its own few percent of size).
+ */
+export function plantHeight(p: Pick<MeadowPlot, "species" | "stage" | "bloom"> & { plot?: number }): number {
+  // a lotus in a river pocket: its floating leaves until it stands, then its standing plant as its detail levels draw it
+  if (p.species === "lotus" && p.plot !== undefined && isPocketIndex(p.plot)) {
+    const band = bandOf(p);
+    return band && band !== "sprout" ? HEIGHTS.lotusRiver[band] * PLANT_SCALE : POCKET_LOTUS_LOW;
+  }
   // a lotus in its jar or at rest is its urli on the plot (Plants.tsx), the seed of light a little over the water
   if (p.species === "lotus" && (p.stage === "seed" || p.stage === "resting")) return URLI_HEIGHT;
   if (p.stage === "seed") return 0.09 * PLANT_SCALE;
@@ -51,7 +62,7 @@ export function plantHeight(p: Pick<MeadowPlot, "species" | "stage" | "bloom">):
 export function plantCentre(p: MeadowPlot): { x: number; y: number; z: number } | null {
   const plot = plotAt(p.plot);
   if (!plot) return null;
-  return { x: plot.x, y: BED.soilH + Math.max(0.12, plantHeight(p) * 0.6), z: plot.z };
+  return { x: plot.x, y: plot.y + Math.max(0.12, plantHeight(p) * 0.6), z: plot.z };
 }
 
 export function plotTarget(index: number): VisitTarget | null {

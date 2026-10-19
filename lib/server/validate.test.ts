@@ -2,7 +2,7 @@
 // calm, specific message, and every care and sprinkle field is checked before the server touches the database.
 import { describe, expect, it } from "vitest";
 import { POND_SPECIES, SIM_SPECIES } from "@/lib/sim";
-import { PLOT_LIMIT } from "./plots";
+import { PLOT_LIMIT, WATER_BASE } from "./plots";
 import { newToken } from "./tokens";
 import { SPECIES_IDS, cleanFirstName, isClientEventId, isUuid, parseCareBody, parseLinkOpenBody, parseSeedBody, parseSprinkleBody } from "./validate";
 
@@ -123,13 +123,15 @@ describe("parseCareBody", () => {
 });
 
 describe("parseSprinkleBody", () => {
-  it("accepts a plot inside the Meadow", () => {
+  it("accepts a plot inside the Meadow: a bed plot or a lotus pocket in the river", () => {
     expect(parseSprinkleBody({ plot: 0, clientEventId: ID })).toEqual({ ok: true, value: { plot: 0, clientEventId: ID } });
     expect(parseSprinkleBody({ plot: PLOT_LIMIT - 1, clientEventId: ID }).ok).toBe(true);
+    expect(parseSprinkleBody({ plot: WATER_BASE, clientEventId: ID }).ok).toBe(true);
+    expect(parseSprinkleBody({ plot: 2055, clientEventId: ID }).ok).toBe(true);
   });
 
   it("declines plots outside it and non-integers", () => {
-    for (const plot of [-1, PLOT_LIMIT, 1.5, "3", null, Number.NaN]) {
+    for (const plot of [-1, PLOT_LIMIT, 1999, 2056, 2000.5, 1.5, "3", "2000", null, Number.NaN]) {
       const r = parseSprinkleBody({ plot, clientEventId: ID });
       expect(!r.ok && r.code).toBe("plot_unknown");
     }

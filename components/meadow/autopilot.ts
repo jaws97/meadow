@@ -7,7 +7,8 @@
 // target beside the cart, inside its turning circle, makes it orbit forever;
 // a target behind it makes the arc maths drive straight away from it. In both
 // cases the cart backs up a little, swinging its nose round, then carries on.
-// It also backs off and re-plans when it has pushed against a wall too long.
+// It also backs off and re-plans when it has pushed against a wall too long;
+// the glider, which needs no room to turn, simply re-plans from where it is.
 //
 // A visit ends with the cart pulled up on the path beside the plant, side on,
 // the way you would stop a garden cart to look at a flower: the ring paths are
@@ -53,6 +54,8 @@ const CART_HALF_LENGTH = 0.65;
 const CART_HALF_WIDTH = 0.43;
 /** Glide mover's top speed, so a wish strength maps to m/s. */
 export const GLIDE_TOP_SPEED = 5;
+/** Seconds the glider may be held still against a wall before it plans its way again. */
+const GLIDE_STALL = 1.5;
 
 type Phase = "drive" | "reverse" | "stop";
 
@@ -166,7 +169,7 @@ export class Autopilot {
     const lookahead = Math.min(3, Math.max(1.2, 1.1 + 0.45 * Math.abs(s.forwardSpeed)));
     const look = this.pointAlong(projX, projZ, lookahead);
 
-    if (mover.holonomic) return this.glide(mover, look, remaining, dFinal, out);
+    if (mover.holonomic) return this.glide(mover, dt, look, remaining, dFinal, out);
     return this.drive(mover, dt, look, remaining, dFinal, final, out);
   }
 
@@ -208,7 +211,7 @@ export class Autopilot {
     return { x, z };
   }
 
-  private glide(mover: Mover, look: P2, remaining: number, dFinal: number, out: Command): boolean {
+  private glide(mover: Mover, dt: number, look: P2, remaining: number, dFinal: number, out: Command): boolean {
     if (remaining < 0.2 || (this.seg >= this.points.length - 2 && dFinal < 0.2)) {
       if (this.plot) mover.face?.(this.plot.x, this.plot.z);
       this.finish();
@@ -220,6 +223,15 @@ export class Autopilot {
     const d = Math.hypot(dx, dz) || 1;
     const v = Math.min(CRUISE, Math.sqrt(2 * DECEL * Math.max(0, remaining - 0.05)));
     setWish(out, dx / d, dz / d, v / GLIDE_TOP_SPEED);
+    // held against a wall while it wants to be moving: plan the way again from here
+    if (v > 0.6 && s.speed < 0.15) this.stallT += dt;
+    else this.stallT = Math.max(0, this.stallT - dt);
+    if (this.stallT > GLIDE_STALL) {
+      this.stallT = 0;
+      this.points = planRoute({ x: s.position.x, z: s.position.z }, this.goal);
+      this.seg = 0;
+      this.version++;
+    }
     return true;
   }
 

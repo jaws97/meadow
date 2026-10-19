@@ -64,11 +64,12 @@ const v3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 /**
  * A profile in (radius, height) swept round the vertical axis from angle a0 to a1, with flat end caps: crisp across
  * the profile's corners, smooth along the arc. The profile runs clockwise (radius to the right, height up), so each
- * edge's outward normal is (-dy, dr). uv: metres along the arc and round the profile, over `tile`.
+ * edge's outward normal is (-dy, dr). uv: metres along the arc and round the profile, over `tile`. The arc is cut into
+ * pieces `step` metres long at most (at the river's radii a 0.6 m piece strays 3 mm from the true circle).
  */
-export function sweepBlock(profile: ReadonlyArray<readonly [number, number]>, a0: number, a1: number, tile: number, color: THREE.Color, out = new Tris()): Tris {
+export function sweepBlock(profile: ReadonlyArray<readonly [number, number]>, a0: number, a1: number, tile: number, color: THREE.Color, out = new Tris(), step = 0.25): Tris {
   const rMid = profile.reduce((s, p) => s + p[0], 0) / profile.length;
-  const segs = Math.max(1, Math.ceil((Math.abs(a1 - a0) * rMid) / 0.25));
+  const segs = Math.max(1, Math.ceil((Math.abs(a1 - a0) * rMid) / step));
   const at = (r: number, y: number, a: number) => v3(r * Math.cos(a), y, r * Math.sin(a));
   let around = 0;
   for (let i = 0; i < profile.length; i++) {
@@ -118,9 +119,9 @@ export function sweepBlock(profile: ReadonlyArray<readonly [number, number]>, a0
 /**
  * A coping of granite blocks, `length` metres apiece (evened out to fit), between angles a0 and a1: each block's top
  * from r0 to r1 at `top`, its base at `base`, a 2 cm arris along both top edges, a hair's joint between blocks and a
- * slightly different tone each.
+ * slightly different tone each; each block's arc in pieces `step` metres long at most (sweepBlock).
  */
-export function copingGeometry(stretches: ReadonlyArray<readonly [number, number]>, r0: number, r1: number, base: number, top: number, length: number, seed: number): THREE.BufferGeometry {
+export function copingGeometry(stretches: ReadonlyArray<readonly [number, number]>, r0: number, r1: number, base: number, top: number, length: number, seed: number, step = 0.25): THREE.BufferGeometry {
   const b = 0.02;
   const profile: Array<[number, number]> = [
     [r0, base],
@@ -141,7 +142,7 @@ export function copingGeometry(stretches: ReadonlyArray<readonly [number, number
       const ba = a0 + ((a1 - a0) * i) / n + joint;
       const bb = a0 + ((a1 - a0) * (i + 1)) / n - joint;
       const tone = 0.9 + rnd() * 0.16;
-      sweepBlock(profile, ba, bb, 1.4, new THREE.Color(tone, tone * (0.985 + rnd() * 0.02), tone * (0.96 + rnd() * 0.03)), out);
+      sweepBlock(profile, ba, bb, 1.4, new THREE.Color(tone, tone * (0.985 + rnd() * 0.02), tone * (0.96 + rnd() * 0.03)), out, step);
     }
   }
   return out.geometry();

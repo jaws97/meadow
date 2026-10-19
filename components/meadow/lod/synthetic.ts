@@ -1,7 +1,9 @@
 // Development only: a made-up Meadow for testing how the plants hold up, without touching the database. data.ts
 // serves it in place of the real snapshot for /meadow?synthetic=400 in a development build (never in production):
-// that many plants in the first plots, in a mix of species, stages and health, or every one at one stage with
-// &stage=bloom (or seed, sprout, leafy, bud, resting). A visit to a made-up plant is answered here as well, from
+// that many plants, in a mix of species, stages and health, or every one at one stage with &stage=bloom (or seed,
+// sprout, leafy, bud, resting), each sown in turn into the plot the server would give it (plots.ts assignPlot): the
+// first bed plots, inner rings first, and for a lotus the river's next pocket, or once all 56 are taken a bed plot's
+// urli (?synthetic=300 sows 39 lotus, all in the river; 400 fills all 56 pockets; 420 puts the next lotus in an urli). A visit to a made-up plant is answered here as well, from
 // numbers that match its stage, and its sprinkle is never sent. With &same=1 a visited plant grows from its detail
 // levels' own seed (bands.ts LOD_SEEDS), so its full plant and its light plant are the same plant, for checking the
 // visit's handover.
@@ -14,6 +16,7 @@
 import { LOD_SEEDS, LOD_SPECIES, plotHash } from "@/components/meadow/lod/bands";
 import type { PondVisual, SoilVisual, Visual } from "@/lib/sim";
 import type { FriendGarden, MeadowPlot, MeadowSnapshot } from "@/lib/server/meadow";
+import { assignPlot } from "@/lib/server/plots";
 
 export type Stage = MeadowPlot["stage"];
 const STAGES: readonly Stage[] = ["seed", "sprout", "leafy", "bud", "bloom", "resting"];
@@ -51,17 +54,18 @@ export function readSynthetic(search: string): SyntheticOptions | null {
   return opts;
 }
 
-function plantAt(plot: number, opts: SyntheticOptions): MeadowPlot {
-  const r = plotHash(plot, 11);
+/** The k-th made-up planting, in plot `plot` (its species, stage, health and bloom all from k). */
+function plantAt(k: number, plot: number, opts: SyntheticOptions): MeadowPlot {
+  const r = plotHash(k, 11);
   const stage = opts.stage ?? STAGE_MIX.find(([share]) => r < share)![1];
-  const h = plotHash(plot, 12);
+  const h = plotHash(k, 12);
   const health: MeadowPlot["health"] = stage === "resting" ? "resting" : h < 0.6 ? "thriving" : h < 0.88 ? "fine" : "poorly";
-  const b = plotHash(plot, 13);
+  const b = plotHash(k, 13);
   // most open flowers fully open, some opening, some closed for their hours
   const bloom: MeadowPlot["bloom"] = stage !== "bloom" ? 0 : opts.stage === "bloom" ? 3 : b < 0.7 ? 3 : b < 0.8 ? 2 : b < 0.85 ? 1 : 0;
   return {
     plot,
-    species: LOD_SPECIES[Math.floor(plotHash(plot, 14) * LOD_SPECIES.length)],
+    species: speciesOf(k),
     name: `Synthetic ${plot}`,
     stage,
     health,
@@ -70,9 +74,29 @@ function plantAt(plot: number, opts: SyntheticOptions): MeadowPlot {
   };
 }
 
-/** The made-up Meadow: plots 0..count-1, as the server fills the inner rings first. */
+const speciesOf = (k: number) => LOD_SPECIES[Math.floor(plotHash(k, 14) * LOD_SPECIES.length)];
+
+/** The made-up plantings in sowing order, each in the plot the server would hand it (cached: they never change). */
+const sown = new Map<string, MeadowPlot[]>();
+function sowings(opts: SyntheticOptions): MeadowPlot[] {
+  const key = `${opts.count}|${opts.stage ?? ""}`;
+  const known = sown.get(key);
+  if (known) return known;
+  const taken = new Set<number>();
+  const plots: MeadowPlot[] = [];
+  for (let k = 0; k < opts.count; k++) {
+    const plot = assignPlot(taken, { water: speciesOf(k) === "lotus" });
+    if (plot === null) break;
+    taken.add(plot);
+    plots.push(plantAt(k, plot, opts));
+  }
+  sown.set(key, plots);
+  return plots;
+}
+
+/** The made-up Meadow: its plantings in sowing order, as the server's snapshot lists them. */
 export function syntheticSnapshot(opts: SyntheticOptions, now = Date.now()): MeadowSnapshot {
-  const plots = Array.from({ length: opts.count }, (_, i) => plantAt(i, opts));
+  const plots = sowings(opts).map((p) => ({ ...p }));
   const h = Math.floor(now / 3_600_000);
   return { v: 1, h, at: new Date(h * 3_600_000).toISOString(), count: plots.length, plots };
 }
@@ -80,10 +104,10 @@ export function syntheticSnapshot(opts: SyntheticOptions, now = Date.now()): Mea
 const GROWTH: Record<Stage, number> = { seed: 0.02, sprout: 0.19, leafy: 0.5, bud: 0.79, bloom: 1, resting: 0.6 };
 const HEALTH: Record<MeadowPlot["health"], number> = { thriving: 0.9, fine: 0.62, poorly: 0.32, resting: 0 };
 
-/** A made-up plant's visit, with the model's numbers for its stage and health; null for a plot past the Meadow. */
+/** A made-up plant's visit, with the model's numbers for its stage and health; null for a plot nobody was sown in. */
 export function syntheticFriend(plot: number, opts: SyntheticOptions): FriendGarden | null {
-  if (!Number.isInteger(plot) || plot < 0 || plot >= opts.count) return null;
-  const p = plantAt(plot, opts);
+  const p = sowings(opts).find((q) => q.plot === plot);
+  if (!p) return null;
   const alive = p.stage !== "resting";
   const poorly = p.health === "poorly";
   const soil: SoilVisual = {

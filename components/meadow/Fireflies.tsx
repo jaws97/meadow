@@ -7,7 +7,7 @@
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { BED, plotAt } from "@/components/meadow/layout";
+import { plotAt } from "@/components/meadow/layout";
 import { meadow } from "@/components/meadow/runtime";
 
 const COUNT = 72;
@@ -71,7 +71,7 @@ export function Fireflies() {
     if (!on) return;
     const t = state.clock.elapsedTime;
     if (target) {
-      r.position.set(target.x, BED.soilH + 0.03, target.z);
+      r.position.set(target.x, target.y + 0.03, target.z);
       const s = 1 + 0.12 * Math.sin(t * 2.4);
       r.scale.set(s, 1, s);
       (r.material as THREE.MeshBasicMaterial).opacity = 0.55 + 0.3 * Math.sin(t * 2.4);
