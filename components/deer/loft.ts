@@ -271,12 +271,14 @@ export class DoeMesh {
     return total;
   }
 
-  /** A small ellipsoid (an eye): centre, radii along x, y, z, and its weights. */
-  addEllipsoid(c: readonly [number, number, number], r: readonly [number, number, number], part: Part, weights: Weights, segs = 10) {
+  /** A small ellipsoid (an eye): centre, radii along x, y, z, its weights, and a tilt about z (radians). */
+  addEllipsoid(c: readonly [number, number, number], r: readonly [number, number, number], part: Part, weights: Weights, segs = 10, tilt = 0) {
     const base = this.vertexCount;
     const rows = Math.max(4, Math.round(segs / 2));
     const p = new THREE.Vector3();
     const n = new THREE.Vector3();
+    const ct = Math.cos(tilt);
+    const st = Math.sin(tilt);
     for (let i = 0; i <= rows; i++) {
       const phi = (i / rows) * Math.PI;
       for (let j = 0; j <= segs; j++) {
@@ -284,8 +286,12 @@ export class DoeMesh {
         const ux = Math.sin(phi) * Math.cos(th);
         const uy = Math.cos(phi);
         const uz = Math.sin(phi) * Math.sin(th);
-        p.set(c[0] + ux * r[0], c[1] + uy * r[1], c[2] + uz * r[2]);
-        n.set(ux / r[0], uy / r[1], uz / r[2]).normalize();
+        const lx = ux * r[0];
+        const ly = uy * r[1];
+        p.set(c[0] + lx * ct - ly * st, c[1] + lx * st + ly * ct, c[2] + uz * r[2]);
+        const nx = ux / r[0];
+        const ny = uy / r[1];
+        n.set(nx * ct - ny * st, nx * st + ny * ct, uz / r[2]).normalize();
         this.pushVertex(p, n, [0, 0, part, j / segs], weights);
       }
     }

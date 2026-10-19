@@ -3,7 +3,7 @@
 // grown rose in the bed) with the doe visiting it, for sign-off before anything is built into the product. The address
 // sets everything: ?act=tour (the visit: in through the left corridor, graze, look, browse, out under the arch),
 // stand, graze, browse or walk; ?view=garden (the garden's own camera, as a visitor sees it), side (following her
-// side-on from about 2.8 m) or close (three-quarters, 1.7 m); ?time=dawn, morning, noon, golden or dusk; and the
+// side-on from about 2.8 m), close (three-quarters, 1.7 m), or the close-ups face, face34 and legs; ?time=dawn, morning, noon, golden or dusk; and the
 // garden's own ?quality=lite|balanced|cinematic; ?deer=0 leaves her out, to measure what she costs. In the side and
 // close views the depth of field focuses on her.
 // Loaded in the browser only (DeerConcepts.tsx), so the address is read once, before the canvas mounts, and the
@@ -31,11 +31,11 @@ import { env } from "@/lib/garden/env";
 import { quality, useQuality, type Phase } from "@/lib/garden/quality";
 import { garden, useGarden } from "@/lib/garden/store";
 
-type View = "garden" | "side" | "close";
+type View = "garden" | "side" | "close" | "face" | "face34" | "legs";
 type Time = "dawn" | "morning" | "noon" | "golden" | "dusk";
 
 const ACTS: readonly Act[] = ["tour", "stand", "graze", "browse", "walk"];
-const VIEWS: readonly View[] = ["garden", "side", "close"];
+const VIEWS: readonly View[] = ["garden", "side", "close", "face", "face34", "legs"];
 const TIMES: readonly Time[] = ["dawn", "morning", "noon", "golden", "dusk"];
 /** Bangalore hours (the development panel's golden hour and dusk). */
 const HOURS: Record<Time, number> = { dawn: 6.45, morning: 8.0, noon: 12, golden: 17.6, dusk: 18.2 };
@@ -110,13 +110,28 @@ function FollowCam({ view }: { view: Exclude<View, "garden"> }) {
     const x = doe.pos.x;
     const z = doe.pos.y;
     const h = doe.heading;
+    const fx = Math.cos(h);
+    const fz = -Math.sin(h);
+    // her head and her near forefoot, wherever she faces
+    const headBone = doe.bones[7];
+    headBone.getWorldPosition(head);
     if (view === "side") {
       want.set(x - 0.1, 0.72, z + 2.8);
       camAim.set(x - 0.05, 0.55, z);
+    } else if (view === "face") {
+      // side-on to her face, close
+      want.set(head.x + fz * -0.75 + fx * 0.12, head.y - 0.04, head.z - fx * -0.75 + fz * 0.12);
+      camAim.set(head.x + fx * 0.1, head.y - 0.08, head.z + fz * 0.1);
+    } else if (view === "face34") {
+      // three-quarters from ahead, at her eye level
+      want.set(head.x + fx * 0.65 - fz * 0.5, head.y - 0.02, head.z + fz * 0.65 + fx * 0.5);
+      camAim.set(head.x + fx * 0.1, head.y - 0.07, head.z + fz * 0.1);
+    } else if (view === "legs") {
+      // side-on and low, the legs from the belly down
+      want.set(x - 0.2 * fx - fz * 1.5, 0.3, z - 0.2 * fz + fx * 1.5);
+      camAim.set(x - 0.22 * fx, 0.22, z - 0.22 * fz);
     } else {
       // three-quarters from ahead and to the camera's side of her
-      const fx = Math.cos(h);
-      const fz = -Math.sin(h);
       want.set(x + fx * 1.15 + 0.85, 0.78, z + fz * 1.15 + 1.25);
       camAim.set(x + fx * 0.25, 0.68, z + fz * 0.25);
     }
@@ -125,14 +140,14 @@ function FollowCam({ view }: { view: Exclude<View, "garden"> }) {
     else camPos.lerp(want, k);
     cam.position.copy(camPos);
     cam.lookAt(camAim);
-    if (cam.fov !== 34) {
-      cam.fov = 34;
+    const fov = view === "face" || view === "face34" ? 30 : 34;
+    if (cam.fov !== fov) {
+      cam.fov = fov;
       cam.updateProjectionMatrix();
     }
-    // the depth of field focuses on her head
-    const headBone = doe.bones[7];
-    headBone.getWorldPosition(head);
-    env.headPos.copy(head);
+    // the depth of field focuses on her head, or her legs when they are the subject
+    if (view === "legs") env.headPos.copy(camAim);
+    else env.headPos.copy(head);
   });
   return null;
 }

@@ -13,10 +13,9 @@
 //
 // Every part is a loft (loft.ts): the body and neck as one, from the buttocks up to the throat latch, so the top line
 // runs unbroken from the croup over the withers up the neck; the head as its own loft in its own frame, set onto the
-// neck; each foreleg along its bones from the shoulder blade to the toe; each hind leg in two parts, the thigh and
-// gaskin as one broad loft standing upright (its front edge the stifle, its back edge the hamstring curve) and the
-// lower leg along its bones from the hock to the toe; the ears, the tail and the eyes. The joints named here are where
-// the skeleton's bones pivot (build.ts).
+// neck; each leg as one continuous loft from inside the body down to the hoof, drawn (as the body is) by pairs of points
+// on its front and back edges, so the joints are knobs on one line rather than pieces fitted together; the ears, the
+// tail and the eyes. The pivots named here are where the skeleton's bones turn (build.ts).
 import type { Ring } from "@/components/deer/loft";
 
 export type Vec2 = readonly [number, number];
@@ -53,11 +52,12 @@ const OUTLINE: readonly (readonly [top: Vec2, bottom: Vec2, halfWidth: number])[
   [[0.158, 0.746], [0.2, 0.52], 0.058],
   [[0.183, 0.782], [0.228, 0.585], 0.05],
   [[0.206, 0.815], [0.25, 0.638], 0.045],
-  [[0.228, 0.84], [0.27, 0.676], 0.041],
-  // the throat latch, under the ears
-  [[0.247, 0.857], [0.262, 0.7], 0.039],
+  [[0.228, 0.84], [0.27, 0.676], 0.033],
+  // the throat latch, under the ears; the neck's end stays inside the head (where it pokes through the jaw's narrow
+  // lower side it draws a crease down the cheek)
+  [[0.247, 0.852], [0.262, 0.705], 0.024],
   // inside the back of the head
-  [[0.262, 0.866], [0.252, 0.722], 0.036],
+  [[0.255, 0.845], [0.264, 0.74], 0.018],
 ];
 
 /** The body and neck, from behind the buttocks to inside the head. */
@@ -100,75 +100,82 @@ const HEAD_PROFILE: readonly (readonly [u: number, top: number, bottom: number, 
 export const HEAD: readonly Ring[] = HEAD_PROFILE.map(([u, top, bottom, w]) => {
   const c = (top + bottom) / 2;
   const [x, y] = headPoint(u, c);
-  // the forehead is broad and the jaws narrow beneath it
-  return { x, y, up: (top - bottom) / 2, down: (top - bottom) / 2, w, taper: u < 0.15 ? 0.18 : 0.05 };
+  // the forehead is broad and the jaws narrow beneath it, easing into the muzzle (an abrupt change creases the cheek)
+  // (the jaw behind the eye stays full at the bottom, so it covers the throat where the neck meets it)
+  const k = Math.min(1, Math.max(0, (u - 0.06) / 0.16));
+  const jaw = Math.min(1, Math.max(0, (u - 0.0) / 0.1));
+  return { x, y, up: (top - bottom) / 2, down: (top - bottom) / 2, w, taper: (0.04 + 0.14 * jaw) - 0.13 * k * k * (3 - 2 * k) };
 });
 /** The nose tip, in the head's frame, for the grazing solve. */
 export const NOSE_UV: Vec2 = [0.243, -0.036];
 
-/** A leg's joints from where it leaves the body to the toe, with the thickness there: front and back of the bone's line. */
-export interface LegJoint {
-  name: string;
-  at: Vec2;
-  front: number;
-  back: number;
-  /** half-width */
-  w: number;
-  /** how far out from the midline, where it differs from the leg's (the shoulder sits inside the chest wall) */
-  z?: number;
-}
+/**
+ * A leg as drawn from the side: from inside the body down to the hoof's sole, pairs of points on its front and back
+ * edges, the half-width there, and how far out from the midline its centre stands. Each leg is one continuous surface
+ * through these pairs (as the body is), so it tapers in one line from the body to the hoof with the joints as knobs on
+ * it, never as cuffs where separate pieces meet.
+ */
+export type LegOutline = readonly (readonly [front: Vec2, back: Vec2, halfWidth: number, z: number])[];
 
-/** How far each leg's centre line stands out from the midline. */
+/** How far each leg's centre line stands out from the midline where it is clear of the body. */
 export const LEG_SPREAD = { fore: 0.062, hind: 0.067 } as const;
 
 /**
- * The foreleg: the shoulder blade's top inside the withers, the point of the shoulder at the chest's front, the upper
- * arm hidden in the body down to the elbow at the chest floor, then a near-vertical column: the muscled forearm, the
- * carpus (the "knee", a slight knob), the slim cannon (a flat blade, deeper than wide), the fetlock knob, a short
- * sloping pastern and the dark pointed hoof.
+ * The foreleg: hidden in the chest from the shoulder down to the elbow at the chest floor (the olecranon sticking out
+ * behind), then a near-vertical column: the muscled forearm narrowing to a slight knob at the carpus (the "knee"), the
+ * slim cannon (a flat blade, a little deeper than wide), the fetlock's knob (the dewclaws behind it), a short sloping
+ * pastern and a small dark pointed hoof.
  */
-export const FORE: readonly LegJoint[] = [
-  { name: "scapula", at: [0.03, 0.63], front: 0.035, back: 0.035, w: 0.016, z: 0.03 },
-  { name: "shoulder", at: [0.09, 0.545], front: 0.05, back: 0.05, w: 0.026, z: 0.045 },
-  { name: "arm", at: [0.05, 0.47], front: 0.045, back: 0.05, w: 0.028, z: 0.055 },
-  { name: "elbow", at: [0.005, 0.41], front: 0.034, back: 0.048, w: 0.026, z: 0.06 },
-  { name: "forearm", at: [0.008, 0.33], front: 0.032, back: 0.03, w: 0.022 },
-  { name: "carpus", at: [0.01, 0.24], front: 0.02, back: 0.022, w: 0.02 },
-  { name: "cannon", at: [0.011, 0.15], front: 0.012, back: 0.014, w: 0.011 },
-  { name: "fetlock", at: [0.012, 0.058], front: 0.016, back: 0.021, w: 0.016 },
-  { name: "pastern", at: [0.021, 0.041], front: 0.012, back: 0.012, w: 0.014 },
-  // a small, steep hoof, nearly under the cannon
-  { name: "coronet", at: [0.031, 0.027], front: 0.016, back: 0.018, w: 0.016 },
-  { name: "toe", at: [0.053, 0.006], front: 0.005, back: 0.005, w: 0.011 },
+export const FORE: LegOutline = [
+  [[0.105, 0.57], [0.0, 0.62], 0.03, 0.035],
+  [[0.115, 0.52], [-0.03, 0.55], 0.034, 0.045],
+  [[0.085, 0.46], [-0.045, 0.47], 0.032, 0.052],
+  // the elbow
+  [[0.05, 0.415], [-0.048, 0.425], 0.03, 0.058],
+  [[0.043, 0.375], [-0.03, 0.38], 0.026, 0.06],
+  [[0.038, 0.32], [-0.018, 0.32], 0.022, 0.061],
+  [[0.033, 0.272], [-0.012, 0.272], 0.019, 0.062],
+  // the carpus
+  [[0.034, 0.245], [-0.014, 0.245], 0.021, 0.062],
+  [[0.027, 0.215], [-0.008, 0.215], 0.016, 0.062],
+  [[0.024, 0.15], [-0.004, 0.15], 0.012, 0.062],
+  [[0.024, 0.095], [-0.006, 0.095], 0.013, 0.062],
+  // the fetlock
+  [[0.028, 0.066], [-0.014, 0.062], 0.016, 0.062],
+  [[0.035, 0.044], [0.0, 0.038], 0.014, 0.062],
+  // the coronet and the hoof
+  [[0.045, 0.03], [0.008, 0.024], 0.016, 0.062],
+  [[0.058, 0.012], [0.012, 0.008], 0.015, 0.062],
+  [[0.064, 0.003], [0.016, 0.003], 0.012, 0.062],
 ];
 
 /**
- * The hind leg's thigh and gaskin, as one broad upright loft (rings stacked down its height): at each height the
- * front edge (the stifle fold, the stifle, the gaskin's front) and the back edge (the hamstring curve from the buttock
- * down to the point of the hock), and the half-width; the thigh is the widest part of her hindquarters. z eases out
- * from inside the rump to the leg's line.
+ * The hind leg: the thigh, the rump's broad muscle, from inside the rump down to the stifle at the flank's fold; the
+ * gaskin narrowing below it, its back edge the hamstring's long curve down to the point of the hock, which sticks out
+ * behind, higher than the foreleg's knee; then the long slim cannon, the fetlock, the pastern and the hoof.
  */
-export const THIGH: readonly (readonly [y: number, front: number, back: number, halfWidth: number])[] = [
-  [0.66, -0.48, -0.63, 0.03],
-  [0.57, -0.45, -0.672, 0.046],
-  [0.51, -0.43, -0.674, 0.047],
-  [0.455, -0.41, -0.662, 0.04],
-  [0.41, -0.442, -0.645, 0.032],
-  [0.37, -0.49, -0.634, 0.026],
-  [0.335, -0.528, -0.627, 0.022],
-  [0.305, -0.552, -0.62, 0.02],
-  [0.282, -0.554, -0.62, 0.02],
-];
-
-/** The lower hind leg, along its bones: the hock (its point behind), the long slim cannon, fetlock, pastern, hoof. */
-export const HIND_LOWER: readonly LegJoint[] = [
-  { name: "hock", at: [-0.585, 0.29], front: 0.026, back: 0.036, w: 0.02 },
-  { name: "tarsus", at: [-0.578, 0.245], front: 0.016, back: 0.021, w: 0.015 },
-  { name: "cannon", at: [-0.57, 0.16], front: 0.014, back: 0.017, w: 0.012 },
-  { name: "fetlock", at: [-0.558, 0.058], front: 0.017, back: 0.021, w: 0.016 },
-  { name: "pastern", at: [-0.549, 0.041], front: 0.012, back: 0.013, w: 0.014 },
-  { name: "coronet", at: [-0.539, 0.027], front: 0.016, back: 0.018, w: 0.016 },
-  { name: "toe", at: [-0.517, 0.006], front: 0.005, back: 0.005, w: 0.011 },
+export const HIND: LegOutline = [
+  [[-0.47, 0.64], [-0.645, 0.64], 0.03, 0.045],
+  [[-0.45, 0.57], [-0.672, 0.57], 0.046, 0.05],
+  [[-0.43, 0.51], [-0.676, 0.51], 0.047, 0.055],
+  // the stifle in front
+  [[-0.408, 0.455], [-0.664, 0.455], 0.04, 0.06],
+  [[-0.44, 0.41], [-0.648, 0.41], 0.032, 0.063],
+  [[-0.488, 0.37], [-0.636, 0.37], 0.026, 0.065],
+  [[-0.53, 0.335], [-0.628, 0.335], 0.022, 0.066],
+  // the hock, its point behind
+  [[-0.553, 0.305], [-0.626, 0.31], 0.02, 0.067],
+  [[-0.561, 0.275], [-0.612, 0.282], 0.018, 0.067],
+  [[-0.563, 0.245], [-0.598, 0.248], 0.015, 0.067],
+  [[-0.559, 0.16], [-0.589, 0.16], 0.012, 0.067],
+  [[-0.555, 0.095], [-0.587, 0.095], 0.013, 0.067],
+  // the fetlock
+  [[-0.55, 0.066], [-0.59, 0.062], 0.016, 0.067],
+  [[-0.543, 0.044], [-0.574, 0.038], 0.014, 0.067],
+  // the coronet and the hoof
+  [[-0.535, 0.03], [-0.567, 0.024], 0.016, 0.067],
+  [[-0.522, 0.012], [-0.566, 0.008], 0.015, 0.067],
+  [[-0.516, 0.003], [-0.563, 0.003], 0.012, 0.067],
 ];
 
 /** The joints the bones pivot at (top to toe), and the toe the hoof plants. */
@@ -176,16 +183,16 @@ export const FORE_PIVOTS: readonly Vec2[] = [
   [0.01, 0.68], // shoulder blade's top
   [0.095, 0.545], // shoulder joint
   [0.005, 0.41], // elbow
-  [0.01, 0.24], // carpus
-  [0.012, 0.058], // fetlock
-  [0.053, 0.0], // toe on the ground
+  [0.01, 0.245], // carpus
+  [0.008, 0.064], // fetlock
+  [0.062, 0.0], // toe on the ground
 ];
 export const HIND_PIVOTS: readonly Vec2[] = [
   [-0.54, 0.597], // hip joint
   [-0.44, 0.445], // stifle
   [-0.585, 0.29], // hock
-  [-0.558, 0.058], // fetlock
-  [-0.517, 0.0], // toe on the ground
+  [-0.57, 0.064], // fetlock
+  [-0.518, 0.0], // toe on the ground
 ];
 
 /**
@@ -214,8 +221,16 @@ export const TAIL = {
   depth: 0.02,
 } as const;
 
-/** The eyes: large and dark, set high on the head, bulging a little past the orbit. */
-export const EYE = { at: headPoint(0.088, -0.03), r: 0.0145, out: 0.046 } as const;
+/** The eyes: large, dark and almond-shaped, set high on the head, their lids painted round them (coat.ts). */
+export const EYE = {
+  at: headPoint(0.088, -0.03),
+  /** half-length along the head's axis, half-height, and how far it bulges */
+  radii: [0.0165, 0.0105, 0.0075] as const,
+  /** its centre out from the midline: the cornea stands a millimetre or two proud of the face */
+  out: 0.0435,
+  /** tilted down toward its front corner, along the line of the face */
+  tilt: HEAD_ANGLE - 0.12,
+} as const;
 
 /** Bone pivots along the body and neck, rump to head. */
 export const SPINE = {

@@ -14,13 +14,12 @@ import {
   FORE,
   FORE_PIVOTS,
   HEAD,
-  HIND_LOWER,
+  HIND,
   HIND_PIVOTS,
   LEG_SPREAD,
   SPINE,
   TAIL,
-  THIGH,
-  type LegJoint,
+  type LegOutline,
 } from "@/components/deer/blueprint";
 import { DoeMesh, PART, resample, type Ring } from "@/components/deer/loft";
 import type { Quality } from "@/lib/garden/store";
@@ -50,9 +49,9 @@ export const boneIndex = (name: string) => {
 };
 
 export const TESS = {
-  cinematic: { body: [76, 32], head: [26, 24], leg: [40, 14], thigh: [20, 18], ear: [14, 12], tail: [12, 10], eye: 12 },
-  balanced: { body: [60, 26], head: [20, 20], leg: [32, 12], thigh: [16, 14], ear: [12, 10], tail: [10, 8], eye: 10 },
-  lite: { body: [44, 20], head: [16, 16], leg: [24, 10], thigh: [12, 12], ear: [10, 8], tail: [8, 8], eye: 8 },
+  cinematic: { body: [76, 32], head: [30, 26], leg: [48, 14], ear: [14, 12], tail: [12, 10], eye: 14 },
+  balanced: { body: [60, 26], head: [24, 20], leg: [38, 12], ear: [12, 10], tail: [10, 8], eye: 12 },
+  lite: { body: [44, 20], head: [18, 16], leg: [28, 10], ear: [10, 8], tail: [8, 8], eye: 8 },
 } as const satisfies Record<Quality, unknown>;
 
 /** Where every bone pivots in the rest pose (world = body frame, since nothing is rotated at rest). */
@@ -160,8 +159,58 @@ export function sharesAlong(line: readonly THREE.Vector3[], points: readonly THR
   });
 }
 
-function legRings(list: readonly LegJoint[], z: number): Ring[] {
-  return list.map((j) => ({ x: j.at[0], y: j.at[1], z: j.z === undefined ? z : j.z * Math.sign(z), up: j.front, down: j.back, w: j.w }));
+/** A leg's rings from its outline: each spans its front and back points exactly. sign: -1 for a left leg. */
+function outlineRings(outline: LegOutline, sign: number): Ring[] {
+  return outline.map(([[fx, fy], [bx, by], w, z]) => {
+    const half = Math.hypot(fx - bx, fy - by) / 2;
+    return { x: (fx + bx) / 2, y: (fy + by) / 2, z: z * sign, up: half, down: half, w, a: Math.atan2(fy - by, fx - bx) };
+  });
+}
+
+/** For a loft down a leg: the height of its centre line at each share of the way along it, and the way along (m) at each height. */
+function heightTable(rings: readonly Ring[]) {
+  const line = resample(rings, 160);
+  const total = line[line.length - 1].s;
+  const yAt = (u: number) => {
+    const f = Math.min(1, Math.max(0, u)) * (line.length - 1);
+    const i = Math.min(line.length - 2, Math.floor(f));
+    return line[i].ring.y + (line[i + 1].ring.y - line[i].ring.y) * (f - i);
+  };
+  // the centre line runs down the leg, so each height is passed once
+  const sAt = (y: number) => {
+    for (let i = 1; i < line.length; i++) {
+      const a = line[i - 1];
+      const b = line[i];
+      if ((a.ring.y - y) * (b.ring.y - y) <= 0) {
+        const f = (a.ring.y - y) / (a.ring.y - b.ring.y || 1);
+        return a.s + (b.s - a.s) * f;
+      }
+    }
+    return total;
+  };
+  return { yAt, sAt, total };
+}
+
+/**
+ * Weights by height down a leg: bones in order from the top, each owning the heights between its pivot and the next
+ * (`below`: the pivots' heights, descending), blended over `blend` metres either side of each pivot.
+ */
+function heightWeights(y: number, below: readonly number[], bones: readonly number[], blend: readonly number[]): [number, number][] {
+  let k = 0;
+  while (k < below.length && y < below[k]) k++;
+  const out: [number, number][] = [[bones[k], 1]];
+  // blend with the bone above near its pivot, and with the bone below near the next one
+  if (k > 0 && y < below[k - 1] + blend[k - 1]) {
+    const f = Math.min(1, 0.5 + 0.5 * ((below[k - 1] - y) / blend[k - 1]));
+    out[0][1] = f;
+    out.push([bones[k - 1], 1 - f]);
+  }
+  if (k < below.length && y < below[k] + blend[k]) {
+    const f = Math.min(1, 0.5 + 0.5 * ((y - below[k]) / blend[k]));
+    out[0][1] *= f;
+    out.push([bones[k + 1], 1 - f]);
+  }
+  return out;
 }
 
 /** The ear's section: a thin curved blade, cupped toward +out (its opening). up = half thickness, down = cup depth. */
@@ -193,7 +242,9 @@ export interface DoeLengths {
   head: number;
   fore: number;
   hind: number;
-  thigh: number;
+  /** along each leg's loft (m): the foreleg's elbow, knee and fetlock; the hind leg's stifle, hock and fetlock */
+  foreMarks: readonly [number, number, number];
+  hindMarks: readonly [number, number, number];
   /** metres along the body loft where the neck begins, and level with the elbow and the stifle */
   neckAt: number;
   elbowAt: number;
@@ -251,96 +302,47 @@ export function buildDoe(tier: Quality): DoeBuild {
     }
   }
 
-  // legs
-  let foreLen = 0;
-  let hindLen = 0;
-  let thighLen = 0;
+  // legs: each one continuous loft through its outline, weighted to its bones by height
   const chest = boneIndex("chest");
   const pelvis = boneIndex("pelvis");
+  const foreTable = heightTable(outlineRings(FORE, 1));
+  const hindTable = heightTable(outlineRings(HIND, 1));
+  const forePivotY = FORE_PIVOTS.slice(1, 5).map((p) => p[1]);
+  const hindPivotY = HIND_PIVOTS.slice(1, 4).map((p) => p[1]);
   for (const s of SIDES) {
     const z = sideZ(s);
-    // foreleg, along its bones
-    const fore = legRings(FORE, LEG_SPREAD.fore * z);
-    const foreAt = sharesAlong(
-      fore.map((r) => new THREE.Vector3(r.x, r.y, r.z)),
-      [0, 1, 2, 3, 4].map((k) => pivots[`fore${s}${k}`]),
-    );
     const foreBones = [0, 1, 2, 3, 4].map((k) => boneIndex(`fore${s}${k}`));
-    foreLen = m.addLoft({
-      rings: fore,
+    m.addLoft({
+      rings: outlineRings(FORE, z),
       along: t.leg[0],
       around: t.leg[1],
       part: PART.fore,
       flip: s === "L",
       capStart: 0.4,
-      capEnd: 0.4,
+      capEnd: 0.15,
       weights: (u) => {
-        const w = chainWeights(foreAt, foreBones, u);
-        // the top of the shoulder blade stays with the chest
-        const keep = Math.max(0, 1 - u / Math.max(1e-6, foreAt[1] * 0.7)) * 0.6;
+        const y = foreTable.yAt(u);
+        const w = heightWeights(y, forePivotY, foreBones, [0.03, 0.035, 0.022, 0.014]);
+        // the top of the shoulder stays with the chest
+        const keep = THREE.MathUtils.smoothstep(y, 0.55, 0.64) * 0.6;
         return keep > 0 ? [...w.map(([b, x]) => [b, x * (1 - keep)] as [number, number]), [chest, keep]] : w;
       },
     });
-
-    // the thigh and gaskin: an upright loft, weighted by height (the thigh above the stifle, the gaskin below)
-    const femur = boneIndex(`hind${s}0`);
-    const tibia = boneIndex(`hind${s}1`);
-    const meta = boneIndex(`hind${s}2`);
-    const top = THIGH[0][0];
-    const bottom = THIGH[THIGH.length - 1][0];
-    const thigh: Ring[] = THIGH.map(([y, front, back, w], i) => ({
-      x: (front + back) / 2,
-      y,
-      // from inside the rump out to the leg's line
-      z: z * (0.045 + (LEG_SPREAD.hind - 0.045) * Math.min(1, i / 4)),
-      up: (front - back) / 2,
-      down: (front - back) / 2,
-      w,
-      n: 2.0,
-    }));
-    const stifleY = HIND_PIVOTS[1][1];
-    thighLen = m.addLoft({
-      rings: thigh,
-      along: t.thigh[0],
-      around: t.thigh[1],
-      part: PART.thigh,
-      flip: s === "L",
-      capStart: 0.3,
-      capEnd: 0.1,
-      weights: (u) => {
-        const y = top + (bottom - top) * u;
-        const knee = THREE.MathUtils.smoothstep(y, stifleY - 0.06, stifleY + 0.06);
-        const rump = THREE.MathUtils.smoothstep(y, 0.55, 0.64) * 0.55;
-        const hock = 1 - THREE.MathUtils.smoothstep(y, 0.27, 0.32);
-        return [
-          [femur, knee * (1 - rump)],
-          [pelvis, knee * rump],
-          [tibia, (1 - knee) * (1 - hock * 0.5)],
-          [meta, (1 - knee) * hock * 0.5],
-        ];
-      },
-    });
-
-    // the lower hind leg, along its bones from the hock
-    const lower = legRings(HIND_LOWER, LEG_SPREAD.hind * z);
-    const lowerAt = sharesAlong(
-      lower.map((r) => new THREE.Vector3(r.x, r.y, r.z)),
-      [2, 3].map((k) => pivots[`hind${s}${k}`]),
-    );
-    const pastern = boneIndex(`hind${s}3`);
-    hindLen = m.addLoft({
-      rings: lower,
-      along: Math.round(t.leg[0] * 0.75),
+    const hindBones = [0, 1, 2, 3].map((k) => boneIndex(`hind${s}${k}`));
+    m.addLoft({
+      rings: outlineRings(HIND, z),
+      along: t.leg[0],
       around: t.leg[1],
       part: PART.hind,
       flip: s === "L",
       capStart: 0.3,
-      capEnd: 0.4,
+      capEnd: 0.15,
       weights: (u) => {
-        const w = chainWeights(lowerAt, [meta, pastern], u);
-        // the point of the hock goes with the gaskin
-        const keep = Math.max(0, 1 - u / 0.12) * 0.5;
-        return keep > 0 ? [...w.map(([b, x]) => [b, x * (1 - keep)] as [number, number]), [tibia, keep]] : w;
+        const y = hindTable.yAt(u);
+        const w = heightWeights(y, hindPivotY, hindBones, [0.045, 0.03, 0.014]);
+        // the top of the thigh is the rump's muscle: it stays half with the pelvis
+        const keep = THREE.MathUtils.smoothstep(y, 0.55, 0.64) * 0.55;
+        return keep > 0 ? [...w.map(([b, x]) => [b, x * (1 - keep)] as [number, number]), [pelvis, keep]] : w;
       },
     });
   }
@@ -349,7 +351,8 @@ export function buildDoe(tier: Quality): DoeBuild {
   const L = EAR.length;
   const W = EAR.width / 2;
   const earRings: Ring[] = [
-    { x: 0, y: -0.01, up: 0.008, down: W * 0.62, w: W * 0.42 },
+    // the base, a fleshy roll that grows out of the skull
+    { x: 0, y: -0.018, up: 0.011, down: W * 0.66, w: W * 0.5 },
     { x: 0, y: L * 0.16, up: 0.0045, down: W * 0.55, w: W * 0.68 },
     { x: 0, y: L * 0.45, up: 0.003, down: W * EAR.cup, w: W },
     { x: 0, y: L * 0.72, up: 0.0024, down: W * EAR.cup * 0.7, w: W * 0.85 },
@@ -395,7 +398,7 @@ export function buildDoe(tier: Quality): DoeBuild {
 
   // eyes
   for (const s of SIDES) {
-    m.addEllipsoid([EYE.at[0], EYE.at[1], EYE.out * sideZ(s)], [EYE.r * 1.12, EYE.r * 0.82, EYE.r * 0.72], PART.eye, [[headBone, 1]], t.eye);
+    m.addEllipsoid([EYE.at[0], EYE.at[1], EYE.out * sideZ(s)], EYE.radii, PART.eye, [[headBone, 1]], t.eye, EYE.tilt);
   }
 
   const geometry = m.build();
@@ -406,9 +409,10 @@ export function buildDoe(tier: Quality): DoeBuild {
     lengths: {
       body: bodyLen,
       head: headLen,
-      fore: foreLen,
-      hind: hindLen,
-      thigh: thighLen,
+      fore: foreTable.total,
+      hind: hindTable.total,
+      foreMarks: [foreTable.sAt(FORE_PIVOTS[2][1]), foreTable.sAt(FORE_PIVOTS[3][1]), foreTable.sAt(FORE_PIVOTS[4][1])],
+      hindMarks: [hindTable.sAt(HIND_PIVOTS[1][1]), hindTable.sAt(HIND_PIVOTS[2][1]), hindTable.sAt(HIND_PIVOTS[3][1])],
       neckAt: spineAt[3] * bodyLen,
       elbowAt: along(FORE_PIVOTS[2][0] + 0.02),
       stifleAt: along(HIND_PIVOTS[1][0] + 0.03),

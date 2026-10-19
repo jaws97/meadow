@@ -51,7 +51,7 @@ export const COAT = {
   bib: "#e2dccf",
   spot: "#e4ded2",
   tailTop: "#3e2a24",
-  nose: "#2a2427",
+  nose: "#3d3638",
   eye: "#1e120d",
   hoof: "#2e2a29",
 } as const;
@@ -60,7 +60,9 @@ const GLSL = /* glsl */ `
 #include <common>
 varying vec4 vCoat;
 uniform vec4 uLen;      // body, head, fore, hind lofts' lengths
-uniform vec4 uMarks;    // neck start, elbow, stifle (along the body), thigh loft length
+uniform vec4 uMarks;    // neck start, elbow, stifle (along the body)
+uniform vec4 uFore;     // along the foreleg: elbow, knee, fetlock; its length
+uniform vec4 uHind;     // along the hind leg: stifle, hock, fetlock; its length
 uniform vec2 uEye;      // the eye on the head's coat: along it, round from its top
 uniform float uSeed;
 uniform vec3 cStripe, cBack, cNape, cUpper, cLower, cFringe, cHaunch, cNeck, cNeckTop, cFace, cForehead, cEyeRing,
@@ -207,13 +209,24 @@ vec3 deerCoat(vec4 c, out float rough) {
     col = mix(cForehead, cFace, smoothstep(0.12, 0.42, dn));
     // the dusky line narrows down the bridge of the nose
     col = mix(col, cForehead, (1.0 - soft(mix(0.025, 0.01, hs), 0.004, d)) * smoothstep(0.35, 0.5, hs));
-    // a thin pale ring round the eye, and the preorbital gland's dark slit ahead of and below it
-    float er = length(vec2((s - uEye.x) * 0.9, (d - uEye.y) * 1.2 + 0.003));
-    col = mix(col, cEyeRing, (1.0 - soft(0.0165, 0.003, er)) * soft(0.011, 0.002, er) * 0.6);
-    float gl = length(vec2((s - uEye.x - 0.024) * 0.45, d - uEye.y - 0.008));
-    col = mix(col, cNose, (1.0 - soft(0.0055, 0.002, gl)) * 0.6);
-    // white chin and lower lip; the throat under the jaw
-    col = mix(col, cWhite * 0.95, soft(0.7, 0.02, dn) * smoothstep(0.7, 0.8, hs));
+    // round the almond eye: its dark lids, then a pale ring, widest below and ahead of it
+    vec2 eq = vec2((s - uEye.x) / 0.0185, (d - uEye.y) / 0.0125);
+    float er = length(eq);
+    col = mix(col, cEyeRing, (1.0 - soft(1.55, 0.2, length(eq - vec2(0.15, 0.22)))) * soft(1.12, 0.06, er) * 0.28);
+    col = mix(col, cNose, (1.0 - soft(1.1, 0.05, er)) * 0.75);
+    // the preorbital gland: a fine dark slit running forward and down from the eye's front corner
+    vec2 g0 = vec2(uEye.x + 0.017, uEye.y + 0.004);
+    vec2 gb = vec2(0.027, 0.012);
+    vec2 gp = vec2(s, d) - g0;
+    float gh = clamp(dot(gp, gb) / dot(gb, gb), 0.0, 1.0);
+    col = mix(col, cNose, (1.0 - soft(0.0015 * (1.0 - 0.6 * gh), 0.0007, length(gp - gb * gh))) * 0.55);
+    // the mouth: a fine dark line from under the nose back to its corner, the lower lip and chin white beneath it
+    float halfC = d / max(dn, 1e-3);
+    float mouthDn = 0.7 - 0.05 * smoothstep(0.84, 0.93, hs);
+    float mouth = (1.0 - soft(0.0012, 0.0006, abs(dn - mouthDn) * halfC)) * smoothstep(0.73, 0.76, hs) * (1.0 - smoothstep(0.92, 0.94, hs));
+    col = mix(col, cWhite * 0.95, soft(mouthDn + 0.015, 0.01, dn) * smoothstep(0.72, 0.8, hs));
+    col = mix(col, cNose, mouth * 0.85);
+    // the throat under the jaw
     col = mix(col, cBib, soft(0.74, 0.02, dn) * (1.0 - smoothstep(0.3, 0.45, hs)));
     // a dusky band behind the nose pad, then the wet nose and the white upper-lip band
     float band = smoothstep(0.84, 0.87, hs) * (1.0 - smoothstep(0.9, 0.92, hs)) * (1.0 - smoothstep(0.5, 0.7, dn));
@@ -222,24 +235,46 @@ vec3 deerCoat(vec4 c, out float rough) {
     col = mix(col, cWhite, lip * 0.6);
     float nose = smoothstep(0.915, 0.94, hs) * (1.0 - soft(0.5, 0.05, dn));
     col = mix(col, cNose, nose);
+    // the nostrils: comma-shaped openings on the front of the nose pad, either side
+    float nos = length(vec2((s - 0.952 * uLen.y) / 0.0045, (d - 0.023) / 0.009));
+    col = mix(col, cEye * 0.35, (1.0 - soft(1.0, 0.18, nos)) * nose);
     rough = mix(0.88, 0.3, nose);
     coatAO = mix(1.0, 0.8, soft(0.8, 0.05, dn) * (1.0 - smoothstep(0.25, 0.45, hs)));
   } else if (part < 4.0) {
-    // ---- legs: s from the top; the flank's fawn outside, a cream wash inside, white on the back edge below the
-    //      knee and a crisp white band above the dark hoof ----
-    float len = part < 3.0 ? uLen.z : uLen.w;
-    float down = s / len;
-    col = mix(cLegUp, cLegLow, smoothstep(0.35, 0.7, down));
-    if (part < 3.0) col = mix(cUpper, col, smoothstep(0.18, 0.32, down));
-    float below = part < 3.0 ? smoothstep(0.35, 0.5, down) : 1.0;
-    float inside = (soft(0.012, 0.006, -a) * 0.6 + soft(0.88, 0.03, dn) * 0.85) * below;
-    col = mix(col, mix(cWhite, cLegLow, 0.3), clamp(inside, 0.0, 1.0));
+    // ---- legs, each one loft from inside the body to the hoof: s down it, past the marks of its joints (uFore: the
+    //      elbow, knee and fetlock; uHind: the stifle, hock and fetlock) to its length. Above the elbow or stifle the
+    //      body's coat (the shoulder; the haunch with its spots); below it the flank's fawn, paler from the knee or
+    //      hock down; a cream wash inside; white down the back from the elbow or the hock; a white band above the
+    //      hoof, dark dewclaws behind the fetlock, the hind cannon's dark gland outside below the hock; the hoof. ----
+    bool fore = part < 3.0;
+    vec4 mk = fore ? uFore : uHind;
+    float len = mk.w;
+    float halfC = d / max(dn, 1e-3);
+    vec3 body = fore ? cUpper : mix(cHaunch, cUpper, smoothstep(0.0, 0.12, s));
+    col = mix(cLegUp, cLegLow, smoothstep(mk.y - 0.01, mk.y + 0.07, s));
+    col = mix(col, body, 1.0 - smoothstep(mk.x - 0.03, mk.x + 0.03, s));
+    if (!fore) {
+      float sp = spots(s + 3.0, d + 0.02, 1.0, side, streak, 0.0, 1.0) * (1.0 - smoothstep(mk.x - 0.07, mk.x - 0.01, s)) * soft(0.0, 0.01, a);
+      col = mix(col, cSpot, sp * 0.93);
+    }
+    float inner = soft(0.012, 0.006, -a) * smoothstep(mk.x - 0.02, mk.x + 0.04, s) * 0.6;
+    float from = fore ? mk.x : mk.y - 0.02;
+    float backEdge = soft(0.84, 0.04, dn) * smoothstep(from, from + 0.04, s) * 0.75;
+    // the white margin up the back of the thigh
+    if (!fore) backEdge = max(backEdge, soft(0.9, 0.03, dn) * (1.0 - smoothstep(mk.y - 0.03, mk.y + 0.01, s)) * 0.65);
+    col = mix(col, mix(cWhite, cLegLow, 0.25), clamp(max(inner, backEdge), 0.0, 1.0));
+    if (!fore) {
+      float mg = length(vec2((s - mk.y - 0.075) / 0.014, (dn - 0.5) / 0.14));
+      col = mix(col, cStripe, (1.0 - soft(1.0, 0.2, mg)) * step(0.0, a) * 0.7);
+    }
     float band = smoothstep(len - 0.062, len - 0.055, s) * (1.0 - smoothstep(len - 0.042, len - 0.036, s));
-    col = mix(col, cWhite, band * 0.85);
-    float hoof = smoothstep(len - 0.037, len - 0.031, s);
+    col = mix(col, cWhite, band * 0.75);
+    float dew = 1.0 - soft(1.0, 0.2, length(vec2((s - mk.z + 0.008) / 0.008, (1.0 - dn) * halfC / 0.009)));
+    col = mix(col, cHoof, dew * 0.9);
+    float hoof = smoothstep(len - 0.038, len - 0.032, s);
     col = mix(col, cHoof, hoof);
-    rough = mix(0.9, 0.45, hoof);
-    coatAO = mix(0.6, 1.0, smoothstep(0.02, 0.14, down)) * mix(1.0, 0.85, soft(0.0, 0.01, -a));
+    rough = mix(0.9, 0.45, max(hoof, dew));
+    coatAO = mix(0.6, 1.0, smoothstep(mk.x - 0.05, mk.x + 0.04, s)) * mix(1.0, 0.85, soft(0.0, 0.01, -a));
     coatRimK *= 0.6;
   } else if (part < 5.0) {
     // ---- ears: t under 0.5 is the cupped inside, in shade; dark only at the rim and the tip ----
@@ -256,23 +291,13 @@ vec3 deerCoat(vec4 c, out float rough) {
     // ---- tail: fawn at the root turning dark; white only beneath ----
     col = mix(cBack, cTail, smoothstep(0.02, 0.05, s));
     col = mix(col, cWhite, 1.0 - soft(0.35, 0.06, dn));
-  } else if (part < 7.0) {
+  } else {
     // ---- eye ----
     col = cEye;
     rough = 0.06;
     hair = 1.0;
     coatH = 0.0;
     coatRimK = 0.0;
-  } else {
-    // ---- the thigh and gaskin: s down from the rump; the haunch spotted, the gaskin leg-coloured, a white margin
-    //      along the back edge and a cream wash inside ----
-    col = mix(cHaunch, cUpper, smoothstep(0.0, 0.12, s));
-    col = mix(col, cLegUp, smoothstep(0.16, 0.26, s));
-    float sp = spots(s + 3.0, d + 0.02, 1.0, side, streak, 0.0, 1.0) * (1.0 - smoothstep(0.12, 0.2, s)) * soft(0.0, 0.01, a);
-    col = mix(col, cSpot, sp * 0.93);
-    float back = soft(0.9, 0.03, dn);
-    col = mix(col, mix(cWhite, cLegLow, 0.2), max(back, soft(0.01, 0.008, -a) * 0.7));
-    coatAO = mix(1.0, 0.7, soft(0.01, 0.01, -a));
   }
   return col * hair;
 }
@@ -318,7 +343,9 @@ export function coatMaterial(tier: Quality, lengths: DoeLengths, seed: number): 
   const colour = (hex: string) => ({ value: new THREE.Color(hex) });
   const uniforms: Record<string, THREE.IUniform> = {
     uLen: { value: new THREE.Vector4(lengths.body, lengths.head, lengths.fore, lengths.hind) },
-    uMarks: { value: new THREE.Vector4(lengths.neckAt, lengths.elbowAt, lengths.stifleAt, lengths.thigh) },
+    uMarks: { value: new THREE.Vector4(lengths.neckAt, lengths.elbowAt, lengths.stifleAt, 0) },
+    uFore: { value: new THREE.Vector4(...lengths.foreMarks, lengths.fore) },
+    uHind: { value: new THREE.Vector4(...lengths.hindMarks, lengths.hind) },
     uEye: { value: new THREE.Vector2(lengths.eyeS, lengths.eyeD) },
     uSeed: { value: seed },
     cStripe: colour(COAT.stripe),
