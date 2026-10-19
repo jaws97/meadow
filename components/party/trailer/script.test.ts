@@ -72,11 +72,11 @@ describe("a track", () => {
 });
 
 describe("the trailer", () => {
-  it("runs about a minute and three quarters, its beats in order", () => {
+  it("runs about a minute and a half, its beats in order", () => {
     expect([GROW_AT, BLOOM_AT, VISIT_AT, NIGHT_AT, FLOWERS_AT, END_AT, RESTORE_AT, RETURN_AT, TRAILER_S]).toEqual(
       [GROW_AT, BLOOM_AT, VISIT_AT, NIGHT_AT, FLOWERS_AT, END_AT, RESTORE_AT, RETURN_AT, TRAILER_S].sort((a, b) => a - b),
     );
-    expect(TRAILER_S).toBeGreaterThan(95);
+    expect(TRAILER_S).toBeGreaterThan(85);
     expect(TRAILER_S).toBeLessThan(115);
   });
 
@@ -161,8 +161,9 @@ describe("the trailer", () => {
     for (const c of sorted) expect(c.to).toBeGreaterThan(c.from);
   });
 
-  it("brings the doe in for the golden hour and the dusk only", () => {
-    for (const t of times(0, TRAILER_S)) expect(trailerAt(t, GOLDEN).doe).toBe(t >= VISIT_AT && t < FLOWERS_AT);
+  it("brings the doe in for the golden hour and the dusk only, and takes her away under black", () => {
+    for (const t of times(0, TRAILER_S)) expect(trailerAt(t, GOLDEN).doe).toBe(t >= VISIT_AT && t < GATES[0]);
+    expect(trailerAt(GATES[0], GOLDEN).cover).toBeCloseTo(1, 6);
   });
 
   it("pulls focus to the doe after she has arrived, and back to the flower", () => {

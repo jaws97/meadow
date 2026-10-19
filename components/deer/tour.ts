@@ -117,8 +117,9 @@ const TALL: Partial<Tours> = {
 };
 
 /**
- * The party trailer's visitor (components/party/trailer): in from the corridor on camera, a short graze and two looks
- * toward the flower, and out the way she came. Each graze is short, so her own glance up while grazing never comes.
+ * The party trailer's visitor (components/party/trailer): in from the corridor on camera, a short graze and a look
+ * toward the flower, and out the way she came as the light goes. The graze is short, so her own glance up while
+ * grazing never comes.
  */
 const ARRIVE: Plan = {
   start: ENTRY,
@@ -126,11 +127,9 @@ const ARRIVE: Plan = {
   steps: [
     { kind: "walk", to: [-3.2, -1.62] },
     { kind: "walk", to: STATION },
-    { kind: "stand", secs: 0.8 },
-    { kind: "graze", secs: 4 },
-    { kind: "look", secs: 4.5 },
+    { kind: "stand", secs: 0.5 },
     { kind: "graze", secs: 3 },
-    { kind: "look", secs: 3 },
+    { kind: "look", secs: 4 },
     { kind: "walk", to: [-3.2, -1.62] },
     { kind: "walk", to: ENTRY },
   ],

@@ -10,7 +10,7 @@
 // back to the middle), T starts or stops the slow tour, F toggles full
 // screen, D plays or stops the trailer (components/party/trailer: the seed,
 // the rose growing through a day, the doe, night and the other flowers, in
-// the live garden, about a minute and three quarters), which a button in the
+// the live garden, about a minute and a half), which a button in the
 // corner also plays while the mouse moves. While it plays H, T and F wait.
 // `?panel=off` and `?tour=on` set the opening state, and `?hour=21.5`
 // lights the garden at another hour for a rehearsal (logic.ts showcaseHour).

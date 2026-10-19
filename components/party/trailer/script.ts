@@ -1,4 +1,4 @@
-// The party trailer's script: about a minute and three quarters in the live garden, from a seed at dawn to the rose in
+// The party trailer's script: about a minute and a half in the live garden, from a seed at dawn to the rose in
 // bloom, a visitor at golden hour, night, the other flowers a guest can choose, and the gift again. Everything the
 // trailer shows is a channel keyed in time (the hour, growth, bloom, rain and cloud the garden's store takes, the
 // camera's shot, the focus pull to the doe, the black dips) and read with `trailerAt(t)`, so the timeline is pure and
@@ -77,9 +77,9 @@ export const BLOOM_AT = 31;
 /** The doe walks in, grazes and looks at the rose. */
 export const VISIT_AT = 43;
 /** Dusk and night: the lantern, fireflies and stars; she leaves. */
-export const NIGHT_AT = 66;
+export const NIGHT_AT = 55;
 /** The other flowers, one by one, joined by dips to black. */
-export const FLOWERS_AT = 80;
+export const FLOWERS_AT = 64;
 /** Each flower's share of the montage: the dip in, the swap under black, the dip out and the hold. */
 export const FLOWER_S = 3.8;
 const DIP_S = 0.7;
@@ -129,8 +129,8 @@ function hourKeys(g: number): Key[] {
     [BLOOM_AT + 6, g - 0.75],
     [VISIT_AT, g - 0.1],
     [NIGHT_AT, g + 0.15],
-    [NIGHT_AT + 6, g + 0.85],
-    [NIGHT_AT + 10, g + 1.65],
+    [NIGHT_AT + 4, g + 0.85],
+    [NIGHT_AT + 7, g + 1.65],
     [FLOWERS_AT, g + 1.85],
   ];
 }
@@ -165,8 +165,8 @@ const CLOUD = new Track([
 const RACK = new Track([
   [VISIT_AT + 6.5, 0],
   [VISIT_AT + 8, 1],
-  [VISIT_AT + 13, 1],
-  [VISIT_AT + 15, 0],
+  [VISIT_AT + 11.5, 1],
+  [VISIT_AT + 13.5, 0],
 ]);
 
 /** The camera's shots, as the party camera takes them (components/party/PartyCamera): offsets from the composed garden. */
@@ -282,7 +282,7 @@ export function trailerAt(t: number, golden: number, out: TrailerFrame = blankFr
   out.rain = restored ? 0 : RAIN.at(t);
   out.cloud = restored ? 0.15 : CLOUD.at(t);
   out.rack = RACK.at(t);
-  out.doe = t >= VISIT_AT && t < FLOWERS_AT;
+  out.doe = t >= VISIT_AT && t < GATES[0];
   out.cover = Math.min(1, Math.max(0, COVER.at(t)));
   out.bars = t < RETURN_AT;
   out.restored = restored;
