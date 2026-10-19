@@ -174,7 +174,7 @@ function earSection(th: number, r: Ring): readonly [number, number] {
 
 /**
  * An ear's frame for a carriage: its long axis (y) at an elevation above horizontal and a bearing out from straight
- * ahead, its opening (z) facing out and forward (about 50 degrees ahead of that bearing, so from the side the ear shows
+ * ahead, its opening (z) facing out and forward (60 degrees ahead of that bearing, so from the side the ear shows
  * its broad oval, not its edge) and a little down, x across the ear.
  */
 export function earBasis(side: Side, elevation: number, azimuth: number): THREE.Matrix4 {
@@ -182,7 +182,7 @@ export function earBasis(side: Side, elevation: number, azimuth: number): THREE.
   const el = THREE.MathUtils.degToRad(elevation);
   const az = THREE.MathUtils.degToRad(azimuth);
   const yAxis = new THREE.Vector3(Math.cos(el) * Math.cos(az), Math.sin(el), z * Math.cos(el) * Math.sin(az)).normalize();
-  const face = new THREE.Vector3(Math.cos(az - 0.9), -0.25, z * Math.sin(az - 0.9));
+  const face = new THREE.Vector3(Math.cos(az - Math.PI / 3), -0.25, z * Math.sin(az - Math.PI / 3));
   const zAxis = face.addScaledVector(yAxis, -face.dot(yAxis)).normalize();
   const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis);
   return new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
@@ -233,7 +233,7 @@ export function buildDoe(tier: Quality): DoeBuild {
   // head
   const headBone = boneIndex("head");
   const headFrom = m.vertexCount;
-  const headLen = m.addLoft({ rings: HEAD, along: t.head[0], around: t.head[1], part: PART.head, capStart: 0.5, capEnd: 0.6, weights: () => [[headBone, 1]] });
+  const headLen = m.addLoft({ rings: HEAD, along: t.head[0], around: t.head[1], part: PART.head, capStart: 0.35, capEnd: 0.6, weights: () => [[headBone, 1]] });
   // where the eye sits in the head's coat coordinates, so the coat's eye ring is centred on it
   const eye = { s: 0, d: 0 };
   {

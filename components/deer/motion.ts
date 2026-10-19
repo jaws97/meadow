@@ -27,7 +27,7 @@ export const GAIT = {
   /** how long a hoof is in the air */
   swing: 0.36,
   /** the hoof's travel under her while planted, at walking pace and at a crawl */
-  stance: { walk: 0.52, slow: 0.4 },
+  stance: { walk: 0.4, slow: 0.3 },
   /** lateral sequence: left hind, left fore, right hind, right fore (deer: the fore lands 31% of a stride after its hind) */
   phase: { hindL: 0, foreL: 0.28, hindR: 0.5, foreR: 0.78 },
   lift: { fore: 0.075, hind: 0.06 },
@@ -48,7 +48,13 @@ interface Leg {
   kind: Kind;
   parent: THREE.Bone;
   bones: THREE.Bone[];
-  /** the IK root in the parent bone's frame */
+  /**
+   * A foreleg's shoulder blade: its bone, its pivot near the withers and the arm from there to the shoulder joint (in
+   * the chest's frame), and the bearing from the pivot to the toe standing. The blade swings with the leg, carrying
+   * the shoulder joint back and down as the hoof passes behind, which is where a foreleg's reach comes from.
+   */
+  scap: { bone: THREE.Bone; pivot: THREE.Vector2; arm: THREE.Vector2; bearing0: number } | null;
+  /** the IK root in the parent bone's frame (for a foreleg, the shoulder joint with the blade at rest) */
   root: THREE.Vector2;
   len: number[];
   ang0: number[];
@@ -56,6 +62,8 @@ interface Leg {
   bend: number;
   /** the toe at rest, in her own frame */
   neutral: THREE.Vector3;
+  /** the toe in the pastern bone's frame, to find where the leg actually reaches */
+  toeLocal: THREE.Vector3;
   offset: number;
   planted: THREE.Vector3;
   from: THREE.Vector3;
@@ -98,9 +106,9 @@ const GRAZE_MAX = 1.6;
  * grazing deer swings the whole neck down from its base and keeps it nearly straight, the face turned down to the
  * grass; browsing stretches the neck forward and lifts the nose.
  */
-export const NECK_DOWN = [-0.95, -0.55, -0.33, 0.9];
+export const NECK_DOWN = [-1.3, -0.45, -0.2, 1.5];
 /** Grazing also lowers her withers (the forelegs flex to keep the hooves where they are), and tips the chest. */
-export const GRAZE_CHEST = { drop: 0.02, pitch: -0.035 } as const;
+export const GRAZE_CHEST = { drop: 0.045, pitch: -0.07 } as const;
 /** A grazing deer stands with one foreleg a little forward of the other. */
 const GRAZE_STEP = 0.09;
 export const NECK_REACH = [-0.35, -0.05, 0.12, 0.3];
@@ -202,11 +210,21 @@ export class DoeAnimator {
           parent: this.by(parentName),
           bones: names.map((n) => this.by(n)),
           root: new THREE.Vector2(pts[0].x - p0.x, pts[0].y - p0.y),
+          scap:
+            kind === "fore"
+              ? {
+                  bone: this.by(`fore${side}0`),
+                  pivot: new THREE.Vector2(pivots[`fore${side}0`].x - p0.x, pivots[`fore${side}0`].y - p0.y),
+                  arm: new THREE.Vector2(pts[0].x - pivots[`fore${side}0`].x, pts[0].y - pivots[`fore${side}0`].y),
+                  bearing0: Math.atan2(toe.y - pivots[`fore${side}0`].y, toe.x - pivots[`fore${side}0`].x),
+                }
+              : null,
           len: segs.map((s) => s.length()),
           ang0,
           theta0: ang0[2] - ang0[0],
           bend: Math.sign(W.x * B.y - W.y * B.x) || 1,
           neutral: toe.clone(),
+          toeLocal: toe.clone().sub(pivots[names[3]]),
           offset: GAIT.phase[`${kind}${side}` as keyof typeof GAIT.phase],
           forward: 0,
           planted: new THREE.Vector3(),
@@ -361,16 +379,43 @@ export class DoeAnimator {
     return GAIT.stance.slow + (GAIT.stance.walk - GAIT.stance.slow) * t;
   }
 
+  private wasWalking = false;
+
   private stepLegs(dt: number) {
     const walking = this.speed > GAIT.amble;
+    if (walking && !this.wasWalking) {
+      // the first stride starts with the hoof furthest behind its place under her
+      let first = this.legs[0];
+      let worst = Infinity;
+      const fx = Math.cos(this.heading);
+      const fz = -Math.sin(this.heading);
+      for (const leg of this.legs) {
+        if (leg.swingT >= 0) continue;
+        this.neutralWorld(leg, v3);
+        const ahead = (leg.planted.x - v3.x) * fx + (leg.planted.z - v3.z) * fz;
+        if (ahead < worst) {
+          worst = ahead;
+          first = leg;
+        }
+      }
+      this.phase = (first.offset - 0.002 + 1) % 1;
+    }
+    this.wasWalking = walking;
     if (walking) {
       const period = GAIT.swing + this.stance() / Math.max(this.speed, 0.05);
       const before = this.phase;
       this.phase = (this.phase + dt / period) % 1;
+      const fx = Math.cos(this.heading);
+      const fz = -Math.sin(this.heading);
+      const swinging = this.legs.filter((l) => l.swingT >= 0).length;
       for (const leg of this.legs) {
         // a leg's turn comes when the stride clock passes its offset
         const crossed = before <= this.phase ? before < leg.offset && leg.offset <= this.phase : leg.offset > before || leg.offset <= this.phase;
-        if (crossed && leg.swingT < 0) this.startSwing(leg, GAIT.swing, this.stance() / 2, GAIT.lift[leg.kind]);
+        // or sooner, if its hoof has been left too far behind (setting off from a stand, or a slowed stride)
+        this.neutralWorld(leg, v3);
+        const behind = -((leg.planted.x - v3.x) * fx + (leg.planted.z - v3.z) * fz);
+        const late = behind > this.stance() / 2 + 0.03 && swinging < 2;
+        if ((crossed || late) && leg.swingT < 0) this.startSwing(leg, GAIT.swing, this.stance() / 2, GAIT.lift[leg.kind]);
       }
     } else if (!this.legs.some((l) => l.swingT >= 0)) {
       // settling: the hoof furthest from its place steps there, one at a time
@@ -384,8 +429,6 @@ export class DoeAnimator {
         }
       }
       if (worst) this.startSwing(worst, 0.42, 0, GAIT.lift[worst.kind] * 0.6);
-      // the next stride starts with the leg after the last to move
-      this.phase = 0.999;
     }
     for (const leg of this.legs) {
       if (leg.swingT < 0) continue;
@@ -508,6 +551,13 @@ export class DoeAnimator {
     return this.legs.length;
   }
 
+  /** Where hoof `i`'s toe actually is after the legs are solved (world): the IK's reach, for tests. */
+  reached(i: number, out: THREE.Vector3): THREE.Vector3 {
+    const leg = this.legs[i];
+    this.bones[0].updateMatrixWorld(true);
+    return leg.bones[3].localToWorld(out.copy(leg.toeLocal));
+  }
+
   /** Hoof `i`'s place on the ground this frame (world, y 0), returning how high it is lifted. */
   foot(i: number, out: THREE.Vector3): number {
     this.hoof(this.legs[i], out);
@@ -544,8 +594,22 @@ export class DoeAnimator {
     leg.parent.updateWorldMatrix(true, false);
     m4.copy(leg.parent.matrixWorld).invert();
     v3.applyMatrix4(m4);
-    const tx = v3.x - leg.root.x;
-    const ty = v3.y - leg.root.y;
+    // a foreleg's shoulder blade carries most of the leg's swing about its pivot near the withers: the leg stands nearly
+    // straight, so its reach fore and aft comes from the blade turning, not from the elbow
+    let sigma = 0;
+    let rx = leg.root.x;
+    let ry = leg.root.y;
+    if (leg.scap) {
+      const sc = leg.scap;
+      sigma = THREE.MathUtils.clamp(0.95 * wrapPi(Math.atan2(v3.y - sc.pivot.y, v3.x - sc.pivot.x) - sc.bearing0), -0.5, 0.5);
+      const c = Math.cos(sigma);
+      const s = Math.sin(sigma);
+      rx = sc.pivot.x + sc.arm.x * c - sc.arm.y * s;
+      ry = sc.pivot.y + sc.arm.x * s + sc.arm.y * c;
+      sc.bone.quaternion.setFromAxisAngle(Z, sigma);
+    }
+    const tx = v3.x - rx;
+    const ty = v3.y - ry;
     // the parent's pitch against her own frame, so a planted pastern stays flat on the ground
     v3b.set(1, 0, 0).transformDirection(leg.parent.matrixWorld).applyAxisAngle(Y, -this.heading);
     const pitch = Math.atan2(v3b.y, v3b.x);
@@ -575,14 +639,33 @@ export class DoeAnimator {
       by = fyn - Wy;
       if (Math.sign(Wx * by - Wy * bx) === leg.bend) break;
     }
-    const angA = angW - phi;
-    const angB = Math.atan2(by, bx);
-    const angC = angA + theta;
+    let angA = angW - phi;
+    let angB = Math.atan2(by, bx);
+    let angC = angA + theta;
+    if (leg.kind === "fore") {
+      // A weight-bearing foreleg is a straight column below the elbow: the forearm and the cannon move as one (the
+      // carpus folds only in the swing), and the leg bends at the elbow and the shoulder. (The hind leg keeps its
+      // parallelogram: the reciprocal apparatus ties the stifle to the hock.)
+      const phiBC = leg.ang0[2] - leg.ang0[1] - fold;
+      const vx = lB + lC * Math.cos(phiBC);
+      const vy = lC * Math.sin(phiBC);
+      const lV = Math.hypot(vx, vy);
+      const psi = Math.atan2(vy, vx);
+      const dd = THREE.MathUtils.clamp(dRaw, Math.abs(lA - lV) + 1e-4, (lA + lV) * 0.9995);
+      const al = Math.acos(THREE.MathUtils.clamp((lA * lA + dd * dd - lV * lV) / (2 * lA * dd), -1, 1));
+      const a1 = gamma + al;
+      const a2 = gamma - al;
+      angA = Math.abs(wrapPi(a1 - leg.ang0[0])) < Math.abs(wrapPi(a2 - leg.ang0[0])) ? a1 : a2;
+      const angV = Math.atan2(Math.sin(gamma) * dd - lA * Math.sin(angA), Math.cos(gamma) * dd - lA * Math.cos(angA));
+      angB = angV - psi;
+      angC = angB + phiBC;
+    }
     const dA = angA - leg.ang0[0];
     const dB = angB - leg.ang0[1];
     const dC = angC - leg.ang0[2];
     const dD = angD - leg.ang0[3];
-    const rel = [dA, dB - dA, dC - dB, dD - dC];
+    // the upper bone hangs from the blade, which has already turned by sigma
+    const rel = [dA - sigma, dB - dA, dC - dB, dD - dC];
     leg.bones.forEach((b, i) => b.quaternion.setFromAxisAngle(Z, wrapPi(rel[i])));
   }
 }

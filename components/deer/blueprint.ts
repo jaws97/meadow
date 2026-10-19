@@ -38,10 +38,10 @@ const OUTLINE: readonly (readonly [top: Vec2, bottom: Vec2, halfWidth: number])[
   // the flank and loin, the belly line tucking up to the stifle fold
   [[-0.41, 0.709], [-0.41, 0.455], 0.1],
   [[-0.35, 0.707], [-0.35, 0.438], 0.106],
-  [[-0.29, 0.705], [-0.29, 0.425], 0.112],
+  [[-0.29, 0.705], [-0.29, 0.41], 0.112],
   // the barrel, widest behind the ribs
-  [[-0.21, 0.703], [-0.21, 0.412], 0.117],
-  [[-0.13, 0.704], [-0.13, 0.403], 0.115],
+  [[-0.21, 0.703], [-0.21, 0.398], 0.117],
+  [[-0.13, 0.704], [-0.13, 0.395], 0.115],
   // the girth just behind the elbows: deep and narrow, the chest floor at its lowest
   [[-0.06, 0.706], [-0.06, 0.398], 0.108],
   [[0.0, 0.71], [0.0, 0.4], 0.1],
@@ -84,16 +84,16 @@ export const headPoint = (u: number, v: number): Vec2 => [POLL[0] + u * HEAD_U[0
  * the widest part of the skull, the long straight face narrowing to the muzzle and a blunt nose. No roman nose.
  */
 const HEAD_PROFILE: readonly (readonly [u: number, top: number, bottom: number, halfWidth: number])[] = [
-  [-0.025, -0.008, -0.07, 0.034],
-  [0.015, 0.004, -0.102, 0.04],
-  [0.07, 0.006, -0.112, 0.043],
-  [0.11, 0.004, -0.098, 0.05],
-  [0.16, 0.001, -0.09, 0.038],
-  [0.2, -0.001, -0.08, 0.031],
-  [0.235, -0.004, -0.071, 0.025],
-  [0.258, -0.008, -0.066, 0.022],
+  [-0.012, -0.008, -0.085, 0.036],
+  [0.013, 0.004, -0.118, 0.042],
+  [0.062, 0.006, -0.128, 0.045],
+  [0.097, 0.004, -0.118, 0.05],
+  [0.141, 0.001, -0.1, 0.038],
+  [0.176, -0.001, -0.087, 0.031],
+  [0.207, -0.004, -0.076, 0.025],
+  [0.227, -0.008, -0.069, 0.022],
   // a blunt nose, not a point
-  [0.272, -0.018, -0.058, 0.018],
+  [0.239, -0.018, -0.06, 0.018],
 ];
 
 /** The head: from behind the ears (inside the neck's end) to the nose, pointing forward and down. */
@@ -104,7 +104,7 @@ export const HEAD: readonly Ring[] = HEAD_PROFILE.map(([u, top, bottom, w]) => {
   return { x, y, up: (top - bottom) / 2, down: (top - bottom) / 2, w, taper: u < 0.15 ? 0.18 : 0.05 };
 });
 /** The nose tip, in the head's frame, for the grazing solve. */
-export const NOSE_UV: Vec2 = [0.276, -0.035];
+export const NOSE_UV: Vec2 = [0.243, -0.036];
 
 /** A leg's joints from where it leaves the body to the toe, with the thickness there: front and back of the bone's line. */
 export interface LegJoint {
@@ -135,10 +135,11 @@ export const FORE: readonly LegJoint[] = [
   { name: "forearm", at: [0.008, 0.33], front: 0.032, back: 0.03, w: 0.022 },
   { name: "carpus", at: [0.01, 0.24], front: 0.02, back: 0.022, w: 0.02 },
   { name: "cannon", at: [0.011, 0.15], front: 0.012, back: 0.014, w: 0.011 },
-  { name: "fetlock", at: [0.013, 0.07], front: 0.017, back: 0.022, w: 0.016 },
-  { name: "pastern", at: [0.028, 0.048], front: 0.012, back: 0.012, w: 0.014 },
-  { name: "coronet", at: [0.044, 0.027], front: 0.02, back: 0.021, w: 0.018 },
-  { name: "toe", at: [0.077, 0.006], front: 0.005, back: 0.005, w: 0.012 },
+  { name: "fetlock", at: [0.012, 0.058], front: 0.016, back: 0.021, w: 0.016 },
+  { name: "pastern", at: [0.021, 0.041], front: 0.012, back: 0.012, w: 0.014 },
+  // a small, steep hoof, nearly under the cannon
+  { name: "coronet", at: [0.031, 0.027], front: 0.016, back: 0.018, w: 0.016 },
+  { name: "toe", at: [0.053, 0.006], front: 0.005, back: 0.005, w: 0.011 },
 ];
 
 /**
@@ -164,10 +165,10 @@ export const HIND_LOWER: readonly LegJoint[] = [
   { name: "hock", at: [-0.585, 0.29], front: 0.026, back: 0.036, w: 0.02 },
   { name: "tarsus", at: [-0.578, 0.245], front: 0.016, back: 0.021, w: 0.015 },
   { name: "cannon", at: [-0.57, 0.16], front: 0.014, back: 0.017, w: 0.012 },
-  { name: "fetlock", at: [-0.562, 0.068], front: 0.018, back: 0.022, w: 0.016 },
-  { name: "pastern", at: [-0.548, 0.047], front: 0.012, back: 0.013, w: 0.014 },
-  { name: "coronet", at: [-0.532, 0.026], front: 0.02, back: 0.02, w: 0.018 },
-  { name: "toe", at: [-0.497, 0.006], front: 0.005, back: 0.005, w: 0.012 },
+  { name: "fetlock", at: [-0.558, 0.058], front: 0.017, back: 0.021, w: 0.016 },
+  { name: "pastern", at: [-0.549, 0.041], front: 0.012, back: 0.013, w: 0.014 },
+  { name: "coronet", at: [-0.539, 0.027], front: 0.016, back: 0.018, w: 0.016 },
+  { name: "toe", at: [-0.517, 0.006], front: 0.005, back: 0.005, w: 0.011 },
 ];
 
 /** The joints the bones pivot at (top to toe), and the toe the hoof plants. */
@@ -176,15 +177,15 @@ export const FORE_PIVOTS: readonly Vec2[] = [
   [0.095, 0.545], // shoulder joint
   [0.005, 0.41], // elbow
   [0.01, 0.24], // carpus
-  [0.013, 0.07], // fetlock
-  [0.077, 0.0], // toe on the ground
+  [0.012, 0.058], // fetlock
+  [0.053, 0.0], // toe on the ground
 ];
 export const HIND_PIVOTS: readonly Vec2[] = [
   [-0.54, 0.597], // hip joint
   [-0.44, 0.445], // stifle
   [-0.585, 0.29], // hock
-  [-0.562, 0.068], // fetlock
-  [-0.497, 0.0], // toe on the ground
+  [-0.558, 0.058], // fetlock
+  [-0.517, 0.0], // toe on the ground
 ];
 
 /**
@@ -199,7 +200,7 @@ export const EAR = {
   length: 0.13,
   width: 0.068,
   /** degrees above horizontal, and the bearing from straight ahead out to the side */
-  rest: { elevation: 45, azimuth: 105 },
+  rest: { elevation: 40, azimuth: 105 },
   alert: { elevation: 60, azimuth: 72 },
   cup: 0.34,
 } as const;
@@ -214,7 +215,7 @@ export const TAIL = {
 } as const;
 
 /** The eyes: large and dark, set high on the head, bulging a little past the orbit. */
-export const EYE = { at: headPoint(0.1, -0.03), r: 0.0145, out: 0.046 } as const;
+export const EYE = { at: headPoint(0.088, -0.03), r: 0.0145, out: 0.046 } as const;
 
 /** Bone pivots along the body and neck, rump to head. */
 export const SPINE = {

@@ -234,9 +234,9 @@ vec3 deerCoat(vec4 c, out float rough) {
     float below = part < 3.0 ? smoothstep(0.35, 0.5, down) : 1.0;
     float inside = (soft(0.012, 0.006, -a) * 0.6 + soft(0.88, 0.03, dn) * 0.85) * below;
     col = mix(col, mix(cWhite, cLegLow, 0.3), clamp(inside, 0.0, 1.0));
-    float band = smoothstep(len - 0.07, len - 0.062, s) * (1.0 - smoothstep(len - 0.05, len - 0.044, s));
+    float band = smoothstep(len - 0.062, len - 0.055, s) * (1.0 - smoothstep(len - 0.042, len - 0.036, s));
     col = mix(col, cWhite, band * 0.85);
-    float hoof = smoothstep(len - 0.045, len - 0.038, s);
+    float hoof = smoothstep(len - 0.037, len - 0.031, s);
     col = mix(col, cHoof, hoof);
     rough = mix(0.9, 0.45, hoof);
     coatAO = mix(0.6, 1.0, smoothstep(0.02, 0.14, down)) * mix(1.0, 0.85, soft(0.0, 0.01, -a));

@@ -85,6 +85,31 @@ describe("the doe's motion", () => {
     expect(slid).toBeLessThan(1e-6);
   });
 
+  it("reaches every hoof's place with the leg, walking and standing", () => {
+    const { anim } = rig();
+    anim.place(0, 0, 0);
+    const walk: DoeIntent = { ...stand, target: new THREE.Vector2(8, 0), speed: 0.55 };
+    const want = new THREE.Vector3();
+    const got = new THREE.Vector3();
+    let slide = 0;
+    let worst = 0;
+    for (let f = 0; f < 60 * 12; f++) {
+      // walking, then standing still to settle
+      anim.update(1 / 60, f < 60 * 9 ? walk : stand, f / 60);
+      for (let i = 0; i < 4; i++) {
+        const lift = anim.foot(i, want);
+        want.y = lift;
+        anim.reached(i, got);
+        slide = Math.max(slide, Math.hypot(got.x - want.x, got.z - want.z));
+        worst = Math.max(worst, got.distanceTo(want));
+      }
+    }
+    // a hoof that slides is the first thing an eye catches; a foreleg at full stretch at the end of its stance may lift
+    // its heel a little (the hoof breaking over), which reads as natural
+    expect(slide).toBeLessThan(0.02);
+    expect(worst).toBeLessThan(0.035);
+  });
+
   it("brings her nose down to the grass when she grazes", () => {
     const { anim, b, mesh } = rig();
     anim.place(0, 0, 0);
