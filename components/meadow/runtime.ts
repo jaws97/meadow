@@ -25,11 +25,13 @@ export const meadow = {
   /** Camera distance the player asked for (pinch and wheel), metres. */
   zoom: 17,
   /**
-   * Seconds left of the opening shot: the camera starts high over the whole
-   * Meadow and settles onto the cart, so the first thing anyone sees is the
-   * rings round the rose.
+   * The Meadow opens on its wide view of the rose's island and the river ring,
+   * settling onto the cart (CameraRig, openingView.ts): the start beside the
+   * dais. A /meadow?plot=N link opens beside its plant instead.
    */
-  intro: 0,
+  opensWide: false,
+  /** A tap reached the Meadow this frame (the controller's), which stops the opening's settle. */
+  tapped: false,
   /**
    * What the camera should frame besides the cart: the plant being visited
    * (once the cart has pulled up), and how much of the screen's bottom (or,
@@ -127,7 +129,8 @@ export function resetMeadow(kind: MoverKind): void {
   meadow.moverKind = kind;
   meadow.mover = null;
   meadow.zoom = 17;
-  meadow.intro = 0;
+  meadow.opensWide = false;
+  meadow.tapped = false;
   meadow.view.target = null;
   meadow.view.cover = 0;
   meadow.view.coverSide = 0;
@@ -154,13 +157,10 @@ export function resetMeadow(kind: MoverKind): void {
   meadow.stats.loading = true;
 }
 
-/** Seconds of the opening shot (CameraRig): high over the Meadow, settling onto the cart. */
-export const INTRO_SECONDS = 4.2;
-
-/** Where a new body starts, and whether the opening shot plays first. */
-export function setStart(x: number, z: number, yaw: number, intro: boolean): void {
+/** Where a new body starts, and whether the Meadow opens on its wide view first. */
+export function setStart(x: number, z: number, yaw: number, wide: boolean): void {
   meadow.start = { x, z, yaw };
-  meadow.intro = intro ? INTRO_SECONDS : 0;
+  meadow.opensWide = wide;
 }
 
 export function setZoom(zoom: number): void {

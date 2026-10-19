@@ -67,6 +67,8 @@ export class MeadowController {
     const dt = Math.min(dtRaw, 0.1);
     const input = this.input;
     input.update(performance.now());
+    // the opening's settle yields to a tap anywhere on the Meadow (CameraRig reads it later this frame)
+    meadow.tapped = input.taps.length > 0;
     if (input.zoomFactor !== 1) meadow.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, meadow.zoom * input.zoomFactor));
 
     const m = meadow.mover;

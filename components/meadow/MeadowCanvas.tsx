@@ -70,7 +70,7 @@ import { VisitedPlant } from "@/components/meadow/VisitedPlant";
 import { GLIDE_NOTICE } from "@/components/meadow/words";
 import { River } from "@/components/lotus/river/River";
 import { dprForBudget, MIN_DPR, readDevice, type DeviceKind } from "@/lib/garden/device";
-import { opening, quoteRuns } from "@/lib/garden/opening";
+import { opening } from "@/lib/garden/opening";
 import { ringsToDraw } from "@/lib/server/plots";
 
 interface PhysicsProps {
@@ -147,7 +147,7 @@ function readPlotParam(): number | null {
 
 /**
  * Where the Meadow opens: beside a plant for a /meadow?plot=N link, else on the inner path with the rose behind the
- * cart, after the opening shot. The party screen starts a little further back.
+ * cart, settling there from the wide view of the island and the river ring. The party screen starts a little further back.
  */
 function prepareStart(plot: number | null, device: DeviceKind): void {
   const p = plot === null ? null : plotAt(plot);
@@ -157,10 +157,9 @@ function prepareStart(plot: number | null, device: DeviceKind): void {
     meadow.requests.visit = { index: p.index, journey: false };
   } else {
     const s = meadowLayout().spawn;
-    // the opening shot, unless the opening's quote moment holds the Meadow behind its veil until the quote has been
-    // read (lib/garden/opening): it would play unseen there, or run on into the reveal, where the push-in is the one
-    // camera move (and none at all for reduced motion)
-    setStart(s.x, s.z, s.yaw, !quoteRuns(opening.get()));
+    // the opening view (CameraRig, openingView.ts): wide on the rose's island and the river ring as the Meadow first
+    // shows, behind the quote moment or the plain veil, then settling onto the cart (no glide for reduced motion)
+    setStart(s.x, s.z, s.yaw, true);
   }
   if (device === "bigscreen") setZoom(23);
 }

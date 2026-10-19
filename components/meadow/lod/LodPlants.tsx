@@ -11,7 +11,10 @@
 // - L1, near: the garden's own procedural flower, posed once per species and band from its species' most typical seed
 //   at a light tessellation (bake.ts), one instanced mesh per species and band, rocking in the breeze on the GPU and
 //   casting shadows (its stem and leaves) where the Meadow has plant shadows. Built on demand within a small budget a
-//   frame, the commonest first, and compiled off the frame where the browser can.
+//   frame, the commonest first, and compiled off the frame where the browser can. Each is then drawn once dissolved to
+//   nothing (warmNear), so the first frame it comes near does not also upload it and, for the first of them, compile
+//   the shadow pass's program: the opening's settle (components/meadow/openingView) comes in from far out, where none
+//   is near, and the first would otherwise arrive mid-move.
 // - L2, far: a picture of exactly that plant from the camera's bearing (the atlas in public/meadow/, baked by
 //   scripts/bake-meadow-plants.mjs), one quad per plant facing the camera, all of them in a single draw, lit per pixel
 //   by the Meadow's sun through the atlas's normals, casting its shadow as a card turned to the sun where plants cast
@@ -147,6 +150,8 @@ interface NearMesh {
   /** slot index of each instance */
   slots: number[];
   ready: boolean;
+  /** drawn once already (warmNear) */
+  warm: boolean;
 }
 
 type FarAttributes = ReturnType<typeof farAttributes>;
@@ -169,6 +174,8 @@ interface LodState {
   busy: boolean;
   order: { order: number[] };
   meshes: Map<number, NearMesh>;
+  /** the light plant drawn this frame to warm it, put away again the next */
+  warming: NearMesh | null;
   queue: number[];
   rising: boolean;
   /** development only: this component's share of the frame, ms (smoothed), and the last light plant's build time */
@@ -311,6 +318,36 @@ function writeFarFades(s: LodState, a: FarAttributes): void {
   a.fade.needsUpdate = true;
 }
 
+/**
+ * Draws the next light plant built but never yet drawn, once, with a single instance dissolved to nothing (its range
+ * empty, so every pixel is discarded in both passes), and puts the last one away again: its geometry is uploaded and
+ * its programs, the shadow pass's among them, compiled before any plant needs it, behind the opening's veil as a rule.
+ */
+function warmNear(s: LodState): void {
+  const last = s.warming;
+  if (last) {
+    s.warming = null;
+    if (last.slots.length === 0) {
+      last.mesh.count = 0;
+      last.mesh.visible = false;
+    }
+  }
+  for (const m of s.meshes.values()) {
+    if (!m.ready || m.warm) continue;
+    m.warm = true;
+    // one already drawing plants is warm by now
+    if (m.slots.length > 0) continue;
+    const arr = m.fade.array as Float32Array;
+    arr[0] = 0;
+    arr[1] = 0;
+    m.fade.needsUpdate = true;
+    m.mesh.count = 1;
+    m.mesh.visible = true;
+    s.warming = m;
+    return;
+  }
+}
+
 /** Lays the light plants' instances out: every plant fading in, near, or fading out, in its species' mesh. */
 function layOutNear(s: LodState, now: number, cap: number): void {
   for (const m of s.meshes.values()) m.slots.length = 0;
@@ -395,6 +432,7 @@ export function LodPlants({ layout: L, shadows }: { layout: MeadowLayout; shadow
     busy: true,
     order: { order: [] },
     meshes: new Map(),
+    warming: null,
     queue: [],
     rising: false,
     frameMs: 0,
@@ -538,7 +576,7 @@ export function LodPlants({ layout: L, shadows }: { layout: MeadowLayout; shadow
     mesh.castShadow = shadows;
     mesh.receiveShadow = true;
     mesh.customDepthMaterial = depthMat;
-    const entry: NearMesh = { mesh, fade, tint, sway, slots: [], ready: false };
+    const entry: NearMesh = { mesh, fade, tint, sway, slots: [], ready: false, warm: false };
     s.meshes.set(combo, entry);
     void gl
       .compileAsync(mesh, camera, scene)
@@ -558,6 +596,8 @@ export function LodPlants({ layout: L, shadows }: { layout: MeadowLayout; shadow
     if (!lodStatus.ready || !far.mesh) return;
     const now = performance.now();
     step(frame, dt, s, now);
+    // after the levels are laid out, which would otherwise hide the plant being warmed before it is drawn
+    warmNear(s);
     if (process.env.NODE_ENV !== "production") s.frameMs += (performance.now() - now - s.frameMs) * 0.05;
   });
 
