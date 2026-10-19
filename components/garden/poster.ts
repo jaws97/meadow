@@ -65,25 +65,86 @@ export function readPoster(look: string): string | null {
   }
 }
 
+/** A still is being made: the next one waits for it (the governor asks every couple of minutes, so it simply comes later). */
+let saving = false;
+
+function store(still: Stored) {
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify(still));
+  } catch {
+    // storage full or blocked: the veil shows its own art instead
+  }
+}
+
+const dataUrlOf = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => (typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("no data url")));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+
 /**
  * Keeps a small copy of the frame just drawn. Must run in the task that drew
  * it (the canvas does not preserve its drawing buffer), so the governor calls
  * it from the frame loop after the composer.
+ *
+ * Made in one go, the copy froze the garden for a moment every two minutes of
+ * a long visit (70-80 ms on an office laptop, more on a phone): reading the
+ * frame back from the GPU, scaling it and encoding the JPEG all happened on
+ * the main thread. Now the frame is only snapshotted in its own task
+ * (createImageBitmap takes it as it is at the call, without waiting), and the
+ * scaling and the encoding run off the main thread (an OffscreenCanvas's
+ * convertToBlob); the still that is kept is the same. A browser without those
+ * makes it the old way.
  */
 export function savePoster(source: HTMLCanvasElement, look: string) {
+  if (saving) return;
+  const k = LONG_SIDE / Math.max(source.width, source.height);
+  if (!(k > 0)) return;
+  const w = Math.max(1, Math.round(source.width * Math.min(1, k)));
+  const h = Math.max(1, Math.round(source.height * Math.min(1, k)));
+  const meta = { shape: shapeOf(window.innerWidth, window.innerHeight), light: lightNow(), look, at: Date.now() };
+  if (typeof createImageBitmap === "function" && typeof OffscreenCanvas === "function") {
+    let snapshot: Promise<ImageBitmap> | null = null;
+    try {
+      snapshot = createImageBitmap(source);
+    } catch {
+      // a canvas the browser will not snapshot: made the old way below
+    }
+    if (snapshot) {
+      saving = true;
+      void snapshot
+        .then(async (bitmap) => {
+          try {
+            const off = new OffscreenCanvas(w, h);
+            const ctx = off.getContext("2d");
+            if (!ctx) return;
+            ctx.drawImage(bitmap, 0, 0, w, h);
+            const blob = await off.convertToBlob({ type: "image/jpeg", quality: 0.72 });
+            store({ ...meta, url: await dataUrlOf(blob) });
+          } finally {
+            bitmap.close();
+          }
+        })
+        .catch(() => {
+          // no still this time: the next one comes in a couple of minutes
+        })
+        .finally(() => {
+          saving = false;
+        });
+      return;
+    }
+  }
   try {
-    const k = LONG_SIDE / Math.max(source.width, source.height);
-    if (!(k > 0)) return;
     const c = document.createElement("canvas");
-    c.width = Math.max(1, Math.round(source.width * Math.min(1, k)));
-    c.height = Math.max(1, Math.round(source.height * Math.min(1, k)));
+    c.width = w;
+    c.height = h;
     const ctx = c.getContext("2d");
     if (!ctx) return;
-    ctx.drawImage(source, 0, 0, c.width, c.height);
-    const url = c.toDataURL("image/jpeg", 0.72);
-    const stored: Stored = { shape: shapeOf(window.innerWidth, window.innerHeight), light: lightNow(), look, at: Date.now(), url };
-    window.localStorage.setItem(KEY, JSON.stringify(stored));
+    ctx.drawImage(source, 0, 0, w, h);
+    store({ ...meta, url: c.toDataURL("image/jpeg", 0.72) });
   } catch {
-    // storage full or blocked: the veil shows its own art instead
+    // a canvas that cannot be read: the veil shows its own art instead
   }
 }
