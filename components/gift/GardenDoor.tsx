@@ -23,6 +23,11 @@
 // switch waits until that night has lifted (settle.ts), and focus lands on the name pill whenever the person arrives
 // in a garden from the sheet or a dialog, so a keyboard or screen reader is never left on the page itself. The pill is
 // rendered before the care layer, so it also comes first when tabbing.
+//
+// A colleague's own garden (flower bed or lotus courtyard alike) also has the sound button in its top-right corner
+// (components/sound/SoundButton), rendered between the pill and the care layer so it comes between them when tabbing.
+// It never starts sound by itself, and its panel loads only when it is needed. For testing, ?sound=1 shows it in any
+// door; ?sound=off never shows it.
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Dialog } from "@/components/gift/Dialog";
@@ -32,6 +37,7 @@ import { GiftVeil } from "@/components/gift/GiftVeil";
 import { IdentityMenu } from "@/components/gift/IdentityMenu";
 import { Showcase } from "@/components/gift/Showcase";
 import { afterGardenSettles } from "@/components/gift/settle";
+import { SoundButton, useSoundSwitch } from "@/components/sound/SoundButton";
 import { gardenName, gardenNames, knownFacts, lookUpGarden, type GardenFacts } from "@/lib/client/gardens";
 import {
   ApiProblem,
@@ -178,6 +184,8 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
   const [pendingNote, setPendingNote] = useState<{ text: string; person: PersonSummary } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const quoteMoment = useOpening(quoteRuns);
+  const soundSwitch = useSoundSwitch();
+  const showSound = soundSwitch !== "off" && (door.mode === "garden" || soundSwitch === "on");
 
   useEffect(() => {
     let live = true;
@@ -302,6 +310,9 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
           note={toast}
         />
       )}
+
+      {/* the garden's sounds: top right, after the pill and before the care buttons when tabbing (sound.css) */}
+      {showSound && <SoundButton />}
 
       {/* keyed by whose garden it is, so a switch starts the care layer afresh for the new plant */}
       {door.mode === "garden" && <CareLayer key={personKey(door.person)} />}

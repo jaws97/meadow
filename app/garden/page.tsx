@@ -11,8 +11,11 @@
 // under the gift sheet there is no room, and in a colleague's own garden the
 // care layer's card holds the bottom of the screen. Everything over the canvas
 // stacks inside the page: a plant swap's soft night (z 12), the care card
-// (15), the name pill (17), the loading veil (20), then the gift's still and
-// sheet; dialogs go to the body, over all of it. The opening's welcome line
+// (15), the name pill (17), the sound button in a colleague's own garden (18,
+// components/sound/SoundButton), the loading veil (20), then the gift's still.
+// The gift sheet and the sound panel are rendered into the body (z 30), over
+// everything in the page, and dialogs go to the body over them (40). The
+// sound button never starts sound by itself. The opening's welcome line
 // (OpeningMoment) comes after the veil has gone, when nothing else is shown. The development panel
 // shows in development, and in production only with ?dev, so colleagues see
 // a clean garden while the owner can still tune it on the live site.

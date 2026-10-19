@@ -1,0 +1,1217 @@
+/*
+ * The garden sounds' look (SoundButton.tsx, SoundPanel.tsx): a small round glass button, the name pill's twin, and a
+ * warm glass panel in the care card's colours (cream ink, honey gold, night glass), so all three read as one place. A
+ * plain stylesheet with prefixed class names, like CareLayer.css and gift.css: the project's Turbopack rule runs every
+ * .css file through Tailwind as global CSS. The tokens live on .sound-root, which wraps the button (inside the garden
+ * page's <main>) and the panel (rendered into the body) alike.
+ *
+ * Where things sit: the button in the top-right corner, in the page's own layers (z 18: over the care card at 15 and
+ * the name pill at 17, under the loading veil at 20); on a phone held sideways in the bottom-left corner, because the
+ * narrow care panel owns the right. The panel is in the body at z 30, as the gift sheet is: on a phone a bottom sheet
+ * over the care card with a grab handle; on a portrait iPad the same sheet, centred; on a laptop or a landscape iPad a
+ * panel on the left, mirroring the care panel on the right; on a phone held sideways a narrow panel on the left.
+ *
+ * Calm: no red anywhere (a sound the browser stopped is a gentle gold ring, not an alarm), motion is transform and
+ * opacity only and stops for reduced motion, every target is at least 44 px. Backdrop blur re-blurs the canvas every
+ * frame, so it is kept to wide screens. Wherever the panel is a sheet (a phone, a portrait iPad) it lies over the care
+ * card, so its glass is nearly opaque and the card never shows through; only the side panels, beside the care panel,
+ * get the lighter glass. The sliders are new to the garden: a 3 px track that fills gold to a 16 px thumb, in a 44 px
+ * tall hit area, with the house focus ring on the thumb.
+ */
+
+.sound-root {
+  --sound-ink: #f6ead6;
+  --sound-ink-2: rgba(246, 234, 214, 0.8);
+  --sound-ink-3: rgba(246, 234, 214, 0.58);
+  --sound-ink-4: rgba(246, 234, 214, 0.38);
+  --sound-gold: #f2cd8e;
+  --sound-gold-hi: #ffe2b0;
+  --sound-line: rgba(255, 236, 200, 0.12);
+  --sound-track: rgba(255, 236, 200, 0.2);
+  --sound-focus: #ffd99a;
+  /* a sheet lies over the care card, so its glass is solid: the card's words and gold never show through it */
+  --sound-glass-a: rgb(17, 21, 33);
+  --sound-glass-b: rgb(10, 13, 21);
+  --sound-display: var(--font-display), "Iowan Old Style", Georgia, serif;
+  --sound-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  color: var(--sound-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* a side panel, beside the care panel rather than over it: the care card's own lighter glass */
+@media (min-width: 1024px) and (orientation: landscape) {
+  .sound-root {
+    --sound-glass-a: rgba(17, 21, 33, 0.72);
+    --sound-glass-b: rgba(10, 13, 21, 0.82);
+  }
+}
+
+.sound-root *,
+.sound-root *::before,
+.sound-root *::after {
+  box-sizing: border-box;
+}
+
+.sound-root :focus-visible {
+  outline: 2px solid var(--sound-focus);
+  outline-offset: 3px;
+}
+
+/* resets without weight (:where), so each class below sets its own margins */
+:where(.sound-root) :where(p, h2, h3, h4, ul) {
+  margin: 0;
+}
+
+:where(.sound-root) button {
+  cursor: pointer;
+}
+
+.sound-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---- the button ---------------------------------------------------------------------------------------------------- */
+
+.sound-corner {
+  position: fixed;
+  z-index: 18;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  /* it fades in with the name pill once the opening's peace has passed (below) */
+  transition:
+    opacity 0.9s var(--sound-ease),
+    visibility 0s;
+}
+
+.sound-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--sound-line);
+  background: rgba(10, 13, 21, 0.68);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  color: var(--sound-ink-2);
+  transition:
+    color 0.6s ease,
+    border-color 0.6s ease,
+    transform 0.2s var(--sound-ease);
+}
+
+@media (hover: hover) {
+  .sound-btn:hover {
+    color: var(--sound-ink);
+    border-color: rgba(255, 236, 200, 0.24);
+  }
+}
+
+.sound-btn:active {
+  transform: scale(0.94);
+}
+
+.sound-btn[aria-expanded="true"] {
+  border-color: rgba(242, 205, 142, 0.45);
+}
+
+/*
+ * The glyph: three soft bars (icons.tsx SoundGlyph), plain HTML so their breathing is a transform the compositor runs
+ * in every browser, as the SVG glyphs' 24-unit grid would draw them at 22 px: 2 px wide, 4.6 px apart, round-ended.
+ */
+.sound-bars {
+  display: flex;
+  align-items: center;
+  gap: 2.6px;
+  height: 22px;
+}
+
+.sound-bar {
+  display: block;
+  width: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transform-origin: center;
+}
+
+.sound-bar-1 {
+  height: 5.2px;
+}
+
+.sound-bar-2 {
+  height: 11.8px;
+}
+
+.sound-bar-3 {
+  height: 7.8px;
+}
+
+/* sound plays: the glyph turns gold and its three bars breathe, each at its own slow pace */
+.sound-btn[data-state="playing"],
+.sound-btn[data-state="starting"] {
+  color: var(--sound-gold);
+}
+
+.sound-btn[data-state="playing"] .sound-bar {
+  animation: sound-breathe 3.4s ease-in-out infinite;
+}
+
+.sound-btn[data-state="playing"] .sound-bar-1 {
+  animation-duration: 3.1s;
+  animation-delay: -1.2s;
+}
+
+.sound-btn[data-state="playing"] .sound-bar-2 {
+  animation-duration: 3.9s;
+  animation-delay: -0.4s;
+}
+
+.sound-btn[data-state="playing"] .sound-bar-3 {
+  animation-duration: 3.5s;
+  animation-delay: -2.2s;
+}
+
+@keyframes sound-breathe {
+  0%,
+  100% {
+    transform: scaleY(0.7);
+  }
+  50% {
+    transform: scaleY(1.1);
+  }
+}
+
+/* the browser stopped the sound: a gentle gold ring breathes round the button until a tap brings it back */
+.sound-btn[data-state="blocked"] {
+  color: var(--sound-gold);
+  border-color: rgba(242, 205, 142, 0.55);
+}
+
+.sound-btn[data-state="blocked"]::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(242, 205, 142, 0.6);
+  animation: sound-ring 3.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes sound-ring {
+  0%,
+  100% {
+    transform: scale(0.98);
+    opacity: 0.95;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.35;
+  }
+}
+
+/* the hint under the button: what a tap would play, or that a tap brings the sound back */
+.sound-nudge {
+  position: absolute;
+  top: 52px;
+  right: 0;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 24px));
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(242, 205, 142, 0.3);
+  background: rgba(10, 13, 21, 0.84);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  font-size: 13.5px;
+  line-height: 1.3;
+  text-align: left;
+  color: var(--sound-ink);
+  opacity: 0;
+  visibility: hidden;
+  transform: translate3d(0, -6px, 0);
+  transition:
+    opacity 0.5s var(--sound-ease),
+    transform 0.5s var(--sound-ease),
+    visibility 0s 0.5s;
+}
+
+.sound-nudge[data-shown] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition:
+    opacity 0.5s var(--sound-ease),
+    transform 0.5s var(--sound-ease),
+    visibility 0s;
+}
+
+.sound-nudge[data-tone="blocked"] {
+  border-color: rgba(242, 205, 142, 0.6);
+  color: var(--sound-gold-hi);
+}
+
+/*
+ * On a phone the name pill's menu and its note (gift.css .gift-id-menu, .gift-id-note) drop to the same row as the
+ * pill under this button. While either is open the pill stands aside, out of sight and out of reach, so a tap meant
+ * for the menu never lands on it; the button's gold ring still shows a sound that waits for a tap.
+ */
+@media (max-width: 639px) {
+  .gift-root:has(.gift-id-menu, .gift-id-note) .sound-nudge {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@media (min-width: 768px) {
+  .sound-btn,
+  .sound-nudge {
+    /* unprefixed only: the build adds -webkit- for Safari, while a hand-written pair is folded into the -webkit- one
+       alone (Lightning CSS), which Chrome ignores */
+    backdrop-filter: blur(16px);
+  }
+}
+
+/*
+ * The opening's peace (lib/garden/opening): while the root element carries data-opening="quiet" the garden is shown
+ * with nothing over it, so the button holds back with the name pill, out of sight and out of reach, and fades in with
+ * it when the quiet lifts.
+ */
+:root[data-opening="quiet"] .sound-corner {
+  opacity: 0 !important;
+  visibility: hidden;
+}
+
+/*
+ * The development panel (components/garden/DevPanel: in development, or with ?dev) holds the top-right corner, its
+ * hide button at the very top; on wide screens the sound button waits to its left. On a phone held upright, where the
+ * panel spans most of the width, the button sits over the empty middle of the panel's header, clear of "hide".
+ */
+@media (min-width: 768px) and (min-height: 541px) {
+  main:has(> aside[aria-label="Development panel"]) .sound-corner {
+    right: calc(19rem + 12px);
+  }
+}
+
+@media (max-width: 767px) and (orientation: portrait) {
+  main:has(> aside[aria-label="Development panel"]) .sound-corner {
+    right: calc(max(12px, env(safe-area-inset-right)) + 64px);
+  }
+}
+
+/* ---- the panel ----------------------------------------------------------------------------------------------------- */
+
+.sound-dock {
+  position: fixed;
+  z-index: 30;
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.sound-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 80dvh;
+  overflow: hidden;
+  border: 1px solid var(--sound-line);
+  border-radius: 26px;
+  background: linear-gradient(180deg, var(--sound-glass-a), var(--sound-glass-b));
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 240, 215, 0.07);
+  pointer-events: auto;
+  /* backwards: once in, the panel's own transform is free for a drag of its handle */
+  animation: sound-rise 0.6s var(--sound-ease) backwards;
+  transition: transform 0.3s var(--sound-ease);
+}
+
+/* a warm light falling across the top of the glass, as on the care card */
+.sound-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(90% 50% at 12% -12%, rgba(255, 196, 120, 0.12), rgba(255, 196, 120, 0) 62%),
+    radial-gradient(70% 34% at 100% 0%, rgba(140, 160, 255, 0.05), rgba(140, 160, 255, 0) 70%);
+}
+
+.sound-panel > * {
+  position: relative;
+}
+
+.sound-panel[data-state="closing"] {
+  animation: sound-out 0.24s ease forwards;
+}
+
+@media (min-width: 640px) {
+  .sound-dock {
+    left: 0;
+    right: 0;
+    bottom: max(20px, env(safe-area-inset-bottom));
+  }
+  .sound-panel {
+    width: min(560px, calc(100% - 32px));
+  }
+}
+
+@media (min-width: 768px) {
+  .sound-panel {
+    /* unprefixed only, as on the button */
+    backdrop-filter: blur(20px) saturate(1.15);
+  }
+}
+
+/*
+ * A laptop or a landscape iPad: a panel on the left, the care panel's mirror, vertically centred in the room below the
+ * name pill (so a tall panel never covers it): at most the height of the screen less 80 px, as the care panel.
+ */
+@media (min-width: 1024px) and (orientation: landscape) {
+  .sound-dock {
+    left: max(40px, 3.2vw);
+    right: auto;
+    top: calc(max(12px, env(safe-area-inset-top)) + 56px);
+    bottom: max(24px, env(safe-area-inset-bottom));
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .sound-panel {
+    width: clamp(320px, 25vw, 400px);
+    max-height: min(100%, calc(100dvh - 80px));
+    border-radius: 28px;
+    animation-name: sound-slide;
+  }
+}
+
+@keyframes sound-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sound-slide {
+  from {
+    opacity: 0;
+    transform: translate3d(-18px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sound-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/*
+ * ---- the handle and the header --------------------------------------------------------------------------------------
+ * On a sheet the handle and the header together drag it down (SoundPanel), as on an iPhone's own sheets, so a swipe
+ * that starts on "Sounds" moves it too; neither scrolls, so the finger is theirs.
+ */
+
+.sound-grab {
+  display: flex;
+  justify-content: center;
+  flex: none;
+  padding: 10px 0 4px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.sound-grab-bar {
+  width: 38px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(246, 234, 214, 0.22);
+}
+
+.sound-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 2px 8px 8px 18px;
+  touch-action: none;
+}
+
+.sound-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--sound-display);
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  color: var(--sound-ink);
+}
+
+/* focus lands here as the panel opens, so a screen reader starts at the top; no ring for that */
+.sound-root .sound-title:focus {
+  outline: none;
+}
+
+.sound-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--sound-ink-3);
+}
+
+@media (hover: hover) {
+  .sound-close:hover {
+    color: var(--sound-ink);
+    background: rgba(246, 234, 214, 0.06);
+  }
+}
+
+/* the gift flow's switch (gift.css .gift-switch), in the panel's own words */
+.sound-switch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--sound-ink-2);
+}
+
+.sound-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+}
+
+.sound-switch-track {
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(255, 240, 215, 0.14);
+  border: 1px solid rgba(255, 240, 215, 0.16);
+  transition: background 0.25s ease;
+}
+
+.sound-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f6ead6;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: transform 0.25s var(--sound-ease);
+}
+
+.sound-switch input:checked + .sound-switch-track {
+  background: linear-gradient(180deg, #f6cf8e, #e6a95e);
+}
+
+.sound-switch input:checked + .sound-switch-track::after {
+  transform: translateX(18px);
+}
+
+.sound-switch input:focus-visible + .sound-switch-track {
+  outline: 2px solid var(--sound-focus);
+  outline-offset: 3px;
+}
+
+/* ---- the body ------------------------------------------------------------------------------------------------------ */
+
+.sound-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 16px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 236, 200, 0.16) transparent;
+}
+
+.sound-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sound-heading {
+  font-family: var(--sound-display);
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  color: var(--sound-ink);
+}
+
+.sound-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sound-count {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--sound-ink-3);
+}
+
+.sound-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sound-ink-3);
+}
+
+.sound-label-note {
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-size: 11.5px;
+  color: var(--sound-ink-4);
+}
+
+.sound-fine {
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--sound-ink-3);
+}
+
+/* the browser stopped the sound */
+.sound-blocked {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 6px 6px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(242, 205, 142, 0.28);
+  background: rgba(242, 205, 142, 0.08);
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--sound-ink-2);
+}
+
+/* ---- the live garden ------------------------------------------------------------------------------------------------ */
+
+.sound-live {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 14px 14px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(246, 234, 214, 0.12);
+  background: rgba(246, 234, 214, 0.04);
+  text-align: left;
+  transition:
+    border-color 0.4s ease,
+    background-color 0.4s ease,
+    transform 0.2s var(--sound-ease);
+}
+
+.sound-live:active {
+  transform: scale(0.985);
+}
+
+.sound-live[aria-pressed="true"] {
+  border-color: rgba(242, 205, 142, 0.6);
+  background: radial-gradient(130% 150% at 10% 0%, rgba(255, 222, 168, 0.17), rgba(234, 185, 108, 0.04) 70%);
+}
+
+@media (hover: hover) {
+  .sound-live[aria-pressed="false"]:hover {
+    border-color: rgba(246, 234, 214, 0.22);
+    background: rgba(246, 234, 214, 0.07);
+  }
+}
+
+.sound-live-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(246, 234, 214, 0.14);
+  color: var(--sound-ink-2);
+}
+
+.sound-live[aria-pressed="true"] .sound-live-icon {
+  border-color: rgba(242, 205, 142, 0.6);
+  color: var(--sound-gold-hi);
+}
+
+.sound-live-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.sound-live-title {
+  font-family: var(--sound-display);
+  font-size: 17px;
+  color: var(--sound-ink);
+}
+
+.sound-live-line {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--sound-ink-3);
+}
+
+.sound-live-now {
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--sound-gold);
+}
+
+/* ---- chips: the mixes and the fade-out timer ------------------------------------------------------------------------- */
+
+.sound-mixes {
+  display: flex;
+  gap: 8px;
+  margin: -6px -16px;
+  padding: 6px 16px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 28px), transparent);
+}
+
+.sound-mixes::-webkit-scrollbar {
+  display: none;
+}
+
+.sound-timers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sound-chip {
+  flex: none;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(246, 234, 214, 0.16);
+  background: rgba(246, 234, 214, 0.05);
+  font-size: 13.5px;
+  white-space: nowrap;
+  color: var(--sound-ink-2);
+  transition:
+    border-color 0.3s ease,
+    background-color 0.3s ease,
+    transform 0.2s var(--sound-ease);
+}
+
+.sound-chip:active {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) {
+  .sound-chip:hover {
+    border-color: rgba(246, 234, 214, 0.26);
+    background: rgba(246, 234, 214, 0.09);
+  }
+}
+
+.sound-chip[aria-pressed="true"],
+.sound-chip[data-tone="gold"] {
+  border-color: rgba(242, 205, 142, 0.7);
+  background: radial-gradient(120% 140% at 30% 0%, rgba(255, 222, 168, 0.3), rgba(234, 185, 108, 0.1) 70%);
+  color: var(--sound-gold-hi);
+}
+
+/* ---- the tiles ----------------------------------------------------------------------------------------------------- */
+
+.sound-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.sound-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sound-tile {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-radius: 16px;
+  border: 1px solid rgba(246, 234, 214, 0.1);
+  background: rgba(246, 234, 214, 0.04);
+  transition:
+    border-color 0.4s ease,
+    background-color 0.4s ease;
+}
+
+.sound-tile[data-on] {
+  border-color: rgba(242, 205, 142, 0.6);
+  background: radial-gradient(120% 110% at 30% 0%, rgba(255, 222, 168, 0.2), rgba(234, 185, 108, 0.05) 72%);
+}
+
+.sound-tile-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  min-height: 78px;
+  padding: 15px 6px 10px;
+  border: 0;
+  border-radius: 15px;
+  background: none;
+  text-align: center;
+  color: var(--sound-ink-3);
+  transition: transform 0.2s var(--sound-ease);
+}
+
+.sound-tile-btn:active {
+  transform: scale(0.96);
+}
+
+@media (hover: hover) {
+  .sound-tile-btn:hover {
+    color: var(--sound-ink-2);
+  }
+}
+
+.sound-tile[data-on] .sound-tile-btn {
+  color: var(--sound-gold-hi);
+}
+
+.sound-tile-label {
+  font-size: 12.5px;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  color: var(--sound-ink-2);
+  overflow-wrap: anywhere;
+}
+
+.sound-tile[data-on] .sound-tile-label {
+  color: var(--sound-ink);
+}
+
+/* its file is still on its way: a soft pulsing dot */
+.sound-tile-dot {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sound-gold);
+  animation: sound-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes sound-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---- the sliders ----------------------------------------------------------------------------------------------------- */
+
+.sound-range {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/*
+ * The level under a tile: inset from its edges, its hit area tucked up under the label. Lifted over the tile's button
+ * (which is positioned, so it would otherwise paint over the slider's top and take its taps), so the whole 44 px
+ * strip moves the level and none of it takes the sound out of the mix.
+ */
+.sound-level {
+  position: relative;
+  z-index: 1;
+  width: calc(100% - 20px);
+  margin: -10px 10px 0;
+}
+
+.sound-root .sound-range:focus-visible {
+  outline: none;
+}
+
+.sound-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--sound-gold) var(--sound-fill, 0%), var(--sound-track) var(--sound-fill, 0%));
+}
+
+.sound-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6.5px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--sound-gold-hi);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  transition: transform 0.2s var(--sound-ease);
+}
+
+.sound-range:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+.sound-range:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 2px rgba(10, 13, 21, 0.9),
+    0 0 0 4px var(--sound-focus);
+}
+
+.sound-range::-moz-range-track {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--sound-track);
+}
+
+.sound-range::-moz-range-progress {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--sound-gold);
+}
+
+.sound-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--sound-gold-hi);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  transition: transform 0.2s var(--sound-ease);
+}
+
+.sound-range:active::-moz-range-thumb {
+  transform: scale(1.15);
+}
+
+.sound-range:focus-visible::-moz-range-thumb {
+  box-shadow:
+    0 0 0 2px rgba(10, 13, 21, 0.9),
+    0 0 0 4px var(--sound-focus);
+}
+
+/* ---- keep playing, and the credits ---------------------------------------------------------------------------------- */
+
+.sound-switch-row {
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.sound-switch-row .sound-switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--sound-ink-2);
+}
+
+.sound-credits {
+  border-top: 1px solid var(--sound-line);
+  padding-top: 4px;
+}
+
+.sound-credits summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--sound-ink-2);
+}
+
+.sound-credits summary::-webkit-details-marker {
+  display: none;
+}
+
+.sound-credits summary svg {
+  flex: none;
+  color: var(--sound-ink-3);
+  transition: transform 0.25s var(--sound-ease);
+}
+
+.sound-credits[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.sound-credit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 12px;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--sound-ink-3);
+  overflow-wrap: anywhere;
+}
+
+.sound-credit-used {
+  display: block;
+  color: var(--sound-ink-2);
+}
+
+.sound-credits a {
+  color: var(--sound-gold);
+  text-decoration: underline;
+  text-decoration-color: rgba(242, 205, 142, 0.4);
+  text-underline-offset: 2px;
+}
+
+.sound-credits .sound-fine + .sound-fine {
+  margin-top: 6px;
+}
+
+/* the store's short notices (the five-sound limit), held in sight at the foot of the panel while they last */
+.sound-notice {
+  position: sticky;
+  bottom: 0;
+  align-self: center;
+  max-width: 100%;
+  margin-top: -6px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(242, 205, 142, 0.32);
+  background: rgba(10, 13, 21, 0.94);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--sound-ink);
+  opacity: 0;
+  visibility: hidden;
+  transform: translate3d(0, 6px, 0);
+  transition:
+    opacity 0.4s var(--sound-ease),
+    transform 0.4s var(--sound-ease),
+    visibility 0s 0.4s;
+}
+
+.sound-notice[data-shown] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition:
+    opacity 0.4s var(--sound-ease),
+    transform 0.4s var(--sound-ease),
+    visibility 0s;
+}
+
+/* ---- wider screens --------------------------------------------------------------------------------------------------- */
+
+@media (min-width: 640px) {
+  .sound-head {
+    padding: 4px 10px 10px 20px;
+  }
+  .sound-body {
+    padding: 4px 20px 18px;
+  }
+  .sound-mixes {
+    margin: -6px -20px;
+    padding: 6px 20px;
+  }
+}
+
+@media (min-width: 1024px) and (orientation: landscape) {
+  .sound-grab {
+    display: none;
+  }
+  .sound-head {
+    padding: 16px 12px 10px 22px;
+    touch-action: auto;
+  }
+  .sound-body {
+    padding: 4px 22px 20px;
+  }
+  .sound-mixes {
+    margin: -6px -22px;
+    padding: 6px 22px;
+  }
+}
+
+@media (min-width: 1800px) and (orientation: landscape) {
+  .sound-panel {
+    width: clamp(400px, 22vw, 480px);
+  }
+  .sound-title {
+    font-size: 26px;
+  }
+}
+
+/* ---- a phone held sideways: the button bottom left, a narrow panel on the left ---------------------------------------- */
+
+@media (orientation: landscape) and (max-height: 540px) {
+  .sound-corner {
+    top: auto;
+    right: auto;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
+  }
+  .sound-nudge {
+    top: auto;
+    right: auto;
+    bottom: 0;
+    left: 52px;
+    transform: translate3d(-6px, 0, 0);
+  }
+  .sound-dock {
+    left: max(10px, env(safe-area-inset-left));
+    right: auto;
+    top: max(10px, env(safe-area-inset-top));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+  .sound-panel {
+    width: min(320px, 46vw);
+    max-height: none;
+    border-radius: 22px;
+    animation-name: sound-slide;
+  }
+  .sound-grab {
+    display: none;
+  }
+  .sound-head {
+    padding: 10px 6px 6px 16px;
+    touch-action: auto;
+  }
+  .sound-title {
+    font-size: 19px;
+  }
+  .sound-body {
+    gap: 16px;
+    padding: 2px 12px 12px;
+  }
+  .sound-mixes {
+    margin: -6px -12px;
+    padding: 6px 12px;
+  }
+  .sound-tile-btn {
+    min-height: 70px;
+  }
+}
+
+/*
+ * ---- the mixes, all in sight --------------------------------------------------------------------------------------------
+ * The mixes' row swipes sideways on a touch screen, but a mouse wheel scrolls the panel instead and its scrollbar is
+ * hidden, so on a laptop (and on any side panel) the chips wrap onto a second line, as the care card's do
+ * (CareLayer.css .care-chips). After the blocks above, so it outweighs their margins.
+ */
+@media (min-width: 1024px) and (orientation: landscape), (hover: hover) and (pointer: fine) {
+  .sound-mixes {
+    flex-wrap: wrap;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
+/* ---- reduced motion ---------------------------------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .sound-panel {
+    animation-duration: 0.01s;
+    transition: none;
+  }
+  .sound-panel[data-state="closing"] {
+    animation-duration: 0.15s;
+  }
+  .sound-btn[data-state="playing"] .sound-bar,
+  .sound-tile-dot {
+    animation: none;
+  }
+  .sound-tile-dot {
+    opacity: 0.8;
+  }
+  .sound-btn[data-state="blocked"]::after {
+    animation: none;
+    transform: scale(1.08);
+    opacity: 0.7;
+  }
+  .sound-nudge,
+  .sound-nudge[data-shown],
+  .sound-notice,
+  .sound-notice[data-shown] {
+    transform: none;
+  }
+  .sound-btn,
+  .sound-chip,
+  .sound-live,
+  .sound-tile-btn,
+  .sound-switch-track::after,
+  .sound-credits summary svg,
+  .sound-range::-webkit-slider-thumb {
+    transition-duration: 0.01s;
+  }
+  .sound-range::-moz-range-thumb {
+    transition-duration: 0.01s;
+  }
+}
