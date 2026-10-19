@@ -91,6 +91,48 @@ export const LAYOUT = {
   fence: { from: [-4.2, 0, -3.6] as Vec3, to: [-1.4, 0, -4.2] as Vec3, height: 0.95 },
 
   /**
+   * The garden's front, behind the default camera, seen only when the view is
+   * turned round (the camera's orbit goes all the way round the flower). The
+   * hedges carry the side hedges on round the front in a ring about six
+   * metres out, so a look back from behind the bed finds the lawn closed off
+   * as a room, with a gateway at front-left where a short walk of the same
+   * flagstones comes in to meet the path; a few trees stand beyond, their
+   * crowns framing the sky as the trees behind the bed do. All of it stands
+   * behind the camera of every default framing (so nothing new shows until
+   * the view turns), north of the bed, where no sun of the season stands, so
+   * none of it shades the bed. Kept in lists of their own and built from
+   * random streams of their own, after everything else
+   * (lib/garden/backdropGeometry, dressing's walkPlan), so the garden as the
+   * default framings see it is exactly as it was.
+   */
+  front: {
+    hedges: [
+      { center: [3.4, 0, 3.4] as Vec3, rx: 0.75, rz: 1.0, height: 1.0, density: 0.45 },
+      { center: [2.45, 0, 5.05] as Vec3, rx: 1.1, rz: 0.7, height: 1.1, density: 0.45 },
+      { center: [0.75, 0, 6.05] as Vec3, rx: 1.3, rz: 0.62, height: 1.15, density: 0.45 },
+      // the gateway between these two
+      { center: [-0.55, 0, 6.3] as Vec3, rx: 0.58, rz: 0.55, height: 1.1, density: 0.45 },
+      { center: [-2.8, 0, 5.85] as Vec3, rx: 0.72, rz: 0.66, height: 1.1, density: 0.45 },
+      { center: [-3.5, 0, 4.15] as Vec3, rx: 0.65, rz: 1.1, height: 1.0, density: 0.45 },
+    ],
+    trees: [
+      { position: [4.4, 0, 6.7] as Vec3, height: 5.0, canopyY: 3.2, canopyR: 2.3, density: 0.4 },
+      { position: [-4.7, 0, 6.2] as Vec3, height: 5.4, canopyY: 3.4, canopyR: 2.4, density: 0.4 },
+      { position: [1.0, 0, 8.9] as Vec3, height: 6.2, canopyY: 4.0, canopyR: 2.8, density: 0.45 },
+    ],
+    /** The gateway: two posts `width` apart across the walk, and a gate of the fence's boards standing open into the garden. */
+    gate: { center: [-1.66, 0, 6.32] as Vec3, width: 1.0, height: 0.92, open: 1.15 },
+    /** The front walk, from the gateway to just short of the path's first stone. */
+    walk: [
+      [-1.66, 0, 6.75],
+      [-1.72, 0, 5.4],
+      [-2.0, 0, 4.0],
+      [-2.02, 0, 2.85],
+      [-1.8, 0, 1.86],
+    ] as readonly Vec3[],
+  },
+
+  /**
    * Trees with gaps between them for sky; canopy is a sphere-ish cluster at
    * `canopyY`, low enough that the crowns make a leafy frame along the top of
    * the picture instead of bare trunks against the sky. No trunk stands

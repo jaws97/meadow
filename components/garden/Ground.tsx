@@ -24,6 +24,7 @@ import {
   makeSwayDepthMaterial,
   makeSwayMaterial,
   pathPlan,
+  walkPlan,
   SPADE_EDGE,
   swayUniforms,
   WATERING_CAN,
@@ -393,6 +394,7 @@ function scatterBlades(
   clumps: Clump[],
   plan: PathPlan,
   mownShare: number,
+  walk: PathPlan,
 ) {
   const rng = new Rng("grass:" + kind);
   const leanBias = kind === "bowed" ? 0.1 : 0;
@@ -488,6 +490,14 @@ function scatterBlades(
     if (clumpTint) tmpColor.multiply(clumpTint);
     if (rng.next() < 0.05) tmpColor.multiply(DRY);
     mesh.setColorAt(i, tmpColor);
+    // a blade on the front walk's stones (Path.tsx) goes under the lawn, after every draw for it is made, so the rest
+    // of the lawn is exactly as it was before there was a walk
+    if (walk.onStone(x, z)) {
+      dummy.position.set(0, -1, 0);
+      dummy.scale.setScalar(0.0001);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
   }
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -585,6 +595,8 @@ export function Ground() {
 
   // The owner's path decides where the lawn darkens and where blades may stand.
   const plan = useMemo(() => pathPlan(seed), [seed]);
+  // the front walk only takes the blades off its own stones
+  const walk = useMemo(() => walkPlan(seed), [seed]);
   const clumps = useMemo(() => makeClumps(plan), [plan]);
 
   const lawnGeo = useMemo(() => makeLawnGeometry(plan), [plan]);
@@ -646,12 +658,12 @@ export function Ground() {
   useLayoutEffect(() => {
     const meshes = [bowedRef.current, uprightRef.current, twistedRef.current];
     meshes.forEach((mesh, k) => {
-      if (mesh) scatterBlades(mesh, BLADE_KINDS[k], bladeCounts[k], clumps, plan, budget.mown);
+      if (mesh) scatterBlades(mesh, BLADE_KINDS[k], bladeCounts[k], clumps, plan, budget.mown, walk);
     });
     if (cloverRef.current) scatterLow(cloverRef.current, "clover", budget.clover, 1.3, plan);
     if (weedRef.current) scatterLow(weedRef.current, "weeds", budget.weeds, 1.6, plan);
     if (fallenRef.current) scatterFallen(fallenRef.current, plan);
-  }, [bladeCounts, budget, clumps, plan, bowedRef, uprightRef, twistedRef]);
+  }, [bladeCounts, budget, clumps, plan, walk, bowedRef, uprightRef, twistedRef]);
 
   /* eslint-disable react-hooks/immutability -- the memoised materials are three.js
      objects the frame loop drives imperatively; React never re-renders on them. */

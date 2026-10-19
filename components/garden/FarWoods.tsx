@@ -1,13 +1,14 @@
 "use client";
-// The woods beyond the garden: two rows of distant tree crowns standing off
-// to either side, so a wide screen (16:9, an ultrawide, the party screen) or
-// an orbit to the side never runs out past the hedges onto open lawn. The
+// The woods beyond the garden: two rows of distant tree crowns standing all
+// the way round it, so a wide screen (16:9, an ultrawide, the party screen)
+// or a view turned round the flower, to the side or right round to look back
+// over the garden's front, never runs out past the hedges onto open lawn. The
 // view straight past the hero stays open, the band of pale sky and hazy hills
 // under the canopies being part of the garden's depth, but the lawn gets an
 // end: a low hedgerow across the gap, its foot in meadow grass, so the turf
 // meets bushes and then hazy hills instead of running flat to a ruled
-// horizon. Each arc tapers into the lawn at its ends, behind the big trees,
-// so nothing reads as a set piece. They are painted rather than modelled: at
+// horizon. Each row tapers into the lawn at its two ends, behind the big
+// trees either side of that view, so nothing reads as a set piece. They are painted rather than modelled: at
 // ten to thirteen metres the depth of field melts them into soft woodland,
 // and on the lite tier a painted silhouette is all the eye can resolve at
 // that distance. All of it carries aerial haze (haze.ts), thickest at the
@@ -19,7 +20,6 @@
 // painted woods can stand there freely.
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { withHaze, type HazeOptions } from "@/components/garden/haze";
 import { Rng } from "@/lib/plant/prng";
 import { makeCanvas, shiftHex, toTexture } from "@/lib/plant/textures";
@@ -50,7 +50,12 @@ const RINGS: readonly Ring[] = [
  */
 const OPEN_LEFT = THREE.MathUtils.degToRad(26);
 const OPEN_RIGHT = THREE.MathUtils.degToRad(17);
+/** How far each of the two arcs the woods once were ran: their painted crowns keep that spacing now they are one. */
 const ARC_END = THREE.MathUtils.degToRad(150);
+/** The one arc round the garden, from the open view's left edge round behind the camera to its right edge. */
+const WOODS_LENGTH = 2 * Math.PI - OPEN_LEFT - OPEN_RIGHT;
+/** The strip's repeats along the one arc for the crowns' spacing one of the two arcs had (about ARC_END minus its open side). */
+const WOODS_SPAN_SCALE = WOODS_LENGTH / (ARC_END - (OPEN_LEFT + OPEN_RIGHT) / 2);
 /** Bearing over which each arc's crowns sink into the lawn at its ends. */
 const TAPER = THREE.MathUtils.degToRad(14);
 
@@ -267,20 +272,16 @@ function skyFacing(g: THREE.BufferGeometry) {
 }
 
 /**
- * Both arcs of one row as one geometry. Three's cylinder runs its angle from
- * +z toward +x, so a bearing b from behind the hero (-z) is the angle pi - b.
- * The top edge is pulled down toward the ground near each end of an arc.
+ * One row as one geometry. Three's cylinder runs its angle from +z toward +x,
+ * so a bearing b from behind the hero (-z) is the angle pi - b. It used to be
+ * two arcs that stopped short either side of the camera; with the view free
+ * to turn all the way round the flower, the row runs on round the garden's
+ * front behind the camera as one arc, from just behind the big trees on the
+ * left to just behind them on the right, leaving only the open view past the
+ * hero. Its top edge is pulled down toward the ground at those two ends.
  */
-function woodsArcs(ring: Ring): THREE.BufferGeometry {
-  const segments = 64;
-  const spans: Array<[number, number]> = [
-    [Math.PI - ARC_END, ARC_END - OPEN_RIGHT],
-    [Math.PI + OPEN_LEFT, ARC_END - OPEN_LEFT],
-  ];
-  const arcs = spans.map(([start, length]) => taperedArc(ring.radius, ring.height, start, length, TAPER, segments));
-  const merged = mergeGeometries(arcs) ?? arcs[0];
-  if (merged !== arcs[0]) for (const a of arcs) a.dispose();
-  return merged;
+function woodsArc(ring: Ring): THREE.BufferGeometry {
+  return taperedArc(ring.radius, ring.height, Math.PI + OPEN_LEFT, WOODS_LENGTH, TAPER, 96);
 }
 
 export function FarWoods() {
@@ -288,10 +289,10 @@ export function FarWoods() {
     () =>
       RINGS.map((ring) => {
         const map = paintStrip(ring.seed);
-        map.repeat.set(ring.repeats, 1);
+        map.repeat.set(ring.repeats * WOODS_SPAN_SCALE, 1);
         map.offset.set(ring.offset, 0);
         // seen from inside: open cylinder arcs drawn on their back faces
-        const geometry = woodsArcs(ring);
+        const geometry = woodsArc(ring);
         const material = withHaze(
           new THREE.MeshStandardMaterial({
             map,

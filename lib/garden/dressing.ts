@@ -740,11 +740,23 @@ const planCache = new Map<string, PathPlan>();
  * the stones sit two to four centimetres apart, and chipped at some corners.
  */
 export function pathPlan(seed: string): PathPlan {
-  const hit = planCache.get(seed);
+  return planPath(LAYOUT.path, seed + "|garden|path", seed);
+}
+
+/**
+ * The front walk (LAYOUT.front.walk): the same flagstones laid the same way from the gateway in to the path's first
+ * stone, from a random stream of its own, so the path itself is exactly as it was.
+ */
+export function walkPlan(seed: string): PathPlan {
+  return planPath(LAYOUT.front.walk, seed + "|garden|walk", "walk|" + seed);
+}
+
+function planPath(waypoints: readonly (readonly [number, number, number])[], rngKey: string, cacheKey: string): PathPlan {
+  const hit = planCache.get(cacheKey);
   if (hit) return hit;
-  const rng = new Rng(seed + "|garden|path");
+  const rng = new Rng(rngKey);
   const side = rng.sign();
-  const pts: THREE.Vector3[] = LAYOUT.path.map((p) => new THREE.Vector3(p[0], 0, p[2]));
+  const pts: THREE.Vector3[] = waypoints.map((p) => new THREE.Vector3(p[0], 0, p[2]));
   for (let i = 1; i < pts.length - 1; i++) {
     const dx = pts[i + 1].x - pts[i - 1].x;
     const dz = pts[i + 1].z - pts[i - 1].z;
@@ -945,7 +957,7 @@ export function pathPlan(seed: string): PathPlan {
       return false;
     },
   };
-  planCache.set(seed, plan);
+  planCache.set(cacheKey, plan);
   return plan;
 }
 

@@ -1019,8 +1019,18 @@ function makeCoreLobeGeometry(segments: number, seed: number): THREE.BufferGeome
  * is thinned a little so more cards dress the underside, which the camera
  * looks up at.
  */
+/** A tree of the layout's (behind the bed, or at the garden's front): where it stands, how tall, and its crown. */
+interface TreeSpec {
+  readonly position: Vec3;
+  readonly height: number;
+  readonly canopyY: number;
+  readonly canopyR: number;
+  /** 0..1 against the budget's canopy cards: a tree mostly off the default frame is dressed more lightly */
+  readonly density?: number;
+}
+
 function buildTree(
-  spec: (typeof LAYOUT.trees)[number],
+  spec: TreeSpec,
   rng: Rng,
   budget: BackdropBudget,
   wood: THREE.BufferGeometry[],
@@ -1110,7 +1120,7 @@ function buildTree(
   });
 
   const tint = foliageTint(new THREE.Color(), rng.range(-0.32, 0.35));
-  const n = Math.round(budget.canopyCards * ("density" in spec ? spec.density : 1));
+  const n = Math.round(budget.canopyCards * (spec.density ?? 1));
   const cardScale = budget.canopyCardScale;
   let placed = 0;
   for (let tries = 0; placed < n && tries < n * 4; tries++) {
@@ -1456,7 +1466,7 @@ function buildArch(
 
 // --- fence ------------------------------------------------------------------
 
-function buildFence(rng: Rng): FenceAssets {
+function buildFence(rng: Rng, gateRng: Rng): FenceAssets {
   const f = LAYOUT.fence;
   const from = new THREE.Vector3(...f.from);
   const to = new THREE.Vector3(...f.to);
@@ -1517,7 +1527,62 @@ function buildFence(rng: Rng): FenceAssets {
     rails.push(tmpP, tmpQ, tmpS, tint(tmpC, 0.08), normal);
   }
 
+  buildGate(gateRng, pickets, posts, rails);
+
   return { picket, pickets: pickets.finish(), post, posts: posts.finish(), rail, rails: rails.finish() };
+}
+
+/**
+ * The gateway at the garden's front (LAYOUT.front.gate), of the fence's own weathered boards: two stout posts either
+ * side of the walk and a picket gate on a Z-brace, hung from the left post and standing open into the garden. Its
+ * pieces join the fence's instances after the fence's own, drawn from a random stream of its own, so the fence is
+ * exactly as it was and the gate costs no draw call.
+ */
+function buildGate(rng: Rng, pickets: InstanceBuilder, posts: InstanceBuilder, rails: InstanceBuilder) {
+  const g = LAYOUT.front.gate;
+  const [cx, , cz] = g.center;
+  const tint = (out: THREE.Color, dark = 0) => out.setHSL(0.08, rng.range(0.04, 0.2), rng.range(0.62, 0.9) * (1 - dark));
+  const euler = new THREE.Euler();
+  // posts: their boards facing along the walk, into the garden (-z)
+  const along = new THREE.Vector3(-1, 0, 0);
+  const inward = new THREE.Vector3(-along.z, 0, along.x);
+  const postFrame = new THREE.Quaternion().setFromRotationMatrix(tmpM.makeBasis(along, UP, inward));
+  for (const side of [-1, 1]) {
+    tmpP.set(cx + side * (g.width / 2 + 0.06), 0, cz);
+    euler.set(rng.range(-0.012, 0.012), 0, rng.range(-0.015, 0.015));
+    tmpQ.copy(postFrame).multiply(tmpQ2.setFromEuler(euler));
+    tmpS.set(1.45, g.height * 1.32, 1.45);
+    posts.push(tmpP, tmpQ, tmpS, tint(tmpC, 0.12), inward);
+  }
+  // the gate: hung from the left post, swung open into the garden by `open`
+  const hinge = new THREE.Vector3(cx - g.width / 2 + 0.02, 0, cz);
+  const dir = new THREE.Vector3(Math.cos(g.open), 0, -Math.sin(g.open));
+  const face = new THREE.Vector3(-dir.z, 0, dir.x);
+  const leafFrame = new THREE.Quaternion().setFromRotationMatrix(tmpM.makeBasis(dir, UP, face));
+  const length = g.width - 0.04;
+  const at = (s: number, y: number, back: number) => tmpP.copy(hinge).addScaledVector(dir, s).addScaledVector(face, -back).setY(y);
+  const gap = 0.112;
+  const count = Math.floor((length - 0.04) / gap);
+  for (let i = 0; i < count; i++) {
+    at(0.06 + i * gap + rng.range(-0.006, 0.006), 0.05 + rng.range(-0.005, 0.01), 0);
+    euler.set(rng.range(-0.015, 0.015), 0, rng.range(-0.03, 0.03));
+    tmpQ.copy(leafFrame).multiply(tmpQ2.setFromEuler(euler));
+    tmpS.set(rng.range(0.94, 1.04), g.height * rng.range(0.9, 0.98), 1);
+    pickets.push(tmpP, tmpQ, tmpS, tint(tmpC), face);
+  }
+  const ledges = [0.2, 0.62];
+  for (const y of ledges) {
+    at(length / 2, y + rng.range(-0.008, 0.008), 0.032);
+    tmpS.set(length - 0.02, 1, 1);
+    rails.push(tmpP, leafFrame, tmpS, tint(tmpC, 0.08), face);
+  }
+  // the brace, from the bottom ledge at the hinge up to the top ledge at the latch
+  const rise = ledges[1] - ledges[0];
+  const run = length - 0.12;
+  at(length / 2, (ledges[0] + ledges[1]) / 2 + 0.04, 0.032);
+  tmpQ.copy(leafFrame).multiply(tmpQ2.setFromAxisAngle(tmpX.set(0, 0, 1), Math.atan2(rise, run)));
+  tmpS.set(Math.hypot(rise, run), 1, 1);
+  rails.push(tmpP, tmpQ, tmpS, tint(tmpC, 0.1), face);
 }
 
 // --- bokeh ------------------------------------------------------------------
@@ -1629,8 +1694,18 @@ export function buildBackdrop(seed: string, quality: Quality, heroHex: string): 
   for (const s of specs) buildMass(s, massRng, budget, masses);
 
   const arch = buildArch(rng.fork("arch"), budget, vineLeaf, archFloret, bloomPalette);
-  const fence = buildFence(rng.fork("fence"));
+  const fence = buildFence(rng.fork("fence"), new Rng(seed + "|garden|gate"));
   const bokeh = buildBokeh(rng.fork("bokeh"), canopyShapes, budget);
+
+  // The garden's front (LAYOUT.front), seen once the view is turned round: its trees and hedges join the same
+  // instances after everything above, drawn from a random stream of their own (rng above is left untouched), so the
+  // garden the default framings see is exactly as it was, and they cost no draw call. One of the hedges flowers.
+  const frontRng = new Rng(seed + "|garden|front");
+  for (const t of LAYOUT.front.trees) buildTree(t, frontRng, budget, wood, cores, canopyBuilders);
+  const frontFlowering = frontRng.int(0, LAYOUT.front.hedges.length - 1);
+  LAYOUT.front.hedges.forEach((h, i) =>
+    buildMass({ center: h.center, rx: h.rx, rz: h.rz, height: h.height, flowers: i === frontFlowering, density: h.density }, frontRng, budget, masses),
+  );
 
   const canopies = canopyBuilders.map((b) => instanced(card, b.finish()));
   const hedgeCards = masses.cards.map((b) => instanced(card, b.finish()));

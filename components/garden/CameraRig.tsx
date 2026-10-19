@@ -46,14 +46,15 @@
 // on the rig alone moves it (an orbit target re-applied as a prop on every new
 // screen shape would jump it to the flower garden's aim, away from the pond).
 import { OrbitControls } from "@react-three/drei";
-import { useFrame, useThree } from "@react-three/fiber";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ComponentRef } from "react";
+import { addAfterEffect, useFrame, useThree } from "@react-three/fiber";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef } from "react";
 import * as THREE from "three";
 import { sidePanel } from "@/lib/client/dock";
 import { HERO_GROUND_Y } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { framingFor, LAYOUT, type Framing } from "@/lib/garden/layout";
 import { opening } from "@/lib/garden/opening";
+import { roomAlong } from "@/lib/garden/room";
 import { garden, useGarden } from "@/lib/garden/store";
 import { isLotus } from "@/lib/plant/species";
 import { lerp, smoothstep } from "@/lib/plant/prng";
@@ -75,12 +76,23 @@ const MIN_DISTANCE_LOTUS = 0.45;
 const MAX_DISTANCE = 7;
 const MIN_POLAR = 0.75;
 /**
- * The garden is dressed as a room for a camera on +z: hedges, the fence and
- * the trees close it off behind and to the sides. Past about 40 degrees
- * either way the view runs out past the hedges onto open lawn and the hills,
- * and the garden reads as a stage flat, so the orbit stops there.
+ * A lotus's courtyard is dressed as a room for a camera on +z, its walls and
+ * plants closing it off behind and to the sides only; past about 40 degrees
+ * either way it would read as a stage flat, so there the orbit stops. The
+ * flower garden is closed off all the way round (LAYOUT.front), so there the
+ * view turns as far as the visitor likes, the camera coming in closer
+ * wherever a hedge, the arch, the gateway or the fence would otherwise stand
+ * between it and the flower (lib/garden/room).
  */
 const MAX_AZIMUTH = 0.7;
+/**
+ * Keeping clear of the scenery: the room is looked for along the camera's own line and a little either side of it
+ * (radians round the target), so the camera starts coming in before a hedge's edge reaches it; it comes in at the
+ * first rate and goes back out, once the way is clear, at the second (per second).
+ */
+const ROOM_LOOK = 0.12;
+const ROOM_IN = 10;
+const ROOM_OUT = 2.5;
 /**
  * The dolly: the framing distances in LAYOUT.camera are for a plant this tall
  * (head above the mulch, metres). The distance scales as (height + pad), so
@@ -308,6 +320,42 @@ function setFov(camera: THREE.Camera, fov: number) {
   camera.updateProjectionMatrix();
 }
 
+/**
+ * The camera's room in the flower garden: where the controls and the rig have put it is where the visitor wants it
+ * (`orbit`, restored before the controls next update, so their own distance is never shortened by the scenery), and it
+ * is drawn from no farther out than lib/garden/room allows along its line, eased in and out (`applied`; -1 before the
+ * first frame and in the courtyard).
+ */
+interface Room {
+  applied: number;
+  clamped: boolean;
+  orbit: THREE.Vector3;
+}
+
+const roomDir = new THREE.Vector3();
+
+function keepRoom(camera: THREE.Camera, c: Controls, r: Room, dt: number) {
+  roomDir.copy(camera.position).sub(c.target);
+  const want = roomDir.length();
+  if (want < 1e-6) return;
+  roomDir.divideScalar(want);
+  let allowed = want;
+  for (const turn of [0, -ROOM_LOOK, ROOM_LOOK]) {
+    const cos = Math.cos(turn);
+    const sin = Math.sin(turn);
+    const x = roomDir.x * cos + roomDir.z * sin;
+    const z = roomDir.z * cos - roomDir.x * sin;
+    allowed = Math.min(allowed, roomAlong(c.target.x, c.target.y, c.target.z, x, roomDir.y, z, want));
+  }
+  if (r.applied < 0) r.applied = allowed;
+  else r.applied += (allowed - r.applied) * (1 - Math.exp(-(allowed < r.applied ? ROOM_IN : ROOM_OUT) * dt));
+  r.applied = Math.min(r.applied, want);
+  if (r.applied >= want - 1e-4) return;
+  r.orbit.copy(camera.position);
+  r.clamped = true;
+  camera.position.copy(c.target).addScaledVector(roomDir, r.applied);
+}
+
 /** The idle drift: a slow handheld wander once nobody has touched the camera for a few seconds (both gardens). */
 function drifting(camera: THREE.Camera, c: Controls, d: Drift, f: Framing) {
   const t = env.time;
@@ -381,6 +429,9 @@ export function CameraRig() {
   const width = useThree((s) => s.size.width);
   const height = useThree((s) => s.size.height);
   const drift = useRef<Drift>({ yaw: 0, lift: 0, interacting: false, lastGesture: -Infinity, zoom: 1, push: 1, pushOff: false });
+  const room = useRef<Room>({ applied: -1, clamped: false, orbit: new THREE.Vector3() });
+  /** Where the camera stands for the controls and the rig (the visitor's place), whatever the scenery let it be drawn from. */
+  const placed = useCallback(() => (room.current.clamped ? room.current.orbit : camera.position), [camera]);
   /** the lens shift now applied, CSS px: content moved left (x) and up (y) */
   const lens = useRef({ x: 0, y: 0 });
   const aspect = Math.round(width / Math.max(1, height) / ASPECT_STEP) * ASPECT_STEP;
@@ -433,15 +484,15 @@ export function CameraRig() {
     d.lift = 0;
     d.interacting = true;
     const c = controls.current;
-    if (c) pressed.current.copy(camera.position).sub(c.target);
-  }, [camera]);
+    if (c) pressed.current.copy(placed()).sub(c.target);
+  }, [placed]);
   const onEnd = useCallback(() => {
     const d = drift.current;
     d.interacting = false;
     d.lastGesture = env.time;
     const c = controls.current;
     if (c) {
-      const off = released.copy(camera.position).sub(c.target);
+      const off = released.copy(placed()).sub(c.target);
       const from = pressed.current;
       const moved = off.angleTo(from) > MOVED_ANGLE || Math.abs(off.length() / Math.max(1e-6, from.length()) - 1) > MOVED_SHARE;
       if (moved && !d.pushOff) {
@@ -454,7 +505,21 @@ export function CameraRig() {
       const auto = lotusShown.current ? court.distance : autoDistance(live.current, liveAspect.current, env.headPos.y);
       d.zoom = Math.min(3, Math.max(0.3, off.length() / d.push / auto));
     }
-  }, [camera]);
+  }, [placed]);
+
+  // Once each frame is drawn the camera goes back to where the visitor put it, so the controls (which also move it in
+  // their pointer handlers, between frames) never take the distance the scenery shortened it to for drawing as their
+  // own (keepRoom, below).
+  useEffect(
+    () =>
+      addAfterEffect(() => {
+        const r = room.current;
+        if (!r.clamped) return;
+        camera.position.copy(r.orbit);
+        r.clamped = false;
+      }),
+    [camera],
+  );
 
   useFrame((_, delta) => {
     const c = controls.current;
@@ -482,6 +547,7 @@ export function CameraRig() {
     if (lotus) {
       courtFrame(camera, c, d, dt, k, liveAspect.current);
       drifting(camera, c, d, f);
+      room.current.applied = -1;
       courtLensPoints(courtSubject, env.headPos.y, subjectTop, subjectFoot, subjectCap);
       shiftLens(camera, lens.current, width, height, dt);
       return;
@@ -529,6 +595,8 @@ export function CameraRig() {
     }
 
     drifting(camera, c, d, f);
+    // drawn from no farther out than the scenery allows (the lens shift below then frames the plant as it is drawn)
+    keepRoom(camera, c, room.current, dt);
     gardenLensPoints(bed);
     shiftLens(camera, lens.current, width, height, dt);
   });
@@ -543,8 +611,8 @@ export function CameraRig() {
       maxDistance={MAX_DISTANCE}
       minPolarAngle={MIN_POLAR}
       maxPolarAngle={MAX_POLAR}
-      minAzimuthAngle={-MAX_AZIMUTH}
-      maxAzimuthAngle={MAX_AZIMUTH}
+      minAzimuthAngle={lotus ? -MAX_AZIMUTH : -Infinity}
+      maxAzimuthAngle={lotus ? MAX_AZIMUTH : Infinity}
       enableDamping
       dampingFactor={0.07}
       rotateSpeed={0.6}
