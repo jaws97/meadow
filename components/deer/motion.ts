@@ -256,6 +256,19 @@ export class DoeAnimator {
   }
 
   /** Puts her somewhere, standing square, every hoof planted under her. */
+  /** A fresh start for a staged act (the party trailer's, played again): no glance pending, head and ears at rest. */
+  restage() {
+    this.check = 0;
+    this.checkClock.t = 0;
+    this.graze = 0;
+    this.browse = 0;
+    this.alert = 0;
+    this.lookW = 0;
+    this.lookYaw = 0;
+    this.lookPitch = 0;
+    this.crop = 0;
+  }
+
   place(x: number, z: number, heading: number) {
     this.pos.set(x, z);
     this.heading = heading;

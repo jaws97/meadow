@@ -13,6 +13,10 @@
 // calmly, by the way that keeps away from the viewer; once she has walked out she is hidden and costs nothing more.
 // If her station does not fit by the time the garden is revealed she never shows at all: she is still mounted (and
 // compiled) under the veil, so a station that comes to fit as the garden's plant arrives costs no first draw.
+//
+// Staged (the party trailer, components/party/trailer): she waits off stage, hidden and still, until her cue; on it
+// she starts her act from its beginning, and when it is withdrawn she is hidden again. She is shown while the garden
+// compiles and draws its first frame, where her act starts (off frame), so her cue costs no first draw either.
 import { useThree } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
@@ -74,6 +78,19 @@ export interface VisitHooks {
   gone(): void;
 }
 
+/**
+ * A staged doe's cue: whether she is on now; whether she is to be shown off stage meanwhile (so a preparation under
+ * black draws her); and the longest step her clock takes, to keep pace with the show's own.
+ */
+export interface DoeStage {
+  on(): boolean;
+  primed?(): boolean;
+  maxStep?: number;
+}
+
+/** The opening is compiling the garden or drawing its first frame: everything that may be drawn later must be shown. */
+const preparing = (phase: string) => phase === "boot" || phase === "compiling" || phase === "warming";
+
 interface DoeProps {
   act: Act;
   seed?: string;
@@ -88,6 +105,8 @@ interface DoeProps {
   station?: DeerStation;
   /** False: her station no longer fits the screen; she does not show, or, already shown, makes her way out. */
   stay?: boolean;
+  /** Staged by a show (see the head of this file). */
+  stage?: DoeStage;
 }
 
 /** The camera's distance to her body (m). */
@@ -99,7 +118,7 @@ function distanceToBody(cam: THREE.Vector3, x: number, z: number, heading: numbe
   return Math.hypot(cam.x - (x + along * fx), cam.y - BARREL_Y, cam.z - (z + along * fz));
 }
 
-export function Doe({ act, seed = "Lijas", lookAt, tier: fixedTier, tall: fixedTall, visit, station, stay = true }: DoeProps) {
+export function Doe({ act, seed = "Lijas", lookAt, tier: fixedTier, tall: fixedTall, visit, station, stay = true, stage }: DoeProps) {
   const layerTier = useTier();
   const tier = fixedTier ?? layerTier;
   const doe = useMemo(() => {
@@ -173,6 +192,22 @@ export function Doe({ act, seed = "Lijas", lookAt, tier: fixedTier, tall: fixedT
     hooks.current = visit;
   });
   const visiting = visit !== undefined;
+  const cue = useRef(stage);
+  useLayoutEffect(() => {
+    cue.current = stage;
+  });
+  const staged = stage !== undefined;
+  const wasOn = useRef(false);
+  useLayoutEffect(() => {
+    if (!staged) return;
+    // As the visit's: the opening compiles and pre-draws with the frame loop stopped, so this follows the phase.
+    const apply = () => {
+      const g = group.current;
+      if (g) g.visible = preparing(quality.get().phase) || wasOn.current;
+    };
+    apply();
+    return quality.subscribe(apply);
+  }, [staged]);
   useLayoutEffect(() => {
     if (!visiting) return;
     // Set as the phase changes, not from the frame loop: the opening compiles with the loop stopped, and must see her.
@@ -194,8 +229,26 @@ export function Doe({ act, seed = "Lijas", lookAt, tier: fixedTier, tall: fixedT
   );
 
   useLayerFrame((state, frameDelta) => {
-    const delta = Math.min(frameDelta, MAX_STEP);
+    let delta = Math.min(frameDelta, (staged && cue.current?.maxStep) || MAX_STEP);
     let dt = delta;
+    if (staged) {
+      const on = cue.current?.on() ?? false;
+      const prep = preparing(quality.get().phase) || (cue.current?.primed?.() ?? false);
+      const g = group.current;
+      if (g) g.visible = on || prep;
+      if (!on) {
+        wasOn.current = false;
+        if (!prep) return;
+        // posed where her act starts, still, with her shadows under her, for the opening's first frame
+        dt = 0;
+        delta = 0;
+      } else if (!wasOn.current) {
+        // her cue: the act from its beginning, as fresh as the first time
+        wasOn.current = true;
+        doe.anim.restage();
+        tour.start(doe.anim);
+      }
+    }
     if (visiting) {
       const l = life.current;
       if (l.gone) return;

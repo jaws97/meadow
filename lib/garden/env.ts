@@ -24,6 +24,8 @@ export const env = {
   nightness: 0,
   /** world position of the flower head, for focus and glow */
   headPos: new THREE.Vector3(0, 0.9, 0),
+  /** where the depth of field focuses instead of the flower head, while something else holds the eye (the party trailer) */
+  focus: null as THREE.Vector3 | null,
 };
 
 export function updateEnv(hour: number, cloud: number, rain: number, wind: number, time: number, dt: number) {

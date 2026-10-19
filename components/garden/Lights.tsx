@@ -169,14 +169,14 @@ function LightSets() {
     if (!enabled.current) return;
     applySet(scene, lightSet.full);
     const alt = env.sun.altitude;
-    const want = wantedFullSet(lightSet.full, alt);
+    const want = lightSet.pin ?? wantedFullSet(lightSet.full, alt);
     if (want !== lightSet.full && isReadySet(want)) {
       lightSet.full = want;
       applySet(scene, want);
       return;
     }
     if (lightSet.preparing) return;
-    const next = want !== lightSet.full ? want : upcomingSet(lightSet.full, alt);
+    const next = want !== lightSet.full ? want : lightSet.pin !== null ? null : upcomingSet(lightSet.full, alt);
     if (next === null || isReadySet(next)) return;
     lightSet.preparing = true;
     // a tier built meanwhile has materials this preparation never saw: it is then dropped

@@ -33,7 +33,17 @@ export const OPTIONAL_LIGHT = { optionalLight: true } as const;
  * RenderBudget) resets `ready` and bumps `generation`, and a preparation
  * begun before it never marks a set ready.
  */
-export const lightSet = { full: true, preparing: false, ready: { full: false, day: false }, generation: 0 };
+export const lightSet = {
+  full: true,
+  preparing: false,
+  ready: { full: false, day: false },
+  generation: 0,
+  /**
+   * A set held whatever the sun does (the party trailer sweeps the hours in seconds and keeps the full set it opened
+   * with), prepared first if it is not ready; null: the sun decides.
+   */
+  pin: null as boolean | null,
+};
 
 /** The other set starts preparing when the sun comes within this much of the threshold. */
 const PREPARE_AHEAD = THREE.MathUtils.degToRad(4);

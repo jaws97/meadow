@@ -144,7 +144,8 @@ export function Effects() {
     // The effect keeps a reference and reads it at render time, so assigning
     // the shared Vector3 once is enough; the guard keeps it cheap. The ref is
     // re-pointed by the reconciler whenever a quality change rebuilds the effect.
-    if (d && d.target !== env.headPos) d.target = env.headPos;
+    const focus = env.focus ?? env.headPos;
+    if (d && d.target !== focus) d.target = focus;
     if (d) {
       // The blur's buffer is sized from the drawing buffer, so a pixel ratio
       // under 1 would shrink it below DOF_SCALE of the CSS size and turn the

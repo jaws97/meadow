@@ -13,11 +13,17 @@
 // of the frame without turning the camera: the perspective and the
 // composition stay the garden's own, the picture just moves. The shift is
 // eased, so when the panel is hidden the rose glides back to the middle.
+//
+// While the party trailer plays (components/party/trailer) the camera takes the
+// trailer's shot instead of the tour's, frame by frame, still breathing on the
+// same wander; under the trailer's black dips it takes a new flower's head at
+// once rather than easing toward it.
 import { useFrame, useThree } from "@react-three/fiber";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { drift, TourPlayer, type Drift, type Shot } from "@/components/party/logic";
 import { party } from "@/components/party/store";
+import { trailerCam } from "@/components/party/trailer/store";
 import { HERO_GROUND_Y } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { framingFor, LAYOUT, type Framing } from "@/lib/garden/layout";
@@ -92,9 +98,16 @@ export function PartyCamera() {
     if (!(camera instanceof THREE.PerspectiveCamera)) return;
     const dt = Math.min(delta, 0.1);
     const p = party.get();
-    tour.setOn(p.tour, env.time);
-    const shot = tour.step(env.time);
-    head.lerp(env.headPos, 1 - Math.exp(-dt * HEAD_RATE));
+    let shot: Readonly<Shot>;
+    if (trailerCam.active) shot = trailerCam.shot;
+    else {
+      tour.setOn(p.tour, env.time);
+      shot = tour.step(env.time);
+    }
+    if (trailerCam.snapFrames > 0) {
+      trailerCam.snapFrames--;
+      head.copy(env.headPos);
+    } else head.lerp(env.headPos, 1 - Math.exp(-dt * HEAD_RATE));
     drift(env.time, amount, wander);
     place(camera, live.current, head, shot, wander);
 
@@ -102,7 +115,8 @@ export function PartyCamera() {
     const wantX = p.panel ? p.shiftX : 0;
     const wantY = p.panel ? p.shiftY : 0;
     const s = shift.current;
-    const k = s.primed ? 1 - Math.exp(-dt * SHIFT_RATE) : 1;
+    // (the trailer starts under black, so the lens centres at once)
+    const k = s.primed && !trailerCam.active ? 1 - Math.exp(-dt * SHIFT_RATE) : 1;
     s.primed = true;
     s.x += (wantX - s.x) * k;
     s.y += (wantY - s.y) * k;

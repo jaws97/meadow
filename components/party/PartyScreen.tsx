@@ -8,7 +8,11 @@
 //
 // Hidden keys for the operator: H shows or hides the panel (the rose glides
 // back to the middle), T starts or stops the slow tour, F toggles full
-// screen. `?panel=off` and `?tour=on` set the opening state, and `?hour=21.5`
+// screen, D plays or stops the trailer (components/party/trailer: the seed,
+// the rose growing through a day, the doe, night and the other flowers, in
+// the live garden, about a minute and three quarters), which a button in the
+// corner also plays while the mouse moves. While it plays H, T and F wait.
+// `?panel=off` and `?tour=on` set the opening state, and `?hour=21.5`
 // lights the garden at another hour for a rehearsal (logic.ts showcaseHour).
 //
 // The showcase is staged in the garden's store before the canvas's chunk
@@ -20,11 +24,14 @@ import { catchError, type ErrorInfo } from "next/error";
 import dynamic from "next/dynamic";
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { GiftPanel } from "@/components/party/GiftPanel";
-import { OWNER, readPartyCode, readSwitch, showcaseHour, type PartyCode } from "@/components/party/logic";
+import { OWNER, readPartyCode, readSwitch, type PartyCode } from "@/components/party/logic";
 import { PartyVeil } from "@/components/party/PartyVeil";
+import { stageShowcase } from "@/components/party/showcase";
 import { party, useParty } from "@/components/party/store";
+import { stopTrailer, toggleTrailer } from "@/components/party/trailer/control";
+import { trailer } from "@/components/party/trailer/store";
+import { TrailerButton, TrailerOverlay } from "@/components/party/trailer/TrailerOverlay";
 import { useQuality } from "@/lib/garden/quality";
-import { garden } from "@/lib/garden/store";
 import { SPECIES } from "@/lib/plant/species";
 import "@/components/party/party.css";
 
@@ -52,6 +59,8 @@ function SceneFailed({ error }: { error: unknown }) {
   useEffect(() => {
     console.error("[party] the garden could not start; showing the panel alone", error);
     party.set({ fallback: true });
+    // a trailer playing over it ends (its bars and black go; the fallback shows the panel at once)
+    stopTrailer();
   }, [error]);
   return null;
 }
@@ -119,6 +128,7 @@ export function PartyScreen({ className = "" }: { className?: string }) {
   const panelOn = useParty((s) => s.panel);
   const fallback = useParty((s) => s.fallback);
   const live = useQuality((s) => !s.veiled || s.phase === "revealing" || s.phase === "live");
+  const showing = useQuality((s) => s.phase === "live");
   const [late, setLate] = useState(false);
   const [note, setNote] = useState<{ text: string; at: number } | null>(null);
   const resting = useRestingCursor();
@@ -127,9 +137,7 @@ export function PartyScreen({ className = "" }: { className?: string }) {
   // Stage the showcase before the canvas's chunk arrives (see the header).
   useLayoutEffect(() => {
     const search = window.location.search;
-    // the store's defaults are the owner's rose in full bloom and good health, whatever fields it grows
-    garden.reset();
-    garden.set({ seed: OWNER.seed, speciesId: OWNER.species, cloud: 0.15, rain: 0, autoClock: false, hour: showcaseHour(search) });
+    stageShowcase(search);
     party.set({ panel: readSwitch(search, "panel") ?? true, tour: readSwitch(search, "tour") ?? false });
   }, []);
 
@@ -142,6 +150,12 @@ export function PartyScreen({ className = "" }: { className?: string }) {
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
       const key = e.key.toLowerCase();
+      if (key === "d") {
+        toggleTrailer();
+        return;
+      }
+      // the trailer has the screen
+      if (trailer.get().phase !== "idle") return;
       if (key === "h") {
         const panel = !party.get().panel;
         party.set({ panel });
@@ -165,7 +179,8 @@ export function PartyScreen({ className = "" }: { className?: string }) {
   }, [note]);
 
   const ready = live || fallback || late;
-  const showPanel = ready && panelOn && code !== null;
+  // with no garden the panel always shows, whatever a trailer had asked
+  const showPanel = ready && (panelOn || fallback) && code !== null;
   const showCaption = live && !fallback && panelOn;
 
   return (
@@ -176,11 +191,13 @@ export function PartyScreen({ className = "" }: { className?: string }) {
         </SceneBoundary>
       )}
       <PartyVeil />
+      <TrailerOverlay />
       <GiftPanel code={code} show={showPanel} />
       <div className={`party-caption${showCaption ? " party-caption-on" : ""}`} aria-hidden={!showCaption}>
         <p className="party-caption-title">The {SPECIES[OWNER.species].name}</p>
         <p className="party-caption-sub">Grown by {OWNER.name}, in full bloom</p>
       </div>
+      <TrailerButton awake={!resting} live={showing && !fallback} />
       {note && (
         <p key={note.at} className="party-note" role="status">
           {note.text}

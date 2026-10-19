@@ -118,6 +118,8 @@ interface PlantRefs {
   petals: PetalRefs[];
   sepals: (THREE.Group | null)[];
   head: THREE.Group | null;
+  /** the head's parts, hidden while the cane is too short to carry them (the head itself, and its glow light, never are) */
+  headBody: THREE.Group | null;
   bud: THREE.Mesh | null;
   stamens: THREE.Group | null;
   glow: THREE.PointLight | null;
@@ -185,6 +187,7 @@ function emptyRefs(): PlantRefs {
     petals: [],
     sepals: [],
     head: null,
+    headBody: null,
     bud: null,
     stamens: null,
     glow: null,
@@ -407,6 +410,12 @@ function FlowerHead() {
     },
     [refs],
   );
+  const setHeadBody = useCallback(
+    (g: THREE.Group | null) => {
+      refs.headBody = g;
+    },
+    [refs],
+  );
   const setBud = useCallback(
     (m: THREE.Mesh | null) => {
       refs.bud = m;
@@ -428,65 +437,69 @@ function FlowerHead() {
 
   return (
     <group ref={setHead} rotation-y={bp.flowerYaw}>
-      {/* receptacle: its rim sits just under the petal bases */}
-      <mesh geometry={geo.receptacle} material={sepalMaterial(sp)} position-y={-c.radius * 2.0} castShadow />
-      {/* bud core */}
-      <mesh
-        ref={setBud}
-        geometry={sphereGeometry()}
-        material={budMaterial(sp)}
-        scale={f.budRadius}
-        position-y={f.budRadius * 0.6}
-        castShadow
-      />
-      {/* sepals */}
-      {sepalGeo
-        ? sepalSetters.map((setSepal, k) => (
-            <group key={k} rotation-y={(k / sepalCount) * 2 * Math.PI + 0.3}>
-              <group ref={setSepal} position={[0, -c.radius * 0.25, c.radius * 0.95]} rotation-x={0.2}>
-                <mesh geometry={sepalGeo} material={sepalMaterial(sp)} castShadow />
+      {/* the head's parts in a group of their own: hiding them must never hide the glow light, since a light leaving
+          the scene changes every lit material's program (see lightSets.ts) */}
+      <group ref={setHeadBody}>
+        {/* receptacle: its rim sits just under the petal bases */}
+        <mesh geometry={geo.receptacle} material={sepalMaterial(sp)} position-y={-c.radius * 2.0} castShadow />
+        {/* bud core */}
+        <mesh
+          ref={setBud}
+          geometry={sphereGeometry()}
+          material={budMaterial(sp)}
+          scale={f.budRadius}
+          position-y={f.budRadius * 0.6}
+          castShadow
+        />
+        {/* sepals */}
+        {sepalGeo
+          ? sepalSetters.map((setSepal, k) => (
+              <group key={k} rotation-y={(k / sepalCount) * 2 * Math.PI + 0.3}>
+                <group ref={setSepal} position={[0, -c.radius * 0.25, c.radius * 0.95]} rotation-x={0.2}>
+                  <mesh geometry={sepalGeo} material={sepalMaterial(sp)} castShadow />
+                </group>
               </group>
+            ))
+          : null}
+        {/* petals: inner whorls sit nearer the axis and a touch higher */}
+        {bp.petals.map((p, i) => (
+          <group key={i} rotation-y={p.yaw}>
+            <group
+              ref={petalSetters[i].group}
+              position={[0, (L - 1 - p.layer) * 0.006, c.radius * 0.35 + p.layer * 0.0055]}
+              rotation-z={f.layers[p.layer].lean ?? 0}
+            >
+              <mesh
+                ref={petalSetters[i].mesh}
+                geometry={geo.petals[p.layer][p.variant]}
+                material={petalMats[p.variant]}
+                scale={p.scale}
+                frustumCulled={false}
+                castShadow
+                receiveShadow
+              />
             </group>
-          ))
-        : null}
-      {/* petals: inner whorls sit nearer the axis and a touch higher */}
-      {bp.petals.map((p, i) => (
-        <group key={i} rotation-y={p.yaw}>
-          <group
-            ref={petalSetters[i].group}
-            position={[0, (L - 1 - p.layer) * 0.006, c.radius * 0.35 + p.layer * 0.0055]}
-            rotation-z={f.layers[p.layer].lean ?? 0}
-          >
-            <mesh
-              ref={petalSetters[i].mesh}
-              geometry={geo.petals[p.layer][p.variant]}
-              material={petalMats[p.variant]}
-              scale={p.scale}
-              frustumCulled={false}
-              castShadow
-              receiveShadow
-            />
-          </group>
-        </group>
-      ))}
-      {/* stamens */}
-      <group ref={setStamens}>
-        {stamens.map((s, k) => (
-          <group key={k}>
-            <mesh
-              geometry={petioleGeometry()}
-              material={stamenMaterial(sp)}
-              position={[s.x, 0, s.z]}
-              scale={[0.6, s.h, 0.6]}
-            />
-            <mesh
-              geometry={sphereGeometry()}
-              material={stamenMaterial(sp)}
-              position={[s.x, s.h, s.z]}
-              scale={s.headSize}
-            />
           </group>
         ))}
+        {/* stamens */}
+        <group ref={setStamens}>
+          {stamens.map((s, k) => (
+            <group key={k}>
+              <mesh
+                geometry={petioleGeometry()}
+                material={stamenMaterial(sp)}
+                position={[s.x, 0, s.z]}
+                scale={[0.6, s.h, 0.6]}
+              />
+              <mesh
+                geometry={sphereGeometry()}
+                material={stamenMaterial(sp)}
+                position={[s.x, s.h, s.z]}
+                scale={s.headSize}
+              />
+            </group>
+          ))}
+        </group>
       </group>
       {/* glow */}
       <pointLight
@@ -739,8 +752,9 @@ export function Plant() {
     const eb = v.bloom * smoothstep(0.8, 0.92, v.growth);
     const head = R.head;
     const petalsShown = bud > 0.04;
+    const headShown = heroStemFraction(v.growth) > 0.005;
+    if (R.headBody) R.headBody.visible = headShown;
     if (head) {
-      head.visible = heroStemFraction(v.growth) > 0.005;
       // a flower that budded under stress, or a second-chance sprout's, opens smaller
       head.scale.setScalar((0.3 + 0.7 * bud) * (0.6 + 0.4 * v.flower));
       head.rotation.x = bp.headTilt + droop * 0.9 + windAmp * 0.03 * Math.sin(t * 1.7);
@@ -806,7 +820,8 @@ export function Plant() {
     const glow = R.glow;
     // The glow sits in the heart of the bloom, centimetres from the inner petals; on lite,
     // with nothing to soften it, it burns a white spot there, so it is kept low.
-    if (glow) glow.intensity = ei * (quality === "lite" ? 1.1 : 3) * night * (sp.fx.glowNight ? 1 : 0.2);
+    // (it stays in the scene while the head is not yet shown, so the light count never changes, but gives no light)
+    if (glow) glow.intensity = headShown ? ei * (quality === "lite" ? 1.1 : 3) * night * (sp.fx.glowNight ? 1 : 0.2) : 0;
 
     if (head) head.getWorldPosition(env.headPos);
   });

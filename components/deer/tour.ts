@@ -9,7 +9,7 @@ import * as THREE from "three";
 import type { DoeAnimator, DoeIntent } from "@/components/deer/motion";
 import type { DeerStation } from "@/components/deer/stations";
 
-export type Act = "visit" | "tour" | "stand" | "graze" | "walk" | "browse";
+export type Act = "visit" | "arrive" | "tour" | "stand" | "graze" | "walk" | "browse";
 
 type Step =
   | { kind: "walk"; to: readonly [number, number]; speed?: number }
@@ -116,8 +116,29 @@ const TALL: Partial<Tours> = {
   graze: { start: STATION_TALL, heading: TO_VIEWER, steps: [{ kind: "graze", secs: 10 }, { kind: "stand", secs: 3 }] },
 };
 
+/**
+ * The party trailer's visitor (components/party/trailer): in from the corridor on camera, a short graze and two looks
+ * toward the flower, and out the way she came. Each graze is short, so her own glance up while grazing never comes.
+ */
+const ARRIVE: Plan = {
+  start: ENTRY,
+  heading: -0.25,
+  steps: [
+    { kind: "walk", to: [-3.2, -1.62] },
+    { kind: "walk", to: STATION },
+    { kind: "stand", secs: 0.8 },
+    { kind: "graze", secs: 4 },
+    { kind: "look", secs: 4.5 },
+    { kind: "graze", secs: 3 },
+    { kind: "look", secs: 3 },
+    { kind: "walk", to: [-3.2, -1.62] },
+    { kind: "walk", to: ENTRY },
+  ],
+};
+
 const TOURS: Tours = {
   visit: VISITS.back,
+  arrive: ARRIVE,
   tour: {
     start: ENTRY,
     heading: -0.25,
@@ -236,7 +257,7 @@ export class Tour {
       this.i++;
       this.t = 0;
       if (this.i >= tour.steps.length) {
-        if (this.act === "visit") {
+        if (this.act === "visit" || this.act === "arrive") {
           // she has gone; she stands out of sight in the corridor until she is taken away
           this.finished = true;
           this.i = tour.steps.length - 1;
