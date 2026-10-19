@@ -55,9 +55,9 @@ const OUTLINE: readonly (readonly [top: Vec2, bottom: Vec2, halfWidth: number])[
   [[0.206, 0.815], [0.25, 0.638], 0.045],
   [[0.228, 0.84], [0.27, 0.676], 0.041],
   // the throat latch, under the ears
-  [[0.247, 0.857], [0.29, 0.702], 0.039],
+  [[0.247, 0.857], [0.262, 0.7], 0.039],
   // inside the back of the head
-  [[0.262, 0.866], [0.305, 0.72], 0.036],
+  [[0.262, 0.866], [0.252, 0.722], 0.036],
 ];
 
 /** The body and neck, from behind the buttocks to inside the head. */
@@ -88,10 +88,12 @@ const HEAD_PROFILE: readonly (readonly [u: number, top: number, bottom: number, 
   [0.015, 0.004, -0.102, 0.04],
   [0.07, 0.006, -0.112, 0.043],
   [0.11, 0.004, -0.098, 0.05],
-  [0.16, 0.001, -0.08, 0.038],
-  [0.2, -0.001, -0.068, 0.03],
-  [0.235, -0.003, -0.058, 0.025],
-  [0.258, -0.007, -0.047, 0.021],
+  [0.16, 0.001, -0.09, 0.038],
+  [0.2, -0.001, -0.08, 0.031],
+  [0.235, -0.004, -0.071, 0.025],
+  [0.258, -0.008, -0.066, 0.022],
+  // a blunt nose, not a point
+  [0.272, -0.018, -0.058, 0.018],
 ];
 
 /** The head: from behind the ears (inside the neck's end) to the nose, pointing forward and down. */
@@ -102,7 +104,7 @@ export const HEAD: readonly Ring[] = HEAD_PROFILE.map(([u, top, bottom, w]) => {
   return { x, y, up: (top - bottom) / 2, down: (top - bottom) / 2, w, taper: u < 0.15 ? 0.18 : 0.05 };
 });
 /** The nose tip, in the head's frame, for the grazing solve. */
-export const NOSE_UV: Vec2 = [0.268, -0.024];
+export const NOSE_UV: Vec2 = [0.276, -0.035];
 
 /** A leg's joints from where it leaves the body to the toe, with the thickness there: front and back of the bone's line. */
 export interface LegJoint {
@@ -146,15 +148,15 @@ export const FORE: readonly LegJoint[] = [
  * from inside the rump to the leg's line.
  */
 export const THIGH: readonly (readonly [y: number, front: number, back: number, halfWidth: number])[] = [
-  [0.63, -0.47, -0.65, 0.048],
-  [0.57, -0.45, -0.672, 0.05],
+  [0.66, -0.48, -0.63, 0.03],
+  [0.57, -0.45, -0.672, 0.046],
   [0.51, -0.43, -0.674, 0.047],
   [0.455, -0.41, -0.662, 0.04],
   [0.41, -0.442, -0.645, 0.032],
   [0.37, -0.49, -0.634, 0.026],
   [0.335, -0.528, -0.627, 0.022],
   [0.305, -0.552, -0.62, 0.02],
-  [0.282, -0.56, -0.612, 0.018],
+  [0.282, -0.554, -0.62, 0.02],
 ];
 
 /** The lower hind leg, along its bones: the hock (its point behind), the long slim cannon, fetlock, pastern, hoof. */
@@ -186,16 +188,18 @@ export const HIND_PIVOTS: readonly Vec2[] = [
 ];
 
 /**
- * The ears: base on the top-back of the skull behind the poll, 0.12 m long, widest (0.063) about 45% up. At rest
- * they are held out to the sides and a little back, about 25 degrees above horizontal, the openings facing out and a
- * little forward; alert, raised to about 60 degrees and swung forward, the openings facing ahead.
+ * The ears: base on the top-back of the skull behind the poll, 0.13 m long with the hair, widest (0.068) about 45% up:
+ * big ovals, the tallest thing on her head and the cue that says deer, not goat. At rest they are held up and out,
+ * about 45 degrees above horizontal, the openings facing out and a little forward; alert, raised to about 60 degrees and
+ * swung forward, the openings facing ahead.
  */
 export const EAR = {
   base: [0.252, 0.858, 0.04] as const,
-  length: 0.12,
-  width: 0.063,
+  // the visible length, with the hair
+  length: 0.13,
+  width: 0.068,
   /** degrees above horizontal, and the bearing from straight ahead out to the side */
-  rest: { elevation: 22, azimuth: 125 },
+  rest: { elevation: 45, azimuth: 105 },
   alert: { elevation: 60, azimuth: 72 },
   cup: 0.34,
 } as const;
@@ -203,14 +207,14 @@ export const EAR = {
 /** The tail: root high on the rump, hanging flat against the buttocks, dark above and fringed white. */
 export const TAIL = {
   root: [-0.648, 0.632] as Vec2,
-  tip: [-0.69, 0.43] as Vec2,
+  tip: [-0.715, 0.445] as Vec2,
   /** half-widths across (side to side) and through (front to back) at the root */
-  width: 0.026,
-  depth: 0.016,
+  width: 0.03,
+  depth: 0.02,
 } as const;
 
 /** The eyes: large and dark, set high on the head, bulging a little past the orbit. */
-export const EYE = { at: headPoint(0.1, -0.03), r: 0.0128, out: 0.041 } as const;
+export const EYE = { at: headPoint(0.1, -0.03), r: 0.0145, out: 0.046 } as const;
 
 /** Bone pivots along the body and neck, rump to head. */
 export const SPINE = {

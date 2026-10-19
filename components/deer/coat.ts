@@ -4,20 +4,25 @@
 // side, as a real chital's are.
 //
 // The colours and the pattern follow the coat reference gathered for this design (Blanford 1888-91, Lydekker 1898,
-// Prater 1948, and colour samples normalised against the white hair in side-on photographs of chital does): base
-// colours are albedo, restrained and mid-dark, so the warm low light and the tone mapping supply the glow; an orange
-// coat is the cartoon tell. A dark chocolate stripe runs down the spine from the nape; a tidy row of small round spots
-// hugs it and a second runs beside it; looser rows follow the back down the upper flank; the mid flank is scattered
-// with oval spots, longer along the hair; a broken white line of merged spots runs low along the flank from behind
-// the elbow to the stifle, with no spots below it; the spots thin out at the shoulder and none reach the neck, head,
-// legs or belly. White beneath (a short soft edge with a buff fringe), a white bib on the throat, white inside the
-// legs and a white band above the hooves. A grey-fawn face with a dusky forehead and nose bridge, a pale eye ring,
-// a dark wet nose pad with a dusky band behind it, a white upper-lip band, chin and lower lip. Ears fawn-brown outside
-// with a dark rim, white-haired over pink inside. The tail dark above with a white fringe. Large eyes, nearly black.
+// Prater 1948, and colour samples from side-on photographs of chital does) and four independent critiques of the first
+// renders against those photographs. One fawn-rufous tone runs over the body, neck and legs (a darker, saturated body
+// with pale legs and a grey neck read as a toy in white socks); the white is only underneath, inside and behind the
+// lower legs, a band above each hoof, a compact bib under the jaw, the chin and the lips. A dark chocolate stripe runs
+// down the spine from the nape; two tidy rows of small round spots hug it up onto the nape; looser rows of larger ovals
+// follow the back down the flank and over the shoulder; a near-continuous white line of merged spots runs low along
+// the flank from behind the elbow onto the haunch, with no spots below it. The face is grey-fawn with a dusky forehead
+// and nose bridge, a thin pale ring round a large dark eye, a dark wet nose pad with a dusky band behind it. Ears
+// fawn-grey outside with a dark rim, pale inside and shaded; the tail dark on top and on its sides, white beneath.
 //
-// The material is the garden's own kind (MeshPhysicalMaterial with a weak sheen for the short coat catching a low
-// sun; the lite tier's MeshStandardMaterial without it), with the garden's golden-hour rim and the lite tier's lamp
-// patch (withGardenLight), so she sits in the same light as the hedge she browses.
+// What keeps her from reading as a painted figure: tonal structure at the scales that survive at 4.5-8 m (hair tracts
+// a few centimetres long running along the hair, low blotching), the same tracts as a faint bump on the shading normal
+// (faded wherever a pixel covers more than a few millimetres, so nothing shimmers), occlusion baked into the creases
+// (under the belly, the tops of the legs, inside the thighs and the ears), a weak sheen tinted by the coat, and a rim of
+// her own: the garden's backlit rim, but softer and wider, on the faces toward the sun and the sky only, broken up by
+// the hair tracts, with the thin ears glowing when the low sun is behind them.
+//
+// The material is the garden's own kind (MeshPhysicalMaterial on the richer tiers, MeshStandardMaterial on lite) and
+// takes the garden's lamp patch for the lite tier (withGardenLight), so she sits in the same light as the hedge.
 import * as THREE from "three";
 import type { DoeLengths } from "@/components/deer/build";
 import type { Quality } from "@/lib/garden/store";
@@ -25,25 +30,25 @@ import { withGardenLight } from "@/lib/garden/dressing";
 
 /** The palette (sRGB hex, albedo). */
 export const COAT = {
-  stripe: "#4e3022",
-  back: "#7e5036",
-  nape: "#6a4632",
-  upperFlank: "#8c5c40",
-  lowerFlank: "#9a7052",
+  stripe: "#43281a",
+  back: "#7a5538",
+  nape: "#6a4b35",
+  upperFlank: "#946a4a",
+  lowerFlank: "#9c7656",
   fringe: "#b08c6e",
-  haunch: "#87583c",
-  neck: "#96806c",
-  neckTop: "#7e6450",
-  face: "#9d876c",
+  haunch: "#8c6447",
+  neck: "#8f6d55",
+  neckTop: "#77573f",
+  face: "#94745a",
   forehead: "#5f4e4a",
-  eyeRing: "#c4b6a4",
-  earOut: "#8a715c",
+  eyeRing: "#b8a38c",
+  earOut: "#8c7462",
   earRim: "#3a2a24",
   earSkin: "#c89a90",
-  legUpper: "#a3876c",
-  legLower: "#bba98f",
-  white: "#e8e3d8",
-  bib: "#ece8df",
+  legUpper: "#94704f",
+  legLower: "#a07c5a",
+  white: "#dcd5c8",
+  bib: "#e2dccf",
   spot: "#e4ded2",
   tailTop: "#3e2a24",
   nose: "#2a2427",
@@ -56,9 +61,16 @@ const GLSL = /* glsl */ `
 varying vec4 vCoat;
 uniform vec4 uLen;      // body, head, fore, hind lofts' lengths
 uniform vec4 uMarks;    // neck start, elbow, stifle (along the body), thigh loft length
+uniform vec2 uEye;      // the eye on the head's coat: along it, round from its top
 uniform float uSeed;
 uniform vec3 cStripe, cBack, cNape, cUpper, cLower, cFringe, cHaunch, cNeck, cNeckTop, cFace, cForehead, cEyeRing,
   cEarOut, cEarRim, cEarSkin, cLegUp, cLegLow, cWhite, cBib, cSpot, cTail, cNose, cEye, cHoof;
+
+// set by deerCoat for the lighting further down the shader
+float coatRimK = 1.0;
+float coatEar = 0.0;
+float coatAO = 1.0;
+float coatH = 0.0;
 
 float dh1(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7)) + uSeed) * 43758.5453); }
 vec2 dh2(vec2 p) { return fract(sin(vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3))) + uSeed) * 43758.5453); }
@@ -75,16 +87,16 @@ float soft(float edge, float width, float x) { float w = max(width, fwidth(x)); 
  */
 float spot(vec2 q, float r, float aspect, float streak) {
   float d = length(vec2(q.x / aspect, q.y)) - r / aspect;
-  return 1.0 - soft(0.0, r * 0.18 + 0.0015, d + streak * 0.0015);
+  return 1.0 - soft(0.0, r * 0.18 + 0.0015, d + streak * 0.002);
 }
 
 /**
  * The body's spots. s along the body (m), d round from the spine (m), h the height above the belly's white edge (m),
- * side +-1 (each side seeded on its own).
+ * side +-1 (each side seeded on its own), rows the zone of the two rows by the stripe, flank the zone of the rest.
  */
-float spots(float s, float d, float h, float side, float streak) {
+float spots(float s, float d, float h, float side, float streak, float rows, float flank) {
   float cover = 0.0;
-  // the two tidy rows by the stripe: small, round, evenly spaced
+  // the two tidy rows by the stripe: small, round, evenly spaced, running up onto the nape
   for (int row = 0; row < 2; row++) {
     float off = row == 0 ? 0.026 : 0.058;
     float gap = row == 0 ? 0.038 : 0.046;
@@ -96,48 +108,38 @@ float spots(float s, float d, float h, float side, float streak) {
       if (h2.x < 0.1) continue;
       float cs = shift + (c + float(j) + 0.5 + (h2.y - 0.5) * 0.3) * gap;
       float cd = off + (dh1(id + 3.7) - 0.5) * 0.008;
-      float r = (row == 0 ? 0.0055 : 0.0075) * (0.8 + 0.4 * dh1(id + 1.3));
-      cover = max(cover, spot(vec2(s - cs, d - cd), r * (row == 0 ? 1.2 : 1.5), row == 0 ? 1.2 : 1.5, streak));
+      float r = (row == 0 ? 0.0065 : 0.0088) * (0.8 + 0.4 * dh1(id + 1.3));
+      cover = max(cover, rows * spot(vec2(s - cs, d - cd), r * (row == 0 ? 1.2 : 1.4), row == 0 ? 1.2 : 1.4, streak));
     }
   }
-  // the flank: a jittered grid, about 550 spots a square metre, ovals along the hair, sloping down toward the rear
-  vec2 g = vec2(s / 0.044, (d - 0.08) / 0.04);
+  // the flank: loose rows of ovals, longer along the hair and sloping down toward the rear, jittered along them
+  vec2 g = vec2(s / 0.05, (d - 0.08) / 0.046);
   vec2 cell = floor(g);
   for (int i = -1; i <= 1; i++) {
     for (int j = -1; j <= 1; j++) {
       vec2 id = cell + vec2(float(i), float(j)) + vec2(0.0, side * 31.0);
       if (id.y - side * 31.0 < 0.0) continue;
       vec2 h2 = dh2(id);
-      if (dh1(id + 9.1) < 0.12) continue;
-      vec2 c = (id - vec2(0.0, side * 31.0) + 0.06 + 0.88 * h2);
-      float cs = c.x * 0.044;
-      float cd = 0.08 + c.y * 0.04;
+      if (dh1(id + 9.1) < 0.16) continue;
+      vec2 c = id - vec2(0.0, side * 31.0) + vec2(0.06 + 0.88 * h2.x, 0.25 + 0.5 * h2.y);
+      float cs = c.x * 0.05;
+      float cd = 0.08 + c.y * 0.046;
       float tilt = 0.25;
       vec2 q = vec2(s - cs, d - cd);
       q = vec2(q.x * cos(tilt) - q.y * sin(tilt) * side, q.x * sin(tilt) * side + q.y * cos(tilt));
-      float r = (0.0085 + 0.004 * dh1(id + 6.6)) * (0.75 + 0.5 * dh1(id + 4.2));
-      cover = max(cover, spot(q, r, 1.9, streak));
+      float r = (0.0115 + 0.005 * dh1(id + 6.6)) * (0.8 + 0.4 * dh1(id + 4.2));
+      cover = max(cover, flank * spot(q, r, 1.5, streak));
     }
   }
-  // the broken white line low on the flank, 4-6 cm above the belly's edge, behind the elbow and ahead of the stifle
-  float line = (1.0 - soft(0.0055, 0.002, abs(h - 0.05))) * step(0.42, dnoise(vec2(s * 26.0, side * 7.0)));
-  line *= soft(uMarks.z + 0.02, 0.02, s) * (1.0 - soft(uMarks.y - 0.04, 0.02, s));
+  // the white line low on the flank, 4-6 cm above the belly's edge, from behind the elbow back onto the haunch, where
+  // it lifts a little; long dashes, short gaps
+  float lift = 0.45 * max(0.0, uMarks.z + 0.04 - s);
+  float line = (1.0 - soft(0.0065, 0.002, abs(h - 0.05 - lift))) * step(0.2, dnoise(vec2(s * 14.0, side * 7.0)));
+  line *= soft(uMarks.z - 0.03, 0.03, s) * (1.0 - soft(uMarks.y - 0.04, 0.02, s));
   // no spots between the line and the white belly
   cover *= soft(0.075, 0.008, h);
   return max(cover, line);
 }
-
-/**
- * The short coat's grain: fine streaks along the hair (along each part, round it a little), as a height for a bump.
- * Faded out wherever a pixel covers more than a few millimetres of coat, so at a distance it never shimmers.
- */
-float furHeight(vec4 c) {
-  float part = c.z + 0.5;
-  if (part > 6.0 && part < 7.0) return 0.0;
-  vec2 p = vec2(c.x * 260.0, c.y * 70.0);
-  return dnoise(p) * 0.65 + dnoise(p * vec2(2.1, 2.7) + 5.0) * 0.35;
-}
-float furFade(vec4 c) { return 1.0 - smoothstep(0.0015, 0.0045, max(fwidth(c.x), fwidth(c.y))); }
 
 vec3 deerCoat(vec4 c, out float rough) {
   float s = c.x;
@@ -148,140 +150,176 @@ vec3 deerCoat(vec4 c, out float rough) {
   // 0 on the front line (spine, top of the head, front of a leg), 1 at the seam beneath (belly, back of a leg)
   float dn = abs(t - 0.5) * 2.0;
   float side = a >= 0.0 ? 1.0 : -1.0;
-  float streak = dnoise(vec2(s * 220.0, a * 40.0)) - 0.5;
-  // low blotching and fine streaks along the hair: no flat colour anywhere
-  float hair = 1.0 + 0.045 * (dnoise(vec2(s * 9.0, a * 7.0)) - 0.5) + 0.05 * streak;
+  // hair tracts (a few cm long along the hair) and finer clumps, each faded before it reaches the pixel; low blotching
+  vec2 pT = vec2(s * 20.0, a * 60.0);
+  vec2 pS = vec2(s * 70.0, a * 300.0);
+  vec2 wT = fwidth(pT);
+  vec2 wS = fwidth(pS);
+  float tract = (dnoise(pT) - 0.5) * (1.0 - smoothstep(0.3, 0.7, max(wT.x, wT.y)));
+  float streak = (dnoise(pS) - 0.5) * (1.0 - smoothstep(0.3, 0.7, max(wS.x, wS.y)));
+  float blotch = dnoise(vec2(s * 5.0, a * 6.0)) - 0.5;
+  float seamFade = 1.0 - smoothstep(0.85, 0.97, dn);
+  float hair = 1.0 + (0.16 * blotch + 0.14 * tract + 0.08 * streak) * seamFade;
+  coatH = (0.0009 * tract + 0.00025 * streak) * seamFade;
+  coatRimK = 0.55 * (0.6 + 0.8 * dnoise(vec2(s * 9.0, a * 25.0)));
+  coatEar = 0.0;
+  coatAO = 1.0;
   rough = 0.92;
   vec3 col;
   if (part < 1.0) {
     // ---- body and neck ----
-    float neck = smoothstep(uMarks.x - 0.05, uMarks.x + 0.06, s);
+    float neck = smoothstep(uMarks.x - 0.02, uMarks.x + 0.16, s);
     float haunch = 1.0 - smoothstep(0.1, 0.22, s);
     col = mix(cBack, cUpper, smoothstep(0.1, 0.3, dn));
     col = mix(col, cLower, smoothstep(0.5, 0.72, dn));
     col = mix(col, cHaunch, haunch * 0.6);
     col = mix(col, cNape, smoothstep(uMarks.x - 0.18, uMarks.x, s) * (1.0 - smoothstep(0.08, 0.3, dn)) * 0.7);
     col = mix(col, mix(cNeckTop, cNeck, smoothstep(0.08, 0.4, dn)), neck);
-    // the dark stripe down the spine
-    float stripeW = mix(0.013, 0.009, neck) + 0.002 * (dnoise(vec2(s * 12.0, 1.0)) - 0.5);
+    // the dark stripe down the spine, on up the nape
+    float stripeW = mix(0.013, 0.011, neck) + 0.002 * (dnoise(vec2(s * 12.0, 1.0)) - 0.5);
     col = mix(col, cStripe, (1.0 - soft(stripeW, 0.004, d)) * smoothstep(0.02, 0.06, s));
-    // where the belly's white edge is: a soft step with a buff fringe, and the height above it in metres
+    // where the belly's white edge is, and the height above it in metres
     float edge = 0.79 + 0.025 * (dnoise(vec2(s * 18.0, side)) - 0.5);
     float circ = d / max(dn, 1e-3);
     float above = (edge - dn) * circ;
-    // the spots: from the haunch to the shoulder, thinning there, none on the neck
-    float zone = smoothstep(0.015, 0.05, s) * (1.0 - smoothstep(uMarks.y + 0.02, uMarks.x - 0.02, s));
-    float sp = spots(s, d, above, side, streak) * zone * step(0.017, d);
-    col = mix(col, cSpot, sp * 0.82);
-    col = mix(col, cFringe, (1.0 - soft(0.015, 0.006, above)) * (1.0 - neck));
-    float belly = soft(edge, 0.012, dn) * (1.0 - neck * 0.7);
-    // the throat: a white bib high under the jaw and a narrow strip down the underside of the neck
-    float bib = soft(0.72, 0.03, dn) * smoothstep(uLen.x - 0.14, uLen.x - 0.08, s);
-    float strip = soft(0.9, 0.02, dn) * smoothstep(uLen.x - 0.2, uLen.x - 0.12, s);
+    // the spots: the rows by the stripe up onto the nape; the flank's over the shoulder, thinning at the neck's base
+    float rows = smoothstep(0.015, 0.05, s) * (1.0 - smoothstep(uMarks.x + 0.06, uMarks.x + 0.15, s));
+    float flank = smoothstep(0.015, 0.05, s) * (1.0 - smoothstep(uMarks.x - 0.04, uMarks.x + 0.05, s));
+    float sp = spots(s, d, above, side, streak, rows, flank) * (1.0 - smoothstep(0.6, 0.72, dn)) * step(0.017, d);
+    col = mix(col, cSpot, sp * 0.93);
+    col = mix(col, cFringe, (1.0 - soft(0.008, 0.004, above)) * (1.0 - neck) * 0.4);
+    float belly = soft(edge, 0.012, dn) * (1.0 - neck);
+    // the throat: a compact bib under the jaw, a narrow strip below it on the upper neck
+    float bib = soft(0.72, 0.03, dn) * smoothstep(uLen.x - 0.12, uLen.x - 0.07, s);
+    float strip = soft(0.94, 0.02, dn) * smoothstep(uLen.x - 0.2, uLen.x - 0.12, s) * 0.7;
     col = mix(col, cWhite, max(belly, strip));
     col = mix(col, cBib, bib);
+    // shadowed beneath her, and in the elbow pit, the flank fold and where the neck meets the chest
+    col *= mix(1.0, 0.72, smoothstep(0.7, 1.0, dn) * (1.0 - neck));
+    float g1 = (s - uMarks.y + 0.03) / 0.06;
+    float g2 = (s - uMarks.z - 0.05) / 0.07;
+    float g3 = (s - uMarks.x) / 0.08;
+    coatAO = 1.0 - 0.45 * max(max(exp(-g1 * g1) * smoothstep(0.55, 0.85, dn), exp(-g2 * g2) * smoothstep(0.5, 0.85, dn)), exp(-g3 * g3) * smoothstep(0.65, 0.9, dn));
+    coatRimK *= 1.0 - 0.5 * belly;
   } else if (part < 2.0) {
     // ---- head: s from behind the ears to the nose ----
     float hs = s / uLen.y;
     col = mix(cForehead, cFace, smoothstep(0.12, 0.42, dn));
     // the dusky line narrows down the bridge of the nose
     col = mix(col, cForehead, (1.0 - soft(mix(0.025, 0.01, hs), 0.004, d)) * smoothstep(0.35, 0.5, hs));
-    // the pale ring round the eye, widest below and ahead of it
-    float er = length(vec2((s - 0.13) * 0.9, (d - 0.047) * 1.25 + 0.004));
-    col = mix(col, cEyeRing, (1.0 - soft(0.02, 0.004, er)) * 0.85);
-    // the preorbital gland: a dark slit ahead of and below the eye
-    float gl = length(vec2((s - 0.158) * 0.45, d - 0.055));
-    col = mix(col, cNose, (1.0 - soft(0.006, 0.002, gl)) * 0.7);
-    // white chin, lower lip and upper-lip band; the throat under the jaw
-    col = mix(col, cWhite * 0.92, soft(0.7, 0.02, dn) * smoothstep(0.7, 0.8, hs));
-    col = mix(col, cBib, soft(0.72, 0.02, dn) * (1.0 - smoothstep(0.3, 0.45, hs)));
-    // a dusky band behind the nose pad, then the wet nose
+    // a thin pale ring round the eye, and the preorbital gland's dark slit ahead of and below it
+    float er = length(vec2((s - uEye.x) * 0.9, (d - uEye.y) * 1.2 + 0.003));
+    col = mix(col, cEyeRing, (1.0 - soft(0.0165, 0.003, er)) * soft(0.011, 0.002, er) * 0.6);
+    float gl = length(vec2((s - uEye.x - 0.024) * 0.45, d - uEye.y - 0.008));
+    col = mix(col, cNose, (1.0 - soft(0.0055, 0.002, gl)) * 0.6);
+    // white chin and lower lip; the throat under the jaw
+    col = mix(col, cWhite * 0.95, soft(0.7, 0.02, dn) * smoothstep(0.7, 0.8, hs));
+    col = mix(col, cBib, soft(0.74, 0.02, dn) * (1.0 - smoothstep(0.3, 0.45, hs)));
+    // a dusky band behind the nose pad, then the wet nose and the white upper-lip band
     float band = smoothstep(0.84, 0.87, hs) * (1.0 - smoothstep(0.9, 0.92, hs)) * (1.0 - smoothstep(0.5, 0.7, dn));
     col = mix(col, cForehead * 0.8, band * 0.8);
     float lip = smoothstep(0.9, 0.92, hs) * soft(0.45, 0.04, dn) * (1.0 - soft(0.7, 0.04, dn));
     col = mix(col, cWhite, lip * 0.6);
     float nose = smoothstep(0.915, 0.94, hs) * (1.0 - soft(0.5, 0.05, dn));
     col = mix(col, cNose, nose);
-    rough = mix(0.82, 0.3, nose);
+    rough = mix(0.88, 0.3, nose);
+    coatAO = mix(1.0, 0.8, soft(0.8, 0.05, dn) * (1.0 - smoothstep(0.25, 0.45, hs)));
   } else if (part < 4.0) {
-    // ---- legs: s from the top; outside fawn to buff, inside and behind white; a white band above the hoof ----
+    // ---- legs: s from the top; the flank's fawn outside, a cream wash inside, white on the back edge below the
+    //      knee and a crisp white band above the dark hoof ----
     float len = part < 3.0 ? uLen.z : uLen.w;
     float down = s / len;
     col = mix(cLegUp, cLegLow, smoothstep(0.35, 0.7, down));
-    // on the foreleg the shoulder and upper arm carry the body's colour
     if (part < 3.0) col = mix(cUpper, col, smoothstep(0.18, 0.32, down));
-    float inside = soft(0.0, 0.006, -a) * 0.9 + soft(0.8, 0.04, dn) * 0.8;
-    col = mix(col, cWhite, clamp(inside, 0.0, 1.0));
+    float below = part < 3.0 ? smoothstep(0.35, 0.5, down) : 1.0;
+    float inside = (soft(0.012, 0.006, -a) * 0.6 + soft(0.88, 0.03, dn) * 0.85) * below;
+    col = mix(col, mix(cWhite, cLegLow, 0.3), clamp(inside, 0.0, 1.0));
     float band = smoothstep(len - 0.07, len - 0.062, s) * (1.0 - smoothstep(len - 0.05, len - 0.044, s));
-    col = mix(col, cWhite, band * 0.6);
+    col = mix(col, cWhite, band * 0.85);
     float hoof = smoothstep(len - 0.045, len - 0.038, s);
     col = mix(col, cHoof, hoof);
-    rough = mix(0.8, 0.5, hoof);
+    rough = mix(0.9, 0.45, hoof);
+    coatAO = mix(0.6, 1.0, smoothstep(0.02, 0.14, down)) * mix(1.0, 0.85, soft(0.0, 0.01, -a));
+    coatRimK *= 0.6;
   } else if (part < 5.0) {
-    // ---- ears: t under 0.5 is the cupped inside ----
-    float len = 0.13;
-    float inside = 1.0 - soft(0.5, 0.01, t);
-    vec3 inner = mix(cEarSkin, cWhite, 0.55 + 0.35 * dnoise(vec2(s * 120.0, t * 30.0)));
-    col = mix(mix(cEarOut, cEarRim, smoothstep(0.06, 0.12, s)), inner, inside);
+    // ---- ears: t under 0.5 is the cupped inside, in shade; dark only at the rim and the tip ----
+    float inside = (1.0 - soft(0.5, 0.01, t)) * smoothstep(0.015, 0.035, s);
+    vec3 inner = mix(cEarSkin, cWhite, 0.3 + 0.25 * dnoise(vec2(s * 120.0, t * 30.0))) * 0.85;
+    col = mix(mix(cEarOut, cEarRim, smoothstep(0.112, 0.13, s) * 0.8), inner, inside);
     float rim = max(1.0 - soft(0.06, 0.01, t), soft(0.94, 0.01, t)) + (1.0 - soft(0.06, 0.01, abs(t - 0.5)));
     col = mix(col, cEarRim, clamp(rim, 0.0, 1.0) * (0.55 + 0.4 * smoothstep(0.04, 0.1, s)));
-    rough = 0.85;
+    rough = 0.9;
+    coatAO = mix(1.0, 0.55, inside * (1.0 - smoothstep(0.0, 0.07, s)));
+    coatRimK *= 1.6;
+    coatEar = 1.0;
   } else if (part < 6.0) {
-    // ---- tail: fawn at the root turning dark; long white hair at the sides and beneath ----
+    // ---- tail: fawn at the root turning dark; white only beneath ----
     col = mix(cBack, cTail, smoothstep(0.02, 0.05, s));
-    col = mix(col, cWhite, 1.0 - soft(0.55, 0.06, dn));
+    col = mix(col, cWhite, 1.0 - soft(0.35, 0.06, dn));
   } else if (part < 7.0) {
     // ---- eye ----
     col = cEye;
     rough = 0.06;
     hair = 1.0;
+    coatH = 0.0;
+    coatRimK = 0.0;
   } else {
     // ---- the thigh and gaskin: s down from the rump; the haunch spotted, the gaskin leg-coloured, a white margin
-    //      along the back edge and inside ----
+    //      along the back edge and a cream wash inside ----
     col = mix(cHaunch, cUpper, smoothstep(0.0, 0.12, s));
     col = mix(col, cLegUp, smoothstep(0.16, 0.26, s));
-    float sp = spots(s + 3.0, d + 0.02, 1.0, side, streak) * (1.0 - smoothstep(0.12, 0.2, s)) * soft(0.0, 0.01, a);
-    col = mix(col, cSpot, sp * 0.9);
+    float sp = spots(s + 3.0, d + 0.02, 1.0, side, streak, 0.0, 1.0) * (1.0 - smoothstep(0.12, 0.2, s)) * soft(0.0, 0.01, a);
+    col = mix(col, cSpot, sp * 0.93);
     float back = soft(0.9, 0.03, dn);
-    col = mix(col, cWhite, max(back, soft(0.0, 0.008, -a) * 0.85));
+    col = mix(col, mix(cWhite, cLegLow, 0.2), max(back, soft(0.01, 0.008, -a) * 0.7));
+    coatAO = mix(1.0, 0.7, soft(0.01, 0.01, -a));
   }
   return col * hair;
 }
 `;
 
 /**
- * The fur grain as a bump on the shading normal (Mikkelsen's surface-gradient bump, as three's bump map does it),
- * from the coat's own coordinates, so it needs no texture.
+ * The coat's grain as a bump on the shading normal: the hair tracts from deerCoat (coatH, in metres, already faded
+ * where a pixel covers more than a few millimetres), by Mikkelsen's surface-gradient bump as three's bump map does it,
+ * so it needs no texture and no tangents.
  */
 const FUR_BUMP = /* glsl */ `
 #include <normal_fragment_maps>
 {
-  float fade = furFade(vCoat);
-  if (fade > 0.0) {
-    float hh = furHeight(vCoat) * 0.0009 * fade;
-    vec3 pos = -vViewPosition;
-    vec3 dpx = dFdx(pos);
-    vec3 dpy = dFdy(pos);
-    vec3 r1 = cross(dpy, normal);
-    vec3 r2 = cross(normal, dpx);
-    float det = dot(dpx, r1);
-    vec3 grad = sign(det) * (dFdx(hh) * r1 + dFdy(hh) * r2);
-    normal = normalize(abs(det) * normal - grad);
-  }
+  vec3 sx = dFdx(-vViewPosition);
+  vec3 sy = dFdy(-vViewPosition);
+  vec3 r1 = cross(sy, normal);
+  vec3 r2 = cross(normal, sx);
+  float det = dot(sx, r1) * faceDirection;
+  normal = normalize(abs(det) * normal - sign(det) * (dFdx(coatH) * r1 + dFdy(coatH) * r2));
 }
 `;
 
+/** The garden's backlit-rim line (lib/garden/dressing.ts RIM), which the doe reshapes for herself. */
+const GARDEN_RIM = "float rim = edge * behind * clamp(dot(normal, rL) * 0.6 + 0.5, 0.0, 1.0);";
+/**
+ * Her rim: softer and wider than the garden's, only on faces turned toward the sun and toward the sky (never the belly
+ * or the fronts of the legs), broken up by the hair tracts; and the thin ears glowing warm when the low sun is behind.
+ */
+const DOE_RIM = /* glsl */ `
+  float upV = dot(normal, normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
+  float rim = pow(1.0 - clamp(dot(normal, rV), 0.0, 1.0), 1.8) * behind * smoothstep(-0.05, 0.45, dot(normal, rL))
+    * (0.25 + 0.75 * smoothstep(-0.35, 0.45, upV)) * coatRimK * 0.55;
+  if (coatEar > 0.5) reflectedLight.directDiffuse += directionalLights[0].color * uRim * vec3(1.0, 0.45, 0.32) * 0.45
+    * pow(max(0.0, dot(-rV, rL)), 3.0);`;
+
 /** The coat's material for a tier. */
 export function coatMaterial(tier: Quality, lengths: DoeLengths, seed: number): THREE.MeshStandardMaterial {
-  const params = { color: 0xffffff, roughness: 0.92, metalness: 0 };
+  const params = { color: 0xffffff, roughness: 0.92, metalness: 0, envMapIntensity: 0.6 };
   const m: THREE.MeshStandardMaterial =
     tier === "lite"
       ? new THREE.MeshStandardMaterial(params)
-      : new THREE.MeshPhysicalMaterial({ ...params, specularIntensity: 0.35, sheen: 0.25, sheenRoughness: 0.75, sheenColor: new THREE.Color("#b88a62") });
+      : new THREE.MeshPhysicalMaterial({ ...params, specularIntensity: 0.15, sheen: 0.2, sheenRoughness: 0.8, sheenColor: new THREE.Color("#ffffff") });
   const colour = (hex: string) => ({ value: new THREE.Color(hex) });
   const uniforms: Record<string, THREE.IUniform> = {
     uLen: { value: new THREE.Vector4(lengths.body, lengths.head, lengths.fore, lengths.hind) },
     uMarks: { value: new THREE.Vector4(lengths.neckAt, lengths.elbowAt, lengths.stifleAt, lengths.thigh) },
+    uEye: { value: new THREE.Vector2(lengths.eyeS, lengths.eyeD) },
     uSeed: { value: seed },
     cStripe: colour(COAT.stripe),
     cBack: colour(COAT.back),
@@ -316,10 +354,23 @@ export function coatMaterial(tier: Quality, lengths: DoeLengths, seed: number): 
       .replace("#include <begin_vertex>", "#include <begin_vertex>\nvCoat = aCoat;");
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", GLSL)
-      .replace("#include <color_fragment>", "#include <color_fragment>\nfloat coatRough;\ndiffuseColor.rgb *= deerCoat(vCoat, coatRough);")
+      .replace("#include <color_fragment>", "#include <color_fragment>\nfloat coatRough;\ndiffuseColor.rgb *= deerCoat(vCoat, coatRough) * mix(1.0, coatAO, 0.35);")
       .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = coatRough;")
-      .replace("#include <normal_fragment_maps>", FUR_BUMP);
+      .replace("#include <normal_fragment_maps>", FUR_BUMP)
+      .replace(
+        "#include <lights_physical_fragment>",
+        "#include <lights_physical_fragment>\n#ifdef USE_SHEEN\nmaterial.sheenColor *= 0.2 + 0.9 * diffuseColor.rgb;\n#endif",
+      )
+      .replace("#include <aomap_fragment>", "#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= coatAO;\nreflectedLight.indirectSpecular *= coatAO;");
   };
   m.customProgramCacheKey = () => `deer-coat|${tier}`;
-  return withGardenLight(m, `deer-coat|${tier}`, true);
+  // the garden's lamp patch and rim, then the rim reshaped for her
+  const lit = withGardenLight(m, `deer-coat|${tier}`, true);
+  const garden = lit.onBeforeCompile;
+  lit.onBeforeCompile = (shader, renderer) => {
+    garden.call(lit, shader, renderer);
+    if (shader.fragmentShader.includes(GARDEN_RIM)) shader.fragmentShader = shader.fragmentShader.replace(GARDEN_RIM, DOE_RIM);
+    else if (process.env.NODE_ENV !== "production") console.warn("deer coat: the garden's rim line has changed; her rim is the garden's");
+  };
+  return lit;
 }

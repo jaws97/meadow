@@ -98,12 +98,17 @@ const GRAZE_MAX = 1.6;
  * grazing deer swings the whole neck down from its base and keeps it nearly straight, the face turned down to the
  * grass; browsing stretches the neck forward and lifts the nose.
  */
-export const NECK_DOWN = [-1.25, -0.4, -0.18, 0.95];
+export const NECK_DOWN = [-0.95, -0.55, -0.33, 0.9];
 /** Grazing also lowers her withers (the forelegs flex to keep the hooves where they are), and tips the chest. */
-export const GRAZE_CHEST = { drop: 0.03, pitch: -0.05 } as const;
+export const GRAZE_CHEST = { drop: 0.02, pitch: -0.035 } as const;
 /** A grazing deer stands with one foreleg a little forward of the other. */
 const GRAZE_STEP = 0.09;
 export const NECK_REACH = [-0.35, -0.05, 0.12, 0.3];
+/**
+ * Relaxed, the neck rests lower and further forward than the blueprint's alert carriage, the face nearer level; when
+ * she looks up or is alert it rises to the drawn pose, so a look is something you see happen.
+ */
+export const NECK_RELAXED = [-0.22, -0.04, 0, 0.36];
 
 const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const ease = (x: number) => x * x * (3 - 2 * x);
@@ -299,7 +304,7 @@ export class DoeAnimator {
    * The neck and head: `lower` from 0 (carried up) to 1 (the muzzle down in the grass), `reach` stretching the neck
    * forward (browsing), and a look's yaw and pitch spread down the neck.
    */
-  private poseNeck(lower: number, reach: number, yaw: number, pitch: number) {
+  private poseNeck(lower: number, reach: number, yaw: number, pitch: number, relaxed = 0) {
     const share = [0.2, 0.25, 0.25, 0.3];
     const names = ["neck0", "neck1", "neck2", "head"];
     // pitch about z: negative lowers the head
@@ -307,7 +312,7 @@ export class DoeAnimator {
     const fwd = NECK_REACH;
     names.forEach((n, i) => {
       const b = this.by(n);
-      e.set(0, yaw * share[i], down[i] * lower + fwd[i] * reach + pitch * share[i], "YXZ");
+      e.set(0, yaw * share[i], down[i] * lower + fwd[i] * reach + NECK_RELAXED[i] * relaxed + pitch * share[i], "YXZ");
       b.quaternion.setFromEuler(e);
     });
   }
@@ -468,7 +473,8 @@ export class DoeAnimator {
     const browseK = -0.08;
     const lower = grazeK * this.graze + browseK * this.browse;
     const nod = GAIT.nod * w * Math.sin(this.phase * Math.PI * 4 + 0.6);
-    this.poseNeck(lower, this.browse * 0.6, this.lookYaw * this.lookW, this.lookPitch * this.lookW - nod + tug);
+    const relaxed = (1 - this.alert) * (1 - Math.min(1, this.graze + this.browse));
+    this.poseNeck(lower, this.browse * 0.6, this.lookYaw * this.lookW, this.lookPitch * this.lookW - nod + tug, relaxed);
 
     // ears: up and forward when she is alert; otherwise each swivels on its own to listen, with a rare flick
     this.ears.forEach((ear, i) => {

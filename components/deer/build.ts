@@ -174,14 +174,15 @@ function earSection(th: number, r: Ring): readonly [number, number] {
 
 /**
  * An ear's frame for a carriage: its long axis (y) at an elevation above horizontal and a bearing out from straight
- * ahead, its opening (z) facing a quarter-turn ahead of that bearing and a little down, x across the ear.
+ * ahead, its opening (z) facing out and forward (about 50 degrees ahead of that bearing, so from the side the ear shows
+ * its broad oval, not its edge) and a little down, x across the ear.
  */
 export function earBasis(side: Side, elevation: number, azimuth: number): THREE.Matrix4 {
   const z = sideZ(side);
   const el = THREE.MathUtils.degToRad(elevation);
   const az = THREE.MathUtils.degToRad(azimuth);
   const yAxis = new THREE.Vector3(Math.cos(el) * Math.cos(az), Math.sin(el), z * Math.cos(el) * Math.sin(az)).normalize();
-  const face = new THREE.Vector3(Math.cos(az - Math.PI / 2), -0.25, z * Math.sin(az - Math.PI / 2));
+  const face = new THREE.Vector3(Math.cos(az - 0.9), -0.25, z * Math.sin(az - 0.9));
   const zAxis = face.addScaledVector(yAxis, -face.dot(yAxis)).normalize();
   const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis);
   return new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
@@ -197,6 +198,9 @@ export interface DoeLengths {
   neckAt: number;
   elbowAt: number;
   stifleAt: number;
+  /** the eye's place on the head's coat: along the head, and round from its top line (m) */
+  eyeS: number;
+  eyeD: number;
 }
 
 export interface DoeBuild {
@@ -228,7 +232,24 @@ export function buildDoe(tier: Quality): DoeBuild {
 
   // head
   const headBone = boneIndex("head");
+  const headFrom = m.vertexCount;
   const headLen = m.addLoft({ rings: HEAD, along: t.head[0], around: t.head[1], part: PART.head, capStart: 0.5, capEnd: 0.6, weights: () => [[headBone, 1]] });
+  // where the eye sits in the head's coat coordinates, so the coat's eye ring is centred on it
+  const eye = { s: 0, d: 0 };
+  {
+    let best = Infinity;
+    for (let i = headFrom; i < m.vertexCount; i++) {
+      const dx = m.pos[i * 3] - EYE.at[0];
+      const dy = m.pos[i * 3 + 1] - EYE.at[1];
+      const dz = m.pos[i * 3 + 2] - EYE.out;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < best) {
+        best = d2;
+        eye.s = m.coat[i * 4];
+        eye.d = Math.abs(m.coat[i * 4 + 1]);
+      }
+    }
+  }
 
   // legs
   let foreLen = 0;
@@ -285,7 +306,7 @@ export function buildDoe(tier: Quality): DoeBuild {
       part: PART.thigh,
       flip: s === "L",
       capStart: 0.3,
-      capEnd: 0.2,
+      capEnd: 0.1,
       weights: (u) => {
         const y = top + (bottom - top) * u;
         const knee = THREE.MathUtils.smoothstep(y, stifleY - 0.06, stifleY + 0.06);
@@ -356,7 +377,7 @@ export function buildDoe(tier: Quality): DoeBuild {
   const [rx, ry] = TAIL.root;
   const [ex, ey] = TAIL.tip;
   const tailRings: Ring[] = [0, 0.3, 0.65, 1].map((f, i) => ({
-    x: rx + (ex - rx) * f - 0.01 * Math.sin(Math.PI * f),
+    x: rx + (ex - rx) * f - 0.02 * Math.sin(Math.PI * f),
     y: ry + (ey - ry) * f,
     up: TAIL.depth * [0.95, 0.85, 0.7, 0.5][i],
     down: TAIL.depth * [0.95, 0.85, 0.7, 0.5][i],
@@ -391,6 +412,8 @@ export function buildDoe(tier: Quality): DoeBuild {
       neckAt: spineAt[3] * bodyLen,
       elbowAt: along(FORE_PIVOTS[2][0] + 0.02),
       stifleAt: along(HIND_PIVOTS[1][0] + 0.03),
+      eyeS: eye.s,
+      eyeD: eye.d,
     },
   };
 }

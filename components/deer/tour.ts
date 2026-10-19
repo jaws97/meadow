@@ -17,15 +17,19 @@ type Step =
   | { kind: "look"; secs: number }
   | { kind: "browse"; secs: number; face: number };
 
-/** Off frame in the west corridor, and the station on the back lawn where she grazes, side-on to the camera. */
+/**
+ * Off frame in the west corridor, and the station on the back lawn where she grazes, side-on to the camera: in open
+ * view against the dark hedge, clear of the lantern post (which, from the garden's own camera, would otherwise stand
+ * across her shoulder with the lamp on her head).
+ */
 export const ENTRY = [-4.7, -1.1] as const;
-export const STATION = [-1.45, -1.85] as const;
+export const STATION = [-2.1, -1.75] as const;
 /** On a tall screen: just inside the frame's left edge, beside the lantern, never behind the bloom. */
 export const STATION_TALL = [-0.95, -1.95] as const;
 /** Turned three-quarters toward the viewer (heading toward +z is negative). */
 const TO_VIEWER = -0.6;
-/** Heading toward the left-back hedge's face (she faces +x at 0, turning toward -z as it grows). */
-const TO_HEDGE = Math.atan2(1, -0.35);
+/** Three-quarters toward the left-back hedge's face to browse it, her neck and ears still in profile (she faces +x at 0, turning toward -z as it grows). */
+const TO_HEDGE = 0.9;
 
 type Tours = Record<Act, { start: readonly [number, number]; heading: number; steps: Step[] }>;
 
@@ -55,7 +59,7 @@ const TOURS: Tours = {
     start: ENTRY,
     heading: -0.25,
     steps: [
-      { kind: "walk", to: [-3.3, -1.55] },
+      { kind: "walk", to: [-3.2, -1.62] },
       { kind: "walk", to: STATION },
       { kind: "stand", secs: 1.5 },
       { kind: "graze", secs: 9 },
