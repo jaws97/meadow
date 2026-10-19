@@ -176,7 +176,7 @@ vec3 deerCoat(vec4 c, out float rough) {
     col = mix(col, cFringe, (1.0 - soft(0.015, 0.006, above)) * (1.0 - neck));
     float belly = soft(edge, 0.012, dn) * (1.0 - neck * 0.7);
     // the throat: a white bib high under the jaw and a narrow strip down the underside of the neck
-    float bib = soft(0.55, 0.03, dn) * smoothstep(uLen.x - 0.14, uLen.x - 0.08, s);
+    float bib = soft(0.72, 0.03, dn) * smoothstep(uLen.x - 0.14, uLen.x - 0.08, s);
     float strip = soft(0.9, 0.02, dn) * smoothstep(uLen.x - 0.2, uLen.x - 0.12, s);
     col = mix(col, cWhite, max(belly, strip));
     col = mix(col, cBib, bib);

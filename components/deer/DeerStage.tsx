@@ -4,7 +4,8 @@
 // sets everything: ?act=tour (the visit: in through the left corridor, graze, look, browse, out under the arch),
 // stand, graze, browse or walk; ?view=garden (the garden's own camera, as a visitor sees it), side (following her
 // side-on from about 2.8 m) or close (three-quarters, 1.7 m); ?time=dawn, morning, noon, golden or dusk; and the
-// garden's own ?quality=lite|balanced|cinematic. In the side and close views the depth of field focuses on her.
+// garden's own ?quality=lite|balanced|cinematic; ?deer=0 leaves her out, to measure what she costs. In the side and
+// close views the depth of field focuses on her.
 // Loaded in the browser only (DeerConcepts.tsx), so the address is read once, before the canvas mounts, and the
 // garden store gets the hour first so the opening compiles the right light set. A default export for next/dynamic.
 import { Canvas, useFrame, type CanvasProps } from "@react-three/fiber";
@@ -58,6 +59,8 @@ const PARAMS = {
   view: pick(q.get("view"), VIEWS, "garden"),
   time: pick(q.get("time"), TIMES, "golden"),
   ui: q.get("ui") !== "0",
+  /** ?deer=0 leaves her out, to measure what she costs against the same garden */
+  deer: q.get("deer") !== "0",
 };
 
 if (typeof window !== "undefined") {
@@ -149,7 +152,7 @@ function DeerScene() {
           <Plant />
         </group>
         <Atmosphere />
-        <Doe act={PARAMS.act} lookAt={LOOK} />
+        {PARAMS.deer ? <Doe act={PARAMS.act} lookAt={LOOK} /> : null}
         <Suspense fallback={null}>
           <Effects />
         </Suspense>

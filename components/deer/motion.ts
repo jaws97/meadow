@@ -63,6 +63,8 @@ interface Leg {
   /** seconds into the swing, or -1 while planted */
   swingT: number;
   swingDur: number;
+  /** how far forward of its standing place this hoof is wanted now (the grazing stance) */
+  forward: number;
   lift: number;
 }
 
@@ -98,7 +100,9 @@ const GRAZE_MAX = 1.6;
  */
 export const NECK_DOWN = [-1.25, -0.4, -0.18, 0.95];
 /** Grazing also lowers her withers (the forelegs flex to keep the hooves where they are), and tips the chest. */
-export const GRAZE_CHEST = { drop: 0.04, pitch: -0.06 } as const;
+export const GRAZE_CHEST = { drop: 0.03, pitch: -0.05 } as const;
+/** A grazing deer stands with one foreleg a little forward of the other. */
+const GRAZE_STEP = 0.09;
 export const NECK_REACH = [-0.35, -0.05, 0.12, 0.3];
 
 const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -152,6 +156,8 @@ export class DoeAnimator {
   private checkClock: Twitch;
   /** a head-up check while grazing: seconds left */
   private check = 0;
+  /** the foreleg she leads with when she grazes */
+  private leadSide: Side = "L";
   private checkSide = 0;
   private alert = 0;
   private ears: { side: Side; swivel: number; target: number; flick: number; clock: Twitch; flickClock: Twitch }[];
@@ -165,6 +171,7 @@ export class DoeAnimator {
     this.mesh = mesh;
     this.bones = bones;
     this.rng = new Rng(`deer|${seed}`);
+    this.leadSide = this.rng.next() < 0.5 ? "L" : "R";
     this.by = (n) => bones[boneIndex(n)];
     const pivots = restPivots();
     const nose = headPoint(NOSE_UV[0], NOSE_UV[1]);
@@ -196,6 +203,7 @@ export class DoeAnimator {
           bend: Math.sign(W.x * B.y - W.y * B.x) || 1,
           neutral: toe.clone(),
           offset: GAIT.phase[`${kind}${side}` as keyof typeof GAIT.phase],
+          forward: 0,
           planted: new THREE.Vector3(),
           from: new THREE.Vector3(),
           to: new THREE.Vector3(),
@@ -248,7 +256,7 @@ export class DoeAnimator {
     const h = heading ?? this.heading;
     const c = Math.cos(h);
     const s = Math.sin(h);
-    const lx = leg.neutral.x + ahead;
+    const lx = leg.neutral.x + leg.forward + ahead;
     const lz = leg.neutral.z;
     // rotation about y by h: x' = x cos h + z sin h, z' = -x sin h + z cos h
     const p = at ?? this.pos;
@@ -401,6 +409,9 @@ export class DoeAnimator {
     }
     this.check = Math.max(0, this.check - dt);
     const grazeWant = intent.graze * (this.check > 0 ? 0 : 1);
+    // grazing, she sets one foreleg forward (the settle steps carry it there and back)
+    const stance = intent.graze > 0.5 && this.walkW < 0.1 ? GRAZE_STEP : 0;
+    for (const leg of this.legs) leg.forward = leg.kind === "fore" && leg.side === this.leadSide ? stance : 0;
     const k = 1 - Math.exp(-dt * 1.6);
     this.graze += (grazeWant * (1 - this.walkW) - this.graze) * k;
     this.browse += (intent.browse * (1 - this.walkW) - this.browse) * k;

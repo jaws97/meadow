@@ -126,7 +126,7 @@ export const LEG_SPREAD = { fore: 0.062, hind: 0.067 } as const;
  * sloping pastern and the dark pointed hoof.
  */
 export const FORE: readonly LegJoint[] = [
-  { name: "scapula", at: [0.01, 0.68], front: 0.04, back: 0.04, w: 0.018, z: 0.03 },
+  { name: "scapula", at: [0.03, 0.63], front: 0.035, back: 0.035, w: 0.016, z: 0.03 },
   { name: "shoulder", at: [0.09, 0.545], front: 0.05, back: 0.05, w: 0.026, z: 0.045 },
   { name: "arm", at: [0.05, 0.47], front: 0.045, back: 0.05, w: 0.028, z: 0.055 },
   { name: "elbow", at: [0.005, 0.41], front: 0.034, back: 0.048, w: 0.026, z: 0.06 },
