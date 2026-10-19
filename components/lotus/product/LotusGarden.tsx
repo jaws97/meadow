@@ -19,8 +19,10 @@
 // of sight, compiles its programs in parallel a few objects a frame and pre-draws itself (warmup.ts, as a tier
 // prepared out of sight is), and only then shows and tells the swap it may lift the dim (product/stage.ts). It never
 // stays hidden under a lifting dim: its own preparation is capped (PREPARE_MAX_MS, within the swap's longer hold), and
-// if the swap stops waiting first it shows itself at once (lib/garden/swapGate onSwapOverdue). Under the loading veil
-// (a returning lotus owner, a friend's courtyard) the opening compiles it with everything else.
+// if the swap's time runs out first it shows itself at once (lib/garden/swapGate onSwapOverdue). Its code arriving late
+// (a slow network, a development server compiling it) keeps the dim down a while longer, for it to mount and prepare;
+// once the swap has given up on it, it is no longer expected and simply shows as it mounts. Under the loading veil (a
+// returning lotus owner, a friend's courtyard) the opening compiles it with everything else.
 import { useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -166,6 +168,9 @@ export default function LotusGarden() {
     const g = group.current;
     if (!live || !g) return;
     if (!courtyardExpected() || underVeil()) {
+      // not (or no longer) awaited behind the dim: shown as it is (it may have rendered hidden for a swap that has given
+      // up on it since)
+      g.visible = true;
       courtyardReady();
       return;
     }
@@ -182,7 +187,7 @@ export default function LotusGarden() {
       courtyardReady();
     };
     const timer = window.setTimeout(() => finish(true), PREPARE_MAX_MS);
-    // the dim is lifting whatever is ready: shown now, what is left compiles under its fade
+    // the swap's time is up (or it has given up): shown now, what is left compiles under the dim's fade
     const off = onSwapOverdue(() => finish(true));
     void prepareOutOfSight(gl, scene, camera, g, () => done).finally(() => {
       window.clearTimeout(timer);

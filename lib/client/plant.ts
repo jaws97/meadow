@@ -1179,7 +1179,8 @@ function setDim(state: "in" | "out" | "none") {
  * The longest the dim waits for a new scene to be ready (lib/garden/swapGate), from the moment the plant is swapped:
  * longer than a lotus courtyard's own preparation may take from its mount (LotusGarden PREPARE_MAX_MS, 7 s), so a
  * courtyard that mounts promptly is always shown before the dim lifts; one that is later still is told to show itself
- * when this runs out (swapGate onSwapOverdue). Nothing holds a soil flower's swap, so it lifts after the usual moment.
+ * when this runs out (swapGate onSwapOverdue), and one whose code has not even arrived keeps the dim down up to
+ * swapGate's LATE_MS more. Nothing holds a soil flower's swap, so it lifts after the usual moment.
  */
 const SWAP_HOLD_MS = 9000;
 let swapToken = 0;
@@ -1188,7 +1189,8 @@ let swapToken = 0;
  * Dims the garden, swaps the plant under it, and lets the garden back; immediate while the loading veil covers it (and
  * the opening compiles the new garden: RenderBudget reopenUnderVeil), dimmed from the veil's fade on. After the usual
  * moment, the dim also waits for whatever the scene is still preparing (a lotus's courtyard compiling behind it holds the
- * swap through lib/garden/swapGate), for up to SWAP_HOLD_MS in all.
+ * swap through lib/garden/swapGate), for up to SWAP_HOLD_MS in all, and up to LATE_MS beyond that for a courtyard whose
+ * code is still on its way (then the swap gives up and the dim lifts).
  */
 function swapTo(apply: () => void) {
   swapTimers.forEach(clearTimeout);
