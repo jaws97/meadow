@@ -2,12 +2,13 @@
 // governor (lib/garden/device, lib/garden/quality). Cinematic, Balanced or Light is a choice made in the name pill's
 // menu (components/gift/PicturePicker). Light is the "lite" tier; only the words differ.
 //
-// Until a visitor chooses, a computer opens on Cinematic (the store passes it as the default): the garden is meant to
-// be seen at its richest, and a laptop's browser often runs on its power-saving graphics, where Auto would settle on
-// Light; nobody is asked to change a system setting. The visitor changes it in the menu, and the first time the garden
-// opens this way a note under the pill says where (introNote); if Cinematic then runs slowly, a second note says that
-// Balanced or Light will be smoother (slowNote). Nothing steps it down by itself. Phones and tablets, and a computer
-// without a real GPU, open on Auto.
+// Until a visitor chooses, the garden opens on Cinematic (the store passes it as the default): it is meant to be seen
+// at its richest, colleagues carry recent phones, and a laptop's browser often runs on its power-saving graphics,
+// where Auto would settle on Light; nobody is asked to change a system setting. The visitor changes it in the menu,
+// and the first time the garden opens this way a note under the pill says where (introNote); if Cinematic then runs
+// slowly, a second note says that Balanced or Light will be smoother (slowNote). Nothing steps it down by itself, and
+// a page that dies on it opens on Auto next time (the guard, below). A device whose GPU is old or missing (a software
+// renderer, an old phone's: lib/garden/device classifyGpu) opens on Auto.
 //
 // A choice belongs to the device (browser storage), so every garden this device opens is drawn at it: its own, and a
 // friend's from the Meadow. The Meadow keeps its own tier per device class (components/meadow/MeadowCanvas), and the

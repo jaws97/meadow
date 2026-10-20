@@ -6,7 +6,7 @@
 // a dialog with the same panel the planting ended with. A short note ("Now showing Ravi's Marigold garden on this
 // device") can hang under the pill for a few seconds after a switch. The picture has its own notes there, each once
 // the opening's quiet has passed (lib/garden/picture): that a choice above Auto was too much for the device last time
-// and the garden is back on Auto; that Cinematic, the computer's default, is running slowly and Balanced or Light
+// and the garden is back on Auto; that Cinematic, the default, is running slowly and Balanced or Light
 // would be smoother (once a visit); and, the first time the garden opens on Cinematic by default, where to change it.
 // Two colleagues can share a first name, so the menu opens on the garden's flower and day ("Night Jasmine · Day 3")
 // and the way back names the other garden's flower too (lib/client/gardens).

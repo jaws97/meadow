@@ -35,8 +35,8 @@ analytics. The party code is never written into the code base: it lives in the `
 - **App**: Next.js 16 (App Router, Cache Components) on Vercel, served from Mumbai (`bom1`).
 - **3D**: three.js through React Three Fiber, drei and postprocessing, with quality tiers per device and the real sun
   position from suncalc. A colleague can choose the picture in the name pill's menu (Auto, Cinematic, Balanced or
-  Light, `lib/garden/picture.ts`). Until they do, a computer opens on Cinematic and phones and tablets on Auto, which
-  picks for the device. The lantern cart drives on Rapier physics, with a gentle glide as the fallback.
+  Light, `lib/garden/picture.ts`). Until they do, the garden opens on Cinematic, except on a device with an old or
+  missing GPU, which opens on Auto (Auto picks for the device). The lantern cart drives on Rapier physics, with a gentle glide as the fallback.
 - **The plant model** (`lib/sim`): plain TypeScript with no framework, so the same code runs on the server, in the
   tests and in the browser. A soil water balance (FAO-56), growth from sunlight, and development in thermal time that
   stress slows down; the lotus has its own pond model (`lib/sim/pond.ts`). It is deterministic and versioned.
