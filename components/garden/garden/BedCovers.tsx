@@ -234,7 +234,8 @@ export function BedCovers({ quality }: { quality: Quality }) {
     const dt = Math.min(delta, 0.1);
     const s = garden.get();
     const mats = live.current;
-    const head = Math.max(0, env.headPos.y - HERO_GROUND_Y);
+    // (the plant's crown: a lily's tip stands above its lead flower)
+    const head = Math.max(0, env.crownPos.y - HERO_GROUND_Y);
     const want = Math.min(MAX_H, Math.max(MIN_H, head + HEADROOM));
     const shown = shade.current.up > 0.001 || cover.current.up > 0.001;
     // a cover going up for the first time takes the plant's size at once; after that it follows the plant slowly

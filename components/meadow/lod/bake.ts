@@ -87,6 +87,7 @@ export function lodDetail(sp: Species): PoseDetail {
     leaf: sp.leaves.compound > 1 ? [2, 2] : [2, 3],
     sepal: [2, 3],
     stem: [3, 4],
+    pedicel: [2, 3],
     rachis: [2, 3],
     thorn: null,
     receptacle: lodReceptacle,
@@ -267,6 +268,7 @@ export function bakeLodPlant(kind: LodKind, band: Band): BakedPlant {
   if (species === "lotus") return bakeLodLotus(band);
   const sp = SPECIES[species];
   const look = BAND_LOOK[band];
+  // (with no bloom clock: a lily's bloom band has every flower open, its bud band every bud closed)
   const posed = posePlant(
     { speciesId: species, seed: LOD_SEEDS[species], growth: look.growth, bloom: look.bloom, health: 1, moisture: 0.6, scorch: 0 },
     lodDetail(sp),

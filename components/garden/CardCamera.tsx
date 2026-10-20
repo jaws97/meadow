@@ -146,17 +146,20 @@ function finish(j: Job, error: Error | null) {
 }
 
 /**
- * Every point of the head's visible parts as drawn, in world space (the petals' open shape is a morph, which the
- * geometry's own bounds do not know). Once per card, a few thousand points.
+ * Every point of the heads' visible parts as drawn, in world space (the petals' open shape is a morph, which the
+ * geometry's own bounds do not know): the one flower, or every flower and bud on a lily's stem, so the card frames
+ * them all. Once per card, a few thousand points.
  */
-function eachPoint(body: THREE.Object3D, visit: (pt: THREE.Vector3) => void) {
-  body.updateWorldMatrix(true, true);
-  body.traverseVisible((o) => {
-    const mesh = o as THREE.Mesh;
-    const pos = mesh.isMesh ? mesh.geometry.getAttribute("position") : undefined;
-    if (!pos) return;
-    for (let i = 0; i < pos.count; i++) visit(mesh.getVertexPosition(i, point).applyMatrix4(mesh.matrixWorld));
-  });
+function eachPoint(bodies: readonly THREE.Object3D[], visit: (pt: THREE.Vector3) => void) {
+  for (const body of bodies) {
+    body.updateWorldMatrix(true, true);
+    body.traverseVisible((o) => {
+      const mesh = o as THREE.Mesh;
+      const pos = mesh.isMesh ? mesh.geometry.getAttribute("position") : undefined;
+      if (!pos) return;
+      for (let i = 0; i < pos.count; i++) visit(mesh.getVertexPosition(i, point).applyMatrix4(mesh.matrixWorld));
+    });
+  }
 }
 
 /** Copies the centred card-shaped part of what the canvas holds into the photograph. */
@@ -298,16 +301,16 @@ export function CardCamera() {
       // drawn it from nearer than they put it (CameraRig keepRoom), and has since put it back
       j.saved?.position.copy(camera.position);
       j.saved?.quaternion.copy(camera.quaternion);
-      // the flower has been drawn open and standing: aim at it as it now is
+      // the flower has been drawn open and standing: aim at its face (a lily's lead flower) and frame every head drawn
       const lotus = isLotus(garden.get().speciesId);
       const head = cardShot.head;
-      const body = cardShot.headBody;
-      if (!lotus && head && body) {
+      const bodies = cardShot.bodies;
+      if (!lotus && head) {
         const species = garden.get().speciesId;
         head.getWorldQuaternion(quat);
         axis.set(0, 1, 0).applyQuaternion(quat);
         cardDirectionFor(species, axis, view);
-        silhouette((visit) => eachPoint(body, visit), view, sil);
+        silhouette((visit) => eachPoint(bodies, visit), view, sil);
         if (sil.width <= 0) {
           sil.centre.copy(env.headPos);
           sil.width = 0.4;
@@ -322,7 +325,7 @@ export function CardCamera() {
         if (!roomOk(view)) {
           cardDirectionFor(species, axis, view, roomOk);
           const { width, height } = sil;
-          silhouette((visit) => eachPoint(body, visit), view, sil);
+          silhouette((visit) => eachPoint(bodies, visit), view, sil);
           if (sil.width <= 0) Object.assign(sil, { width, height }).centre.set(cx, cy, cz);
         }
         focus.copy(sil.centre);

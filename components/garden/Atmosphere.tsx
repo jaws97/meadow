@@ -1529,11 +1529,14 @@ function Butterflies({ count, seed, shadows }: { count: number; seed: string; sh
     const dt = Math.min(env.dt, 0.1);
     const t = env.time;
     const active = dayAir(env);
-    // The hero perch rides the top of the bloom; the hedges' crowns are fixed.
-    const bud = SPECIES[s.speciesId].flower;
+    // The hero perch rides the top of the bloom; the hedges' crowns are fixed. A lily's lead flower is held out on its
+    // stalk, smaller than a lone bloom, its face turned out from the stem: its perch is along that face.
+    const sp = SPECIES[s.speciesId];
+    const bud = sp.flower;
     const top = lerp(bud.budRadius * 1.6 * (bud.budAspect ?? 1), BLOOM_TOP[s.speciesId], s.bloom);
     PERCHES[0].copy(env.headPos);
-    PERCHES[0].y += top + 0.004;
+    if (sp.raceme) PERCHES[0].addScaledVector(env.headUp, top * sp.raceme.scale + 0.004);
+    else PERCHES[0].y += top + 0.004;
     PERCHES[0].z += 0.03;
     for (let k = 1; k < PERCHES.length; k++) {
       const h = LAYOUT.hedges[k - 1];

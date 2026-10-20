@@ -110,6 +110,11 @@ export interface GardenState {
   flowerSize: number;
   /** a soft extra glow for an hour after the plant is talked to, 0..1 */
   glow: number;
+  /**
+   * Hours since the flower opened, for a lily's later flowers (lib/plant/raceme racemeOpen): null while it has not,
+   * Infinity for every flower shown open (the owner's rose, a development view). Stepped, never eased.
+   */
+  opened: number | null;
   /** the shade cloth (1 up, 0 folded away) and the rain cover over the bed; the garden eases them in and out */
   shade: number;
   cover: number;
@@ -147,6 +152,7 @@ const initial: GardenState = {
   snails: 0,
   flowerSize: 1,
   glow: 0,
+  opened: Infinity,
   shade: 0,
   cover: 0,
   dockBottom: 0,

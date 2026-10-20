@@ -231,7 +231,8 @@ function begin(m: { at: number; refusedAt: number; soil: CanSoil }, camera: THRE
   const vary = varyOf(m.at);
   const view = Math.atan2(camera.position.z, camera.position.x);
   const station = stationFor(s.growth, view, vary.sweep);
-  const head = Math.max(0, env.headPos.y - HERO_GROUND_Y);
+  // (the plant's crown: a lily's tip stands above its lead flower)
+  const head = Math.max(0, env.crownPos.y - HERO_GROUND_Y);
   const coverBlocks = s.cover > 0.5 && coverInTheWay(station, head);
   const still = !CAN_FLIES || canStillByUrl() || t0 > LATE_S || underVeil(quality.get()) || reducedMotion() || coverBlocks;
   const plan: CanPlan = { station, vary, still, refusedAt: m.refusedAt > 0 ? Math.max(0, (m.refusedAt - origin) / 1000) : -1, stoppedAt: -1 };

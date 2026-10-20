@@ -15,9 +15,11 @@
 // message shown instead.
 //
 // Rendering. Values never jump: the bridge eases every number toward its target a couple of times a second (the plant
-// eases again per frame). A different plant replacing the one on screen (the owner's rose making way for a colleague's
-// seed, or back) is a soft dissolve once the garden is showing, and immediate under the loading veil. The last plant
-// shown is kept in localStorage so a returning visitor's garden opens on their own plant (and their own poster).
+// eases again per frame). The one clock it steps instead is a lily's: the hours since its first flower opened, which
+// opens the later flowers on the mornings after (lib/plant/raceme). A different plant replacing the one on screen (the
+// owner's rose making way for a colleague's seed, or back) is a soft dissolve once the garden is showing, and immediate
+// under the loading veil. The last plant shown is kept in localStorage so a returning visitor's garden opens on their
+// own plant (and their own poster), and a lily on its own flowers.
 //
 // The pure helpers (words for the soil and the weather, the overlays, the bloom outlook) are exported for the care layer
 // and the tests; nothing here touches the DOM until startPlantSync runs, apart from reading that one cached look.
@@ -36,6 +38,7 @@ import { flowerSizeOf, pondShownOf } from "@/lib/client/plantShown";
 import { garden, type CanMoment, type CanSoil, type GardenState, type PondShown } from "@/lib/garden/store";
 import { underVeil } from "@/lib/garden/quality";
 import { swapSettled } from "@/lib/garden/swapGate";
+import { openedSince } from "@/lib/plant/raceme";
 import { SPECIES, isLotus, type SpeciesId } from "@/lib/plant/species";
 import type { CareResult, MeView } from "@/lib/server/garden";
 import type { CareKind } from "@/lib/server/validate";
@@ -1089,6 +1092,8 @@ interface Look {
   at: number;
   /** a lotus's pond (absent from looks remembered before the lotus, and for a soil flower) */
   pond?: PondShown | null;
+  /** when the flower opened, for a lily's later flowers (absent from looks remembered before the lily's stem of flowers) */
+  bloomedAt?: string | null;
 }
 
 function readLook(): Look | null {
@@ -1104,20 +1109,21 @@ function readLook(): Look | null {
       l.target[k] = 0;
     }
     l.pond = isLotus(l.speciesId) ? validPond(l.pond) : null;
+    if (typeof l.bloomedAt !== "string") l.bloomedAt = null;
     return l;
   } catch {
     return null;
   }
 }
 
-function saveLook(speciesId: SpeciesId, seed: string, target: RenderTarget, pond: PondShown | null) {
+function saveLook(speciesId: SpeciesId, seed: string, target: RenderTarget, pond: PondShown | null, bloomedAt: string | null) {
   const now = Date.now();
   if (now - lookSavedAt < 60_000) return;
   lookSavedAt = now;
   try {
     // the pond's moments are this visit's only: a remembered look never replays a top-up or a planting
     const kept = pond ? { ...pond, topUpAt: 0, pinchAt: 0, plantedAt: 0 } : null;
-    window.localStorage.setItem(LOOK_KEY, JSON.stringify({ speciesId, seed, target, at: now, pond: kept } satisfies Look));
+    window.localStorage.setItem(LOOK_KEY, JSON.stringify({ speciesId, seed, target, at: now, pond: kept, bloomedAt } satisfies Look));
   } catch {
     // a convenience only: without it the garden opens on the owner's rose and swaps
   }
@@ -1145,7 +1151,13 @@ function gardenPatch(t: RenderTarget): Partial<GardenState> {
 if (typeof window !== "undefined" && underVeil()) {
   const look = readLook();
   if (look) {
-    garden.set({ speciesId: look.speciesId, seed: look.seed, ...gardenPatch(look.target), pond: look.pond ?? null });
+    garden.set({
+      speciesId: look.speciesId,
+      seed: look.seed,
+      ...gardenPatch(look.target),
+      pond: look.pond ?? null,
+      opened: openedSince(look.bloomedAt, Date.now()),
+    });
     primed = true;
   }
 }
@@ -1160,19 +1172,29 @@ let swapTimers: ReturnType<typeof setTimeout>[] = [];
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-function currentTarget(me: MeView, now: number): { target: RenderTarget; pond: PondShown | null } {
+function currentTarget(me: MeView, now: number): { target: RenderTarget; pond: PondShown | null; opened: number | null } {
   const events = overlayEvents(me, snap.local);
   const v = withCare(me.visual, events, now);
   const target = renderTarget(v, me.plant.generation, snap.weather, { shade: toggleShown(snap, "shade"), cover: toggleShown(snap, "cover") });
   const pond = isPondVisual(me.visual) && isPondShown(v) ? pondShownOf(v, pondStamps(me.visual, events)) : null;
-  return { target, pond };
+  return { target, pond, opened: openedSince(me.state.bloomedAt, now) };
 }
 
-function writeTarget(t: RenderTarget, pond: PondShown | null, identity?: { speciesId: SpeciesId; seed: string }) {
+/** Whether the store's bloom clock already reads `b`, to the minute (far finer than a lily's mornings). */
+function sameOpened(a: number | null, b: number | null): boolean {
+  return a === null || b === null ? a === b : Math.abs(a - b) < 1 / 60;
+}
+
+function writeTarget(t: RenderTarget, pond: PondShown | null, opened: number | null, identity?: { speciesId: SpeciesId; seed: string }) {
   const g = garden.get();
   // a can poured (or a top-up refused) for one plant is never played over the next
   const p: Partial<GardenState> = identity ? { ...identity, canMoment: null, topUpRefused: null } : {};
   let changed = !!identity;
+  // the bloom clock steps, never eased: a new plant takes its own at once (null before its flower opens)
+  if (identity || !sameOpened(g.opened, opened)) {
+    p.opened = opened;
+    changed = true;
+  }
   for (const k of RENDER_KEYS) {
     const now = g[k];
     if (typeof now !== "number" || Math.abs(now - t[k]) > 2e-4) {
@@ -1268,18 +1290,18 @@ function bridgeStep() {
   const me = snap.me;
   if (!me || snap.swap === "in") return;
   const now = Date.now();
-  const { target, pond } = currentTarget(me, now);
+  const { target, pond, opened } = currentTarget(me, now);
   const identity = { speciesId: me.plant.species, seed: me.plant.seed };
   const g = garden.get();
   if (g.speciesId !== identity.speciesId || g.seed !== identity.seed) {
     shown = null;
     shownPond = null;
     swapTo(() => {
-      const fresh = snap.me ? currentTarget(snap.me, Date.now()) : { target, pond };
+      const fresh = snap.me ? currentTarget(snap.me, Date.now()) : { target, pond, opened };
       shown = fresh.target;
       shownPond = fresh.pond;
       lastStep = Date.now();
-      writeTarget(fresh.target, fresh.pond, identity);
+      writeTarget(fresh.target, fresh.pond, fresh.opened, identity);
     });
     return;
   }
@@ -1294,8 +1316,8 @@ function bridgeStep() {
   shown = easeToward(shown, target, dt);
   // a pond eases from what is shown; a stage change (the jar to the pond) or a first pond steps straight in
   shownPond = pond && shownPond && shownPond.stage === pond.stage ? easePond(shownPond, pond, dt) : pond;
-  writeTarget(shown, shownPond);
-  saveLook(identity.speciesId, identity.seed, target, pond);
+  writeTarget(shown, shownPond, opened);
+  saveLook(identity.speciesId, identity.seed, target, pond, me.state.bloomedAt);
 }
 
 function startBridge() {

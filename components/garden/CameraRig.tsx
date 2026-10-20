@@ -265,9 +265,9 @@ function framingOffset(f: Framing, out: THREE.Vector3): THREE.Vector3 {
  * the front kerb, with its back kerb kept clear of the name pill.
  */
 function gardenLensPoints(bed: number) {
-  subjectTop.copy(env.headPos).lerp(BED_TOP, bed);
-  subjectFoot.set(env.headPos.x, HERO_GROUND_Y, env.headPos.z).lerp(BED_FOOT, bed);
-  subjectCap.copy(env.headPos).lerp(BED_BACK, bed);
+  subjectTop.copy(env.crownPos).lerp(BED_TOP, bed);
+  subjectFoot.set(env.crownPos.x, HERO_GROUND_Y, env.crownPos.z).lerp(BED_FOOT, bed);
+  subjectCap.copy(env.crownPos).lerp(BED_BACK, bed);
 }
 
 /**
@@ -518,7 +518,7 @@ export function CameraRig() {
       }
       // Keep the viewer's zoom as a share of the dolly, so the plant keeps its size in frame as it grows (without the
       // push-in, while that is still running); in the courtyard, of its shot's distance.
-      const auto = lotusShown.current ? court.distance : autoDistance(live.current, liveAspect.current, env.headPos.y);
+      const auto = lotusShown.current ? court.distance : autoDistance(live.current, liveAspect.current, env.crownPos.y);
       d.zoom = Math.min(3, Math.max(0.3, off.length() / d.push / auto));
     }
   }, [placed]);
@@ -575,7 +575,8 @@ export function CameraRig() {
       shiftLens(camera, lens.current, width, height, dt);
       return;
     }
-    const headY = env.headPos.y;
+    // the plant's crown (a lily's tip, above its lead flower), so a stem of flowers is framed as its one flower was
+    const headY = env.crownPos.y;
     const bed = bedShare(headY);
     // the bed shot's lower look from the left is for a landscape screen with a panel actually at the right; without
     // one the bed stays centred and seen from above, the aim only a little higher so the lamp stays in frame

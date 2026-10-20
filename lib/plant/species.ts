@@ -306,10 +306,11 @@ export const SPECIES: Record<SpeciesId, Species> = {
     stem: { height: 1.05, radius: 0.013, segments: 4, lean: 0.06, wobble: 0.25, color: "#557f43", tipColor: "#6f9a52", thorns: false },
     leaves: {
       count: [11, 14], length: 0.19, width: 0.04, serration: 0, fold: 0.38, gloss: 0.65, compound: 1, petiole: 0.012,
-      petioleColor: "#5e8a4a", top: 0.7, color: "#2c6a3c", tipColor: "#46904f", veinColor: "#a6d69a",
+      petioleColor: "#5e8a4a", top: 0.62, color: "#2c6a3c", tipColor: "#46904f", veinColor: "#a6d69a",
     },
-    // three flowers like a florist's stem, a little smaller than a single bloom so they share the top of the stem
-    raceme: { flowers: 3, pedicel: 0.09, out: 0.9, span: 0.3, scale: 0.8 },
+    // three flowers like a florist's stem, a little smaller than a single bloom so they share the top of the stem; their
+    // stalks are long and lean well out, as the flowers are drawn larger than life and would otherwise crowd each other
+    raceme: { flowers: 3, pedicel: 0.2, out: 1.0, span: 0.38, scale: 0.7 },
     flower: {
       layers: [
         { count: 3, length: 0.27, width: 0.14, open: 1.05, bend: 0.5, cup: 0.45, ruffle: 0.32, tip: 0.85, lip: 0.72 },

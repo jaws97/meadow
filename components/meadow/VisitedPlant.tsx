@@ -32,6 +32,7 @@ import { meadow } from "@/components/meadow/runtime";
 import { useUi } from "@/components/meadow/ui";
 import { VisitedLotus } from "@/components/meadow/VisitedLotus";
 import type { Quality } from "@/lib/garden/store";
+import { openedSince } from "@/lib/plant/raceme";
 
 interface Shown {
   friend: FriendGarden;
@@ -115,6 +116,8 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
             droop: v.droop,
             flower: v.flower,
             chlorosis: v.chlorosis,
+            // a lily's later flowers, open as its bloom clock says
+            opened: openedSince(friend.bloomedAt, Date.now()),
           },
           { petals: quality, leaves: "lite" },
         ),

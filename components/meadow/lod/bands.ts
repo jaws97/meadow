@@ -52,7 +52,8 @@ export const hasLight = (kind: LodKind, band: Band): boolean => !(kind === "lotu
 /**
  * Growth and bloom each band is posed at (growth is lib/sim's Visual.growth: a sprout spans about 0.05 to 0.32, a
  * leafy plant to 0.68, a bud to 0.9; by the middle of the bud band the bud is full size). An open flower is drawn
- * fully open: how far it is open is too fine to read at a distance.
+ * fully open: how far it is open is too fine to read at a distance. So is which morning a lily is on: its bloom band
+ * has all three of its flowers open.
  */
 export const BAND_LOOK: Record<Band, { growth: number; bloom: number }> = {
   sprout: { growth: 0.19, bloom: 0 },

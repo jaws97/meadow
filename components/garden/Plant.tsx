@@ -39,6 +39,17 @@ import {
 } from "@/lib/plant/geometry";
 import { droopOf, fadeOf, leafDropped, leafHealth, petalOpen, quantize, type PlantVisual } from "@/lib/plant/growth";
 import { lerp, Rng, smoothstep } from "@/lib/plant/prng";
+import {
+  BUD_SHOWN,
+  pedicelShape,
+  racemeBudGrowth,
+  racemeHeadScale,
+  racemeNodes,
+  racemeOpen,
+  racemeStalkGrowth,
+  racemeStalkLean,
+  type RacemeNode,
+} from "@/lib/plant/raceme";
 import { ANTHER, FILAMENT_GIRTH, longStamens, STIGMA, STYLE_GIRTH } from "@/lib/plant/stamens";
 import { garden, useGarden, type Quality } from "@/lib/garden/store";
 import { env } from "@/lib/garden/env";
@@ -90,6 +101,8 @@ interface PlantGeometry {
   rachisLength: number;
   thorn: THREE.BufferGeometry | null;
   ends: EndTransform[];
+  /** a lily's flower stalks, by raceme node (none for the tip bud, which sits on the cane, or a lone flower) */
+  pedicels: ({ geometry: THREE.BufferGeometry; end: EndTransform } | null)[];
 }
 
 interface LeafRefs {
@@ -112,19 +125,38 @@ interface PetalRefs {
   node: PetalNode;
 }
 
+/** One flower head: the one flower that crowns a stem, or one of a lily's flowers or its tip bud. */
+interface HeadRefs {
+  /** its place on a lily's stem (lib/plant/raceme), or null for the one flower that crowns any other stem */
+  node: RacemeNode | null;
+  head: THREE.Group | null;
+  /** the head's parts, hidden while the cane is too short to carry them (the head itself, and its glow light, never are) */
+  headBody: THREE.Group | null;
+  bud: THREE.Mesh | null;
+  stamens: THREE.Group | null;
+  petals: PetalRefs[];
+  sepals: (THREE.Group | null)[];
+  /**
+   * A lily flower's stalk: the group that rides its segment as a leaf does (with its rest point there), the group that
+   * leans it out, its tube, and the group at its end that carries the flower. The stalk's groups are never hidden,
+   * since the lead's glow light rides in them.
+   */
+  pedicel: THREE.Group | null;
+  pedicelBase: THREE.Vector3 | null;
+  pedicelLean: THREE.Group | null;
+  pedicelTube: THREE.Mesh | null;
+  pedicelEnd: THREE.Group | null;
+}
+
 interface PlantRefs {
   segs: (THREE.Group | null)[];
   tubes: (THREE.Mesh | null)[];
   mounts: (THREE.Group | null)[];
   leaves: LeafRefs[];
   thorns: ThornRefs[];
-  petals: PetalRefs[];
-  sepals: (THREE.Group | null)[];
-  head: THREE.Group | null;
-  /** the head's parts, hidden while the cane is too short to carry them (the head itself, and its glow light, never are) */
-  headBody: THREE.Group | null;
-  bud: THREE.Mesh | null;
-  stamens: THREE.Group | null;
+  /** the flower heads, the lead first: the one flower, or a lily's lowest; then its later flowers and its tip bud */
+  heads: HeadRefs[];
+  /** the lead's glow (the one light a plant has, whatever it carries) */
   glow: THREE.PointLight | null;
   /** the petal materials (one per colour variant) in use, so the frame loop can drive their emissive */
   petalMats: THREE.MeshPhysicalMaterial[];
@@ -135,6 +167,8 @@ interface PlantContextValue {
   geo: PlantGeometry;
   refs: PlantRefs;
   quality: Quality;
+  /** a lily's flowers bottom-up and its tip bud (lib/plant/raceme), the heads' indices; empty for a lone flower */
+  raceme: RacemeNode[];
 }
 
 /** The store's numbers as the frame loop eases them. */
@@ -167,6 +201,7 @@ interface Leaflet {
 const axis = new THREE.Vector3();
 const qTilt = new THREE.Quaternion();
 const qSway = new THREE.Quaternion();
+const qHead = new THREE.Quaternion();
 const euler = new THREE.Euler();
 
 const PETAL_TESS: Record<Quality, [number, number]> = {
@@ -187,15 +222,32 @@ function emptyRefs(): PlantRefs {
     mounts: [],
     leaves: [],
     thorns: [],
-    petals: [],
-    sepals: [],
-    head: null,
-    headBody: null,
-    bud: null,
-    stamens: null,
+    heads: [],
     glow: null,
     petalMats: [],
   };
+}
+
+function headEntry(refs: PlantRefs, index: number, node: RacemeNode | null): HeadRefs {
+  let e = refs.heads[index];
+  if (!e) {
+    e = {
+      node,
+      head: null,
+      headBody: null,
+      bud: null,
+      stamens: null,
+      petals: [],
+      sepals: [],
+      pedicel: null,
+      pedicelBase: null,
+      pedicelLean: null,
+      pedicelTube: null,
+      pedicelEnd: null,
+    };
+    refs.heads[index] = e;
+  }
+  return e;
 }
 
 function leafEntry(refs: PlantRefs, index: number, node: LeafNode): LeafRefs {
@@ -216,11 +268,11 @@ function thornEntry(refs: PlantRefs, index: number, node: ThornNode): ThornRefs 
   return e;
 }
 
-function petalEntry(refs: PlantRefs, index: number, node: PetalNode): PetalRefs {
-  let e = refs.petals[index];
+function petalEntry(head: HeadRefs, index: number, node: PetalNode): PetalRefs {
+  let e = head.petals[index];
   if (!e) {
     e = { group: null, mesh: null, node };
-    refs.petals[index] = e;
+    head.petals[index] = e;
   }
   return e;
 }
@@ -353,23 +405,30 @@ function Thorn({ index }: { index: number }) {
 // ---------------------------------------------------------------------------
 // Flower head
 
-function FlowerHead() {
-  const { bp, geo, refs, quality } = usePlant();
+/**
+ * A flower head: `index` 0 is the lead (the one flower that crowns a stem, or a lily's lowest), which alone carries the
+ * glow light; a lily's others are its later flowers and, last, its tip bud (PlantContextValue raceme).
+ */
+function FlowerHead({ index }: { index: number }) {
+  const { bp, geo, refs, quality, raceme } = usePlant();
   const sp = bp.species;
   const f = sp.flower;
   const c = f.center;
   const L = f.layers.length;
+  const node = raceme[index] ?? null;
+  const lead = index === 0;
 
   const petalFade = useGarden((s) => quantize(fadeOf(s.health) * 0.85, 4));
   const petalBurn = useGarden((s) => quantize(s.scorch, 3));
+  // the cached materials, so every head of a lily wears the same ones
   const petalMats = useMemo(
     () => Array.from({ length: VARIANTS }, (_, v) => petalMaterial(sp, petalFade, petalBurn, quality, v)),
     [sp, petalFade, petalBurn, quality],
   );
 
   useEffect(() => {
-    refs.petalMats = petalMats;
-  }, [refs, petalMats]);
+    if (lead) refs.petalMats = petalMats;
+  }, [refs, petalMats, lead]);
 
   // a lily's long stamens round its style (lib/plant/stamens), or every other flower's short tuft
   const long = useMemo(() => longStamens(bp.seed, c), [bp.seed, c]);
@@ -392,47 +451,47 @@ function FlowerHead() {
   const sepalSetters = useMemo(
     () =>
       Array.from({ length: sepalCount }, (_, k) => (g: THREE.Group | null) => {
-        refs.sepals[k] = g;
+        headEntry(refs, index, node).sepals[k] = g;
       }),
-    [refs, sepalCount],
+    [refs, index, node, sepalCount],
   );
   const petalSetters = useMemo(
     () =>
       bp.petals.map((p, i) => ({
         group: (g: THREE.Group | null) => {
-          petalEntry(refs, i, p).group = g;
+          petalEntry(headEntry(refs, index, node), i, p).group = g;
         },
         mesh: (m: THREE.Mesh | null) => {
           if (m) m.updateMorphTargets();
-          petalEntry(refs, i, p).mesh = m;
+          petalEntry(headEntry(refs, index, node), i, p).mesh = m;
         },
       })),
-    [refs, bp.petals],
+    [refs, index, node, bp.petals],
   );
 
   const setHead = useCallback(
     (g: THREE.Group | null) => {
-      refs.head = g;
+      headEntry(refs, index, node).head = g;
     },
-    [refs],
+    [refs, index, node],
   );
   const setHeadBody = useCallback(
     (g: THREE.Group | null) => {
-      refs.headBody = g;
+      headEntry(refs, index, node).headBody = g;
     },
-    [refs],
+    [refs, index, node],
   );
   const setBud = useCallback(
     (m: THREE.Mesh | null) => {
-      refs.bud = m;
+      headEntry(refs, index, node).bud = m;
     },
-    [refs],
+    [refs, index, node],
   );
   const setStamens = useCallback(
     (g: THREE.Group | null) => {
-      refs.stamens = g;
+      headEntry(refs, index, node).stamens = g;
     },
-    [refs],
+    [refs, index, node],
   );
   const setGlow = useCallback(
     (l: THREE.PointLight | null) => {
@@ -442,7 +501,8 @@ function FlowerHead() {
   );
 
   return (
-    <group ref={setHead} rotation-y={bp.flowerYaw}>
+    // a lily's flower turns about its own axis by its spin, so the three are not copies of each other
+    <group ref={setHead} rotation-y={node ? node.spin : bp.flowerYaw}>
       {/* the head's parts in a group of their own: hiding them must never hide the glow light, since a light leaving
           the scene changes every lit material's program (see lightSets.ts) */}
       <group ref={setHeadBody}>
@@ -525,16 +585,81 @@ function FlowerHead() {
           ))}
         </group>
       </group>
-      {/* glow */}
-      <pointLight
-        ref={setGlow}
-        userData={OPTIONAL_LIGHT}
-        color={sp.fx.glowColor}
-        intensity={0}
-        distance={1.8}
-        decay={2}
-        position={[0, 0.05, 0]}
-      />
+      {/* glow: the lead's alone, so a lily's stem of flowers has the one light a plant has always had (lightSets.ts) */}
+      {lead ? (
+        <pointLight
+          ref={setGlow}
+          userData={OPTIONAL_LIGHT}
+          color={sp.fx.glowColor}
+          intensity={0}
+          distance={1.8}
+          decay={2}
+          position={[0, 0.05, 0]}
+        />
+      ) : null}
+    </group>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A lily flower's stalk
+
+/**
+ * A stalk off the cane, placed as a leaf is (riding its segment's growth and girth in the frame loop): turned to its
+ * bearing round the stem, leant out from it, a slim tube curving back up, and the flower at its end. The frame loop
+ * grows the tube and carries the flower out along it (lib/plant/raceme racemeStalkGrowth).
+ */
+function Pedicel({ index }: { index: number }) {
+  const { bp, geo, refs, raceme } = usePlant();
+  const sp = bp.species;
+  const n = bp.stem.length;
+  const node = raceme[index];
+  const seg = bp.stem[node.seg];
+  const shape = geo.pedicels[index];
+
+  const at = useMemo(() => stemPointAt(seg.length, seg.dx, seg.dz, node.t), [seg, node.t]);
+
+  const setOuter = useCallback(
+    (g: THREE.Group | null) => {
+      const e = headEntry(refs, index, node);
+      e.pedicel = g;
+      // R3F copies `at.position` into the group, so this stays the untouched rest point.
+      e.pedicelBase = at.position;
+    },
+    [refs, index, node, at],
+  );
+  const setLean = useCallback(
+    (g: THREE.Group | null) => {
+      headEntry(refs, index, node).pedicelLean = g;
+    },
+    [refs, index, node],
+  );
+  const setTube = useCallback(
+    (m: THREE.Mesh | null) => {
+      headEntry(refs, index, node).pedicelTube = m;
+    },
+    [refs, index, node],
+  );
+  const setEnd = useCallback(
+    (g: THREE.Group | null) => {
+      headEntry(refs, index, node).pedicelEnd = g;
+    },
+    [refs, index, node],
+  );
+
+  if (!shape) return null;
+  return (
+    <group ref={setOuter} position={at.position} quaternion={at.quaternion}>
+      <group rotation-y={node.yaw}>
+        <group ref={setLean} rotation-x={node.out}>
+          {/* the cane's own top segment's material: a stalk is the stem's green, no new material */}
+          <mesh ref={setTube} geometry={shape.geometry} material={stemMaterial(sp, n - 1, n)} castShadow receiveShadow />
+          {/* (R3F copies the end's position, so geo keeps the full-length rest point the frame loop scales) */}
+          <group ref={setEnd} position={shape.end.position} quaternion={shape.end.quaternion}>
+            <FlowerHead index={index} />
+          </group>
+        </group>
+      </group>
     </group>
   );
 }
@@ -543,10 +668,12 @@ function FlowerHead() {
 // Stem segment (recursive)
 
 function Segment({ i }: { i: number }) {
-  const { bp, geo, refs } = usePlant();
+  const { bp, geo, refs, raceme } = usePlant();
   const sp = bp.species;
   const n = bp.stem.length;
   const end = geo.ends[i];
+  // the head on the cane's tip: the one flower, or a lily's tip bud (its last raceme node)
+  const tip = Math.max(0, raceme.length - 1);
 
   const setSeg = useCallback(
     (g: THREE.Group | null) => {
@@ -572,8 +699,18 @@ function Segment({ i }: { i: number }) {
       <mesh ref={setTube} geometry={geo.stem[i]} material={stemMaterial(sp, i, n)} castShadow receiveShadow />
       {bp.leaves.map((leaf, idx) => (leaf.seg === i ? <Leaf key={idx} index={idx} /> : null))}
       {bp.thorns.map((th, idx) => (th.seg === i ? <Thorn key={idx} index={idx} /> : null))}
+      {raceme.map((node, idx) => (node.seg === i && !node.tipBud ? <Pedicel key={`p${idx}`} index={idx} /> : null))}
       <group ref={setMount} position={end.position} quaternion={end.quaternion}>
-        {i + 1 < n ? <Segment i={i + 1} /> : <FlowerHead />}
+        {i + 1 < n ? (
+          <Segment i={i + 1} />
+        ) : raceme.length > 0 ? (
+          // a lily's tip bud, turned to the way it leans
+          <group rotation-y={raceme[tip].yaw}>
+            <FlowerHead index={tip} />
+          </group>
+        ) : (
+          <FlowerHead index={tip} />
+        )}
       </group>
     </group>
   );
@@ -594,6 +731,8 @@ export function Plant() {
     const stem = base.stem.map((s) => ({ ...s, r0: s.r0 * 1.08, r1: s.r1 * 1.16 }));
     return { ...base, stem, leaves: heroLeaves(seed, sp, stem.length) };
   }, [seed, sp]);
+  // a lily's flowers up the top of its stem and its tip bud (none for a flower that grows alone)
+  const raceme = useMemo(() => racemeNodes(seed, sp, bp.stem.length), [seed, sp, bp.stem.length]);
   const key = sp.id + "|" + seed;
 
   const geo = useMemo<PlantGeometry>(() => {
@@ -623,8 +762,13 @@ export function Plant() {
     );
     const thorn = species.stem.thorns ? makeThornGeometry() : null;
     const ends = bp.stem.map((seg) => stemEndTransform(seg.length, seg.dx, seg.dz));
-    return { stem, petals, leaves, sepal, receptacle, rachis, rachisLength, thorn, ends };
-  }, [bp, quality]);
+    const pedicels = raceme.map((node) => {
+      if (node.tipBud) return null;
+      const s = pedicelShape(node, species);
+      return { geometry: makeStemGeometry(s.length, s.r0, s.r1, 0, s.dz, 8, 8), end: stemEndTransform(s.length, 0, s.dz) };
+    });
+    return { stem, petals, leaves, sepal, receptacle, rachis, rachisLength, thorn, ends, pedicels };
+  }, [bp, raceme, quality]);
 
   useEffect(
     () => () => {
@@ -635,6 +779,7 @@ export function Plant() {
       geo.receptacle.dispose();
       geo.rachis.dispose();
       geo.thorn?.dispose();
+      for (const p of geo.pedicels) p?.geometry.dispose();
     },
     [geo],
   );
@@ -648,7 +793,7 @@ export function Plant() {
   }
   const R = refs.current;
 
-  const ctx = useMemo<PlantContextValue>(() => ({ bp, geo, refs: R, quality }), [bp, geo, R, quality]);
+  const ctx = useMemo<PlantContextValue>(() => ({ bp, geo, refs: R, quality, raceme }), [bp, geo, R, quality, raceme]);
 
   const budMat = budMaterial(sp);
   const vis = useRef<HeroVisual | null>(null);
@@ -768,65 +913,108 @@ export function Plant() {
       e.group.visible = gi > 0.05;
     }
 
-    // flower head
+    // flower heads
     const f = sp.flower;
     const L = f.layers.length;
+    const layerDen = Math.max(1, L - 1);
     // Before the bud forms, the head is the cane's growing tip: the closed
     // sepals alone, a small pointed green shoot, so the stem never ends in a
     // cut-off tube. The petals and bud core show once the bud starts to swell.
-    const bud = heroBudGrowth(v.growth);
+    // A lily's flowers each swell on their own bud and open on their own
+    // morning (lib/plant/raceme), from the hours since its lead opened.
+    const leadBud = heroBudGrowth(v.growth);
     const eb = (card ? Math.max(v.bloom, CARD_BLOOM) : v.bloom) * smoothstep(0.8, 0.92, v.growth);
-    const head = R.head;
-    const petalsShown = bud > 0.04;
     const headShown = heroStemFraction(v.growth) > 0.005;
-    if (R.headBody) R.headBody.visible = headShown;
-    if (head) {
-      // a flower that budded under stress, or a second-chance sprout's, opens smaller
-      head.scale.setScalar((0.3 + 0.7 * bud) * (0.6 + 0.4 * v.flower));
-      head.rotation.x = bp.headTilt + droop * 0.9 + windAmp * 0.03 * Math.sin(t * 1.7);
-    }
+    const opened = s.opened;
+    const heads = R.heads;
+    const tipHead = heads[heads.length - 1];
+    // the head the camera, the card and the butterflies follow: the lead, once its bud shows on its stalk
+    let followed: HeadRefs | undefined = heads[0];
+    // the lead's glow lights only while the lead itself is drawn
+    let leadShown = false;
+    cardShot.bodies.length = 0;
+    for (let h = 0; h < heads.length; h++) {
+      const e = heads[h];
+      if (!e) continue;
+      const node = e.node;
+      const bud = node ? racemeBudGrowth(heroBudGrowth, v.growth, node) : leadBud;
+      const ebH = node ? eb * racemeOpen(node, opened) : eb;
+      const petalsShown = bud > BUD_SHOWN;
+      let shown = headShown;
+      if (node && !node.tipBud) {
+        // a flower's stalk rides its segment as a leaf does, grows out with its bud and spreads as its flower opens
+        const grow = racemeStalkGrowth(bud, ebH);
+        shown = headShown && petalsShown;
+        if (e.pedicel && e.pedicelBase) {
+          const gi = heroSegmentGrowth(v.growth, node.seg, n);
+          const sx = heroStemGirth(v.growth, gi);
+          e.pedicel.position.set(e.pedicelBase.x * sx, e.pedicelBase.y * gi, e.pedicelBase.z * sx);
+        }
+        if (e.pedicelTube) {
+          e.pedicelTube.scale.setScalar(Math.max(0.0001, grow));
+          e.pedicelTube.visible = shown;
+        }
+        const end = geo.pedicels[h]?.end.position;
+        if (e.pedicelEnd && end) e.pedicelEnd.position.set(end.x * grow, end.y * grow, end.z * grow);
+        // a thirsty lily's flowers hang a little on their stalks
+        if (e.pedicelLean) e.pedicelLean.rotation.x = racemeStalkLean(node, ebH) + droop * 0.5 + windAmp * 0.05 * Math.sin(t * 1.9 + node.yaw);
+      }
+      if (h === 0) {
+        leadShown = shown;
+        if (!shown && tipHead) followed = tipHead;
+      }
+      if (e.headBody) {
+        e.headBody.visible = shown;
+        if (shown) cardShot.bodies.push(e.headBody);
+      }
+      const head = e.head;
+      if (head) {
+        // a flower that budded under stress, or a second-chance sprout's, opens smaller
+        head.scale.setScalar((node ? racemeHeadScale(node, bud) : 0.3 + 0.7 * bud) * (0.6 + 0.4 * v.flower));
+        head.rotation.x = (node ? node.tilt : bp.headTilt) + droop * 0.9 + windAmp * 0.03 * Math.sin(t * 1.7 + (node ? node.yaw : 0));
+      }
 
-    const petals = R.petals;
-    const layerDen = Math.max(1, L - 1);
-    for (let j = 0; j < petals.length; j++) {
-      const e = petals[j];
-      if (!e || !e.group) continue;
-      e.group.visible = petalsShown;
-      const p = e.node;
-      const o = petalOpen(eb, p.stagger);
-      // Closed petals lean a little inward so the bud closes to a teardrop.
-      e.group.rotation.x =
-        o * p.openTarget -
-        (1 - o) * 0.18 +
-        droop * 0.3 * (p.layer / layerDen) +
-        windAmp * 0.04 * Math.sin(t * 2.2 + p.phase) * (0.3 + 0.7 * o);
-      e.group.scale.setScalar(lerp(0.55, 1, o) * p.scale);
-      const inf = e.mesh ? e.mesh.morphTargetInfluences : undefined;
-      if (inf) inf[0] = smoothstep(0.05, 0.95, o);
-    }
+      const petals = e.petals;
+      for (let j = 0; j < petals.length; j++) {
+        const pe = petals[j];
+        if (!pe || !pe.group) continue;
+        pe.group.visible = petalsShown;
+        const p = pe.node;
+        const o = petalOpen(ebH, p.stagger);
+        // Closed petals lean a little inward so the bud closes to a teardrop.
+        pe.group.rotation.x =
+          o * p.openTarget -
+          (1 - o) * 0.18 +
+          droop * 0.3 * (p.layer / layerDen) +
+          windAmp * 0.04 * Math.sin(t * 2.2 + p.phase) * (0.3 + 0.7 * o);
+        pe.group.scale.setScalar(lerp(0.55, 1, o) * p.scale);
+        const inf = pe.mesh ? pe.mesh.morphTargetInfluences : undefined;
+        if (inf) inf[0] = smoothstep(0.05, 0.95, o);
+      }
 
-    const budMesh = R.bud;
-    if (budMesh) {
-      const br = Math.max(0.0001, f.budRadius * (1 - eb) * (0.6 + 0.4 * bud));
-      budMesh.scale.set(br, br * (f.budAspect ?? 1), br);
-      budMesh.visible = petalsShown && eb < 0.9;
-    }
+      const budMesh = e.bud;
+      if (budMesh) {
+        const br = Math.max(0.0001, f.budRadius * (1 - ebH) * (0.6 + 0.4 * bud));
+        budMesh.scale.set(br, br * (f.budAspect ?? 1), br);
+        budMesh.visible = petalsShown && ebH < 0.9;
+      }
 
-    const sepals = R.sepals;
-    // Closed round the young bud, parting a little as it swells to show its colour, then folding back as it opens.
-    const sepalRot = 0.06 + 0.32 * heroSepalPart(bud) + 1.4 * smoothstep(0, 0.6, eb) + droop * 0.2;
-    const sepalScale = 0.75 + 0.25 * bud;
-    for (let j = 0; j < sepals.length; j++) {
-      const sg = sepals[j];
-      if (!sg) continue;
-      sg.rotation.x = sepalRot;
-      sg.scale.setScalar(sepalScale);
-    }
+      const sepals = e.sepals;
+      // Closed round the young bud, parting a little as it swells to show its colour, then folding back as it opens.
+      const sepalRot = 0.06 + 0.32 * heroSepalPart(bud) + 1.4 * smoothstep(0, 0.6, ebH) + droop * 0.2;
+      const sepalScale = 0.75 + 0.25 * bud;
+      for (let j = 0; j < sepals.length; j++) {
+        const sg = sepals[j];
+        if (!sg) continue;
+        sg.rotation.x = sepalRot;
+        sg.scale.setScalar(sepalScale);
+      }
 
-    const stamens = R.stamens;
-    if (stamens) {
-      stamens.visible = eb > 0.6;
-      stamens.scale.setScalar(Math.max(0.001, eb));
+      const stamens = e.stamens;
+      if (stamens) {
+        stamens.visible = ebH > 0.6;
+        stamens.scale.setScalar(Math.max(0.001, ebH));
+      }
     }
 
     // emissive and glow, held against the tone-mapping exposure: the lite tier
@@ -848,11 +1036,19 @@ export function Plant() {
     // The glow sits in the heart of the bloom, centimetres from the inner petals; on lite,
     // with nothing to soften it, it burns a white spot there, so it is kept low.
     // (it stays in the scene while the head is not yet shown, so the light count never changes, but gives no light)
-    if (glow) glow.intensity = headShown ? ei * (quality === "lite" ? 1.1 : 3) * night * (sp.fx.glowNight ? 1 : 0.2) : 0;
+    if (glow) glow.intensity = leadShown ? ei * (quality === "lite" ? 1.1 : 3) * night * (sp.fx.glowNight ? 1 : 0.2) : 0;
 
-    if (head) head.getWorldPosition(env.headPos);
+    const head = followed?.head ?? null;
+    if (head) {
+      head.getWorldPosition(env.headPos);
+      env.headUp.set(0, 1, 0).applyQuaternion(head.getWorldQuaternion(qHead));
+    }
+    // the crown is the tip's head: the one flower itself, or a lily's tip bud on the mount its one flower had
+    const crown = tipHead?.head ?? null;
+    if (crown === head) env.crownPos.copy(env.headPos);
+    else if (crown) crown.getWorldPosition(env.crownPos);
     cardShot.head = head;
-    cardShot.headBody = R.headBody;
+    cardShot.headBody = followed?.headBody ?? null;
   });
 
   return (

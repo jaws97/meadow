@@ -22,7 +22,7 @@
 // few hours at most.
 import "server-only";
 import type { SpeciesId } from "@/lib/plant/species";
-import { catchUp, hourIndexOf, modelVersionOfState, toVisual, type PlantState, type TimedEvent, type Visual } from "@/lib/sim";
+import { bloomedAt, catchUp, hourIndexOf, modelVersionOfState, toVisual, type PlantState, type TimedEvent, type Visual } from "@/lib/sim";
 import { advanceCheckpoint, baseState } from "./catchup";
 import { db, transaction } from "./db";
 import { showRehearsals, writesDerivedState } from "./env";
@@ -213,6 +213,8 @@ export interface FriendGarden {
   bloom: 0 | 1 | 2 | 3;
   /** what the garden scene draws, at the IST clock of `at` */
   visual: Visual;
+  /** when the flower opened (the start of the model's bloom hour), null before it has: a lily's later flowers follow it */
+  bloomedAt: string | null;
   /** the game hour the plant is caught up to, and when it started */
   h: number;
   at: string;
@@ -285,6 +287,7 @@ export async function gardenOfPlot(plot: number, now: Date = new Date()): Promis
 
   const s = adv.state;
   const visual = toVisual(s, null, istClock(now));
+  const bloomed = bloomedAt(s);
   return {
     v: 1,
     plot,
@@ -298,6 +301,7 @@ export async function gardenOfPlot(plot: number, now: Date = new Date()): Promis
     health: healthBand(visual),
     bloom: bloomBand(visual),
     visual,
+    bloomedAt: bloomed === null ? null : hourIso(bloomed),
     h: s.h,
     at: hourIso(s.h),
   };

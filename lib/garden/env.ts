@@ -22,8 +22,15 @@ export const env = {
   wind: 0.5,
   /** 0 full day .. 1 deep night */
   nightness: 0,
-  /** world position of the flower head, for focus and glow */
+  /** world position of the flower head, for focus and glow (a lily's lead flower, once its bud shows) */
   headPos: new THREE.Vector3(0, 0.9, 0),
+  /** which way that head's face looks, world space (unit) */
+  headUp: new THREE.Vector3(0, 1, 0),
+  /**
+   * world position of the plant's crown, the top of its stem: the flower head itself, or a lily's tip bud above its lead
+   * flower. The garden frames the plant by it, and the covers and the can clear it, as they did a lily's one flower.
+   */
+  crownPos: new THREE.Vector3(0, 0.9, 0),
   /** where the depth of field focuses instead of the flower head, while something else holds the eye (the party trailer) */
   focus: null as THREE.Vector3 | null,
 };

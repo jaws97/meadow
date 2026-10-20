@@ -10,7 +10,8 @@
 // opening only while its clock runs by itself, and a friend's garden must never replace that still.
 // A friend's lotus opens in its courtyard (components/lotus/product): the store gets its pond as well (the model's
 // PondVisual as the garden draws it: the level, the green, the leaves, the koi, the flower's day), and the plant's own
-// droop, paling and flower size, so the courtyard shows the pond as it truly is.
+// droop, paling and flower size, so the courtyard shows the pond as it truly is. A friend's lily opens its later
+// flowers on its own bloom clock (lib/plant/raceme), read from when its first flower opened.
 import dynamic from "next/dynamic";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { loadFriend, type FriendGarden } from "@/components/meadow/data";
@@ -19,6 +20,7 @@ import { dayText, moodLine, speciesName } from "@/components/meadow/words";
 import { useQuality } from "@/lib/garden/quality";
 import { flowerSizeOf, pondShownOf } from "@/lib/client/plantShown";
 import { garden, type GardenState } from "@/lib/garden/store";
+import { openedSince } from "@/lib/plant/raceme";
 import type { PondVisual } from "@/lib/sim/pond";
 import { istNow } from "@/lib/sky/sun";
 import "@/components/meadow/meadow.css";
@@ -53,15 +55,19 @@ function lotusLook(v: PondVisual, generation: number): Partial<GardenState> {
 
 type Loaded = { ok: true; friend: FriendGarden } | { ok: false; message: string };
 
-/** The friend's plant in the garden store, for as long as this view is open. */
-function useFriendInStore(look: Partial<GardenState> | null): boolean {
+/**
+ * The friend's plant in the garden store, for as long as this view is open; with `bloomedAt`, the hours since its flower
+ * opened keep to the clock with the hour, so a lily's next flower opens while it is watched.
+ */
+function useFriendInStore(look: Partial<GardenState> | null, bloomedAt: string | null): boolean {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     if (!look) return;
     const before = garden.get();
+    const clock = () => (bloomedAt ? { opened: openedSince(bloomedAt, Date.now()) } : {});
     // a friend's garden plays none of this device's own moments (the watering can stays where it stands)
-    garden.set({ ...look, autoClock: false, hour: istNow(), canMoment: null });
-    const id = window.setInterval(() => garden.set({ hour: istNow() }), 30_000);
+    garden.set({ ...look, ...clock(), autoClock: false, hour: istNow(), canMoment: null });
+    const id = window.setInterval(() => garden.set({ hour: istNow(), ...clock() }), 30_000);
     const raf = requestAnimationFrame(() => setReady(true));
     return () => {
       window.clearInterval(id);
@@ -80,13 +86,14 @@ function useFriendInStore(look: Partial<GardenState> | null): boolean {
         pests: before.pests,
         flowerSize: before.flowerSize,
         glow: before.glow,
+        opened: before.opened,
         pond: before.pond,
         canMoment: null,
         autoClock: before.autoClock,
         hour: before.hour,
       });
     };
-  }, [look]);
+  }, [look, bloomedAt]);
   return ready;
 }
 
@@ -113,17 +120,18 @@ export function FriendGardenView() {
   const [look, setLook] = useState<Partial<GardenState> | null>(null);
   useEffect(() => {
     let next: Partial<GardenState> | null = null;
-    if (which.kind === "rose") next = { speciesId: "rose", seed: OWNER_SEED, growth: 1, bloom: 1, health: 1, moisture: 0.6, scorch: 0, pond: null };
+    if (which.kind === "rose") next = { speciesId: "rose", seed: OWNER_SEED, growth: 1, bloom: 1, health: 1, moisture: 0.6, scorch: 0, opened: Infinity, pond: null };
     else if (loaded?.ok) {
       const f = loaded.friend, v = f.visual;
-      next = { speciesId: f.species, seed: f.seed, growth: v.growth, bloom: v.bloom, health: v.health, moisture: v.moisture, scorch: v.scorch, pond: null };
+      // a lily's later flowers stay closed unless its bloom clock says otherwise (useFriendInStore keeps it from bloomedAt)
+      next = { speciesId: f.species, seed: f.seed, growth: v.growth, bloom: v.bloom, health: v.health, moisture: v.moisture, scorch: v.scorch, opened: null, pond: null };
       if ("medium" in v && v.medium === "pond") next = { ...next, ...lotusLook(v, f.generation) };
     }
     if (!next) return;
     const id = window.setTimeout(() => setLook(next), 0);
     return () => window.clearTimeout(id);
   }, [which, loaded]);
-  const ready = useFriendInStore(look);
+  const ready = useFriendInStore(look, loaded?.ok ? (loaded.friend.bloomedAt ?? null) : null);
 
   const back = which.kind === "plot" ? `/meadow?plot=${which.plot}` : "/meadow";
   const friend = loaded?.ok ? loaded.friend : null;

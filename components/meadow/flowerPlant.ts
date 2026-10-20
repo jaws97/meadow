@@ -62,6 +62,7 @@ function fullDetail(petals: Quality): PoseDetail {
     leaf: [10, 18],
     sepal: [6, 14],
     stem: [12, 10],
+    pedicel: [8, 8],
     rachis: [6, 6],
     thorn: [8, 8],
     receptacle: (radius, height) => makeReceptacleGeometry(radius, height, 3),

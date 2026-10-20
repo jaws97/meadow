@@ -152,6 +152,8 @@ export function syntheticFriend(plot: number, opts: SyntheticOptions): FriendGar
     health: p.health,
     bloom: p.bloom,
     visual,
+    // a made-up flower in bloom opened three days ago, so a lily's visit shows all its flowers, as its picture does
+    bloomedAt: p.stage === "bloom" ? new Date((snapshot.h - 72) * 3_600_000).toISOString() : null,
     h: snapshot.h,
     at: snapshot.at,
   };

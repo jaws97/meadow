@@ -25,9 +25,14 @@ export const cardShot = {
   light: null as CardLight | null,
   /** from the request to the release: a tier prepared out of sight waits rather than swapping in under the still */
   busy: false,
-  /** the soil flower's head as last drawn (Plant): the shot is solved from it; null for a lotus */
+  /** the soil flower's head as last drawn (Plant): the shot is solved from it (a lily's lead flower); null for a lotus */
   head: null as THREE.Object3D | null,
   headBody: null as THREE.Object3D | null,
+  /**
+   * Every head drawn on the stem as last drawn, the lead first (Plant): the one flower, or a lily's flowers and its tip
+   * bud, so the card frames them all while it looks at the lead's face. Rewritten in place each frame.
+   */
+  bodies: [] as THREE.Object3D[],
 };
 
 /** The flower as the card shows it: fully open, and no more drooped than this. */
