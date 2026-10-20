@@ -21,6 +21,7 @@ import {
   friendsLine,
   friendsText,
   istWhen,
+  isTopUp,
   notReadyText,
   koiLine,
   lineAsksForWater,
@@ -439,6 +440,14 @@ describe("the lotus", () => {
     expect(pondStamps({ stage: "pond", moveReady: false }, water(t0, false))).toEqual({ topUpAt: 0, pinchAt: 0, plantedAt: 0 });
     // the brass pot has its own pour: the soil garden's watering can never plays for a lotus
     expect(canMomentFor({ ...view(), visual: pondV() } as unknown as MeView, "water", [], t0)).toBeNull();
+  });
+
+  it("knows a top-up, the press the brass pot pours for (a refused one is said outright, so the pot goes home)", () => {
+    expect(isTopUp({ visual: pondV({ stage: "pond" }) }, "water")).toBe(true);
+    // in the jar the water action freshens it or plants the seedling; tending the pond pours nothing
+    expect(isTopUp({ visual: pondV({ stage: "jar" }) }, "water")).toBe(false);
+    expect(isTopUp({ visual: pondV({ stage: "pond" }) }, "tend")).toBe(false);
+    expect(isTopUp({ visual: visual() }, "water")).toBe(false);
   });
 
   it("gives the garden its pond, easing the levels and stepping the counts", () => {

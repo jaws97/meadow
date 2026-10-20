@@ -3,7 +3,8 @@
 // only). A day-and-hour scrubber runs the pond model in the browser (devSeason.ts) under a chosen way of caring and hands
 // its PondVisual to the garden store exactly as lib/client/plant does for a real plant, so every stage can be seen (and
 // captured by a scripted browser) in the real courtyard; the stage buttons jump to the moments worth checking; the
-// moment buttons play this device's own care as a press would (the pinch for the koi, a top-up, the planting, a word).
+// moment buttons play this device's own care as a press would (the pinch for the koi, a top-up, the planting, a word),
+// and refuse the top-up playing as the server would.
 import { useCallback, useMemo, useState } from "react";
 import { flowerSizeOf, pondShownOf } from "@/lib/client/plantShown";
 import { garden, useGarden, type PondShown } from "@/lib/garden/store";
@@ -68,6 +69,9 @@ function push(kind: SeasonKind, day: number) {
   });
 }
 
+/** The pond as it stood before the top-up playing now, put back if that top-up is refused. */
+let beforeTopUp: Pick<PondShown, "waterMM" | "stonesMM" | "potIsolated" | "potDry"> | null = null;
+
 /** This device's care, played as a press would play it. */
 function play(kind: "pinch" | "topUp" | "plant" | "talk") {
   const p = garden.get().pond;
@@ -80,10 +84,22 @@ function play(kind: "pinch" | "topUp" | "plant" | "talk") {
   let next: PondShown = p;
   if (kind === "pinch") next = { ...p, pinchAt: now, koiGather: 1, koiHunger: 0, aphids: p.aphids * 0.1 };
   else if (kind === "topUp" && p.stage === "pond") {
+    beforeTopUp = { waterMM: p.waterMM, stonesMM: p.stonesMM, potIsolated: p.potIsolated, potDry: p.potDry };
     const level = Math.min(20, p.waterMM + 11.5);
     next = { ...p, waterMM: level, stonesMM: level + 50, potIsolated: level < -25 ? p.potIsolated : false, potDry: level < -25 && p.potDry, topUpAt: now };
   } else if (kind === "plant" && p.stage === "jar") next = { ...p, stage: "pond", moveReady: false, jarClarity: 1, floatLeaves: Math.max(1, p.floatLeaves), plantedAt: now };
   garden.set({ pond: next });
+}
+
+/**
+ * The top-up playing now, refused as the server would refuse it (lib/client/plant sendCare): its stamp and its water
+ * withdrawn and the refusal said, so the brass pot goes home.
+ */
+function refuse() {
+  const p = garden.get().pond;
+  if (!p || !(p.topUpAt > 0)) return;
+  garden.set({ pond: { ...p, ...beforeTopUp, topUpAt: 0 }, topUpRefused: { at: p.topUpAt, refusedAt: Date.now() } });
+  beforeTopUp = null;
 }
 
 const button =
@@ -152,6 +168,9 @@ export default function LotusDevControls() {
         <button type="button" className={button} disabled={pond?.stage !== "pond"} onClick={() => play("topUp")}>
           Top up
         </button>
+        <button type="button" className={button} disabled={!pond?.topUpAt} onClick={refuse}>
+          Refuse top-up
+        </button>
         <button type="button" className={button} disabled={pond?.stage !== "jar"} onClick={() => play("plant")}>
           Plant
         </button>
@@ -163,10 +182,11 @@ export default function LotusDevControls() {
   );
 }
 
-/** For scripted captures (development builds): jump to a season's day or a stage, or play a press. */
+/** For scripted captures (development builds): jump to a season's day or a stage, play a press, or refuse a top-up. */
 export const lotusDev = {
   push,
   play,
+  refuse,
   stage(label: string): number | null {
     const s = STAGES.find((x) => x.label === label);
     const d = s ? stageDay(s) : null;

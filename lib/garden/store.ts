@@ -77,6 +77,17 @@ export interface CanMoment {
   soil: CanSoil;
 }
 
+/**
+ * This page's own top-up for a lotus, refused by the server or given up offline (lib/client/plant sendCare): the
+ * courtyard's brass pot, pouring for it, goes home without a snap (components/lotus/product/pourLive). Never remembered.
+ */
+export interface TopUpRefusal {
+  /** the press refused (the pond's topUpAt it was stamped with, epoch ms) */
+  at: number;
+  /** when it was refused (epoch ms) */
+  refusedAt: number;
+}
+
 export interface GardenState {
   speciesId: SpeciesId;
   seed: string;
@@ -116,6 +127,8 @@ export interface GardenState {
   pond: PondShown | null;
   /** this page's own can for a soil flower, played once by the garden; null for none (and for a lotus, a friend's garden) */
   canMoment: CanMoment | null;
+  /** this page's own lotus top-up that was refused, so the brass pot goes home; null for none */
+  topUpRefused: TopUpRefusal | null;
 }
 
 const initial: GardenState = {
@@ -146,6 +159,7 @@ const initial: GardenState = {
   quality: "cinematic",
   pond: null,
   canMoment: null,
+  topUpRefused: null,
 };
 
 const QUALITIES: readonly Quality[] = ["cinematic", "balanced", "lite"];

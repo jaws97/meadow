@@ -5,8 +5,10 @@
 // The courtyard's moments (their timings are timings.ts's), drawn from this device's own care as the garden store carries
 // it (the pond's topUpAt, pinchAt and plantedAt): the brass pot's pour and, when the pond was full, the spill at the
 // front coping's corner; the pellets of a pinch on the water at the front right (the koi come up for them: LiveKoi);
-// the seedling's glide from its jar into the pot, with the jar fading from the coping. With reduced motion the pot is not
-// tipped (the rings and the level tell the top-up) and the seedling does not fly (the courtyard starts no glide). In world space (KoiPond's
+// the seedling's glide from its jar into the pot, with the jar fading from the coping. The pour plays from its press as
+// the courtyard latched it (pourLive), on after its stamp has gone, and a refused one eases the pot home: it never snaps
+// upright, and the stream fades rather than vanishing. With reduced motion the pot is not tipped (the rings and the
+// level tell the top-up) and the seedling does not fly (the courtyard starts no glide). In world space (KoiPond's
 // children); rings 3-5 of the water's are theirs. Nothing here adds a light (a light would change every program's
 // light count): the seedling's light is a sprite.
 //
@@ -27,6 +29,7 @@ import { KODAM } from "@/components/lotus/courtyard/plan";
 import { FEED_SPOT } from "@/components/lotus/product/koiMoves";
 import type { PondLive } from "@/components/lotus/KoiPond";
 import { glideState, GLIDE, PELLETS, pelletLeft, pourPose, since, spills, spillWet, type PourPose } from "@/components/lotus/product/timings";
+import { pourLive } from "@/components/lotus/product/pourLive";
 import { courtSubject } from "@/components/lotus/product/stage";
 import { LEAN } from "@/components/lotus/product/camera";
 
@@ -296,16 +299,18 @@ export function Moments({
       return;
     }
 
-    // the pour (and the spill when the bucket brought the pond to its notch)
-    const tp = since(p.topUpAt, now);
-    if (p.topUpAt !== S.topUp) {
-      S.topUp = p.topUpAt;
-      S.spilled = tp >= 0 && spills(p.waterMM);
+    // the pour (and the spill when the bucket brought the pond to its notch), as the courtyard latched it this frame
+    // (pourLive: played from its press whatever its stamp does after, and eased home if it is refused)
+    const tp = pourLive.t;
+    const refused = pourLive.refused;
+    if (pourLive.at !== S.topUp) {
+      S.topUp = pourLive.at;
+      S.spilled = pourLive.at > 0 && spills(p.waterMM);
       S.spillRung = false;
       S.pourRing = 0;
     }
     // with reduced motion the pot stays on its step: the rings and the rising level tell the top-up
-    pourPose(reducedMotion() ? -1 : tp, S.pose);
+    pourPose(reducedMotion() ? -1 : tp, S.pose, refused);
     kodamPose.tilt = S.pose.tilt;
     kodamPose.lift = S.pose.lift;
     const s = stream.current;
@@ -314,11 +319,11 @@ export function Moments({
       mats.stream.opacity = 0.75 * S.pose.flow;
       mats.stream.alphaMap!.offset.y = t * 2.2;
     }
-    if ((S.pose.flow > 0.3 || (reducedMotion() && tp >= 0.4 && tp < 2.5)) && tp >= S.pourRing) {
+    if ((S.pose.flow > 0.3 || (reducedMotion() && tp >= 0.4 && tp < 2.5 && !(refused >= 0 && tp >= refused))) && tp >= S.pourRing) {
       S.pourRing = tp + 0.45;
       ringPond(S.rings, geo.land.x, geo.land.z, t, 1.8, 0.8);
     }
-    const wetNow = S.spilled ? spillWet(tp) : { spread: 0, wet: 0 };
+    const wetNow = S.spilled ? spillWet(tp, refused) : { spread: 0, wet: 0 };
     const f = film.current;
     if (f) {
       f.visible = warm || wetNow.wet > 0.01;

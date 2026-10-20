@@ -6,9 +6,10 @@
 // through useLayerFrame. No butterflies: the koi are the courtyard's living things.
 //
 // Frame order, as the flower garden's: the clock at -10 writes the shared env; at -5 this part steps the garden's
-// weather (the lamps' flames read it), eases what moves (the level, the green, the jar, the flower's opening and
-// warmth) and writes it into the look, the pond's and the plant's live records and the camera's subject; the plant
-// (which writes env.headPos for the focus and the camera) and the koi move at 0, the pond's reflection draws at 0.5.
+// weather (the lamps' flames read it), steps this page's pour (pourLive, which the moments read), eases what moves (the
+// level, the green, the jar, the flower's opening and warmth) and writes it into the look, the pond's and the plant's
+// live records and the camera's subject; the plant (which writes env.headPos for the focus and the camera) and the koi
+// move at 0, the pond's reflection draws at 0.5.
 //
 // The plant's shape is rebuilt only when a step of its shape is crossed (liveLook.ts: a leaf more, the flower's next
 // day, a fallen petal, a droop in twentieths, the level in 12 mm steps); the green water, the jar clouding and the
@@ -45,8 +46,9 @@ import { Courtyard } from "@/components/lotus/courtyard/Courtyard";
 import { LEAN } from "@/components/lotus/product/camera";
 import { LiveKoi } from "@/components/lotus/product/LiveKoi";
 import { aphidShare, applyLive, nibbleOf, shapeKey, shapeLook } from "@/components/lotus/product/liveLook";
-import { claimGlide, GLIDE, pourLevel, since } from "@/components/lotus/product/timings";
+import { claimGlide, GLIDE, pourLevel } from "@/components/lotus/product/timings";
 import { Moments, type MomentsClock } from "@/components/lotus/product/Moments";
+import { pourLive, stepPourLive } from "@/components/lotus/product/pourLive";
 import { courtSubject, courtyardExpected, courtyardReady } from "@/components/lotus/product/stage";
 
 export const LOTUS_GARDEN_NAME = "lotus-garden";
@@ -239,13 +241,14 @@ export default function LotusGarden() {
     E.drop += (p.petalDrop - E.drop) * k;
     E.glow += (s.glow - E.glow) * k;
 
-    // a pour: the level waits for the stream to reach the water
-    const tp = since(p.topUpAt, now);
-    if (p.topUpAt !== pour.current.stamp) {
-      pour.current.stamp = p.topUpAt;
+    // a pour: the level waits for the stream to reach the water (the pour plays on from its press once its stamp has
+    // gone, and a refused one rises only by what it poured: pourLive, which the moments read after this)
+    const tp = stepPourLive(now);
+    if (pourLive.at !== pour.current.stamp) {
+      pour.current.stamp = pourLive.at;
       pour.current.before = P.levelMM;
     }
-    const level = pourLevel(tp, pour.current.before, E.level);
+    const level = pourLevel(tp, pour.current.before, E.level, pourLive.refused);
 
     // the planting: once per plant on this device, decided here, before the plant is drawn this frame (with reduced
     // motion there is no flight: the plant is simply in its pot, its first leaf opening)

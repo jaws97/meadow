@@ -26,8 +26,9 @@
 // freshens the jar, then plants the seedling in its pot ("Plant in the pond"), then pours a bucket ("Top up the pond");
 // "Tend the pond" gives the koi a pinch and rinses aphids; it has four care buttons (no shade cloth, no rain cover). Its
 // pond numbers reach the garden store as PondShown (pondShownOf), eased like the rest, with the moments this device's
-// own top-up, pinch and planting began, so the scene can play each once. Everything lotus-only is keyed on isLotus() or
-// isPondVisual(); the six soil flowers read exactly as before.
+// own top-up, pinch and planting began, so the scene can play each once; a refused top-up is said outright
+// (topUpRefused), so the brass pot pouring for it goes home rather than stopping dead. Everything lotus-only is keyed
+// on isLotus() or isPondVisual(); the six soil flowers read exactly as before.
 import { useSyncExternalStore } from "react";
 import { getJson, newEventId, postJson, type ApiFail } from "@/lib/client/api";
 import { rememberGarden } from "@/lib/client/gardens";
@@ -719,6 +720,19 @@ function refuseCan(at: number) {
   if (m && m.at === at && !m.refusedAt) garden.set({ canMoment: { ...m, refusedAt: Date.now() } });
 }
 
+/** A water action on a lotus already in its pond: a top-up, which the courtyard's brass pot pours at once (pondStamps). */
+export function isTopUp(me: Pick<MeView, "visual">, kind: CareKind): boolean {
+  return kind === "water" && isPondVisual(me.visual) && me.visual.stage === "pond";
+}
+
+/**
+ * The courtyard's brass pot goes home: the top-up it is pouring for (pressed at `at`) was refused, or the phone gave
+ * up offline. Said outright, since the stamp going back to 0 alone is just as often the top-up's hour being folded in.
+ */
+function refuseTopUp(at: number) {
+  garden.set({ topUpRefused: { at, refusedAt: Date.now() } });
+}
+
 /** Seconds each eased pond number takes to cover most of the way (levels over 3 s); the rest (counts, flags, stamps) step. */
 const POND_EASE = {
   waterMM: 3, stonesMM: 3, jarClarity: 3, algae: 8, floatBrown: 8, nibbled: 6, koiHunger: 3, koiGather: 2, aphids: 3,
@@ -1155,8 +1169,8 @@ function currentTarget(me: MeView, now: number): { target: RenderTarget; pond: P
 
 function writeTarget(t: RenderTarget, pond: PondShown | null, identity?: { speciesId: SpeciesId; seed: string }) {
   const g = garden.get();
-  // a can poured for one plant is never played over the next
-  const p: Partial<GardenState> = identity ? { ...identity, canMoment: null } : {};
+  // a can poured (or a top-up refused) for one plant is never played over the next
+  const p: Partial<GardenState> = identity ? { ...identity, canMoment: null, topUpRefused: null } : {};
   let changed = !!identity;
   for (const k of RENDER_KEYS) {
     const now = g[k];
@@ -1570,6 +1584,8 @@ export async function sendCare(kind: CareKind, on?: boolean): Promise<void> {
   const pinch = kind === "tend" && isLotus(me.plant.species) ? tendIsPinch(me, snap.local, now) : true;
   // a soil flower's can is carried to the bed and poured at once, read against the soil as it was before it
   const moment = canMomentFor(me, kind, snap.local, now);
+  // a lotus's top-up is poured at once by the courtyard's brass pot, stamped with this press (pondStamps)
+  const topUp = isTopUp(me, kind);
   const action: LocalAction = { id: newEventId(), kind, on: on ?? null, at: now, status: "sending", confirmedAt: 0 };
   patch({ local: [...snap.local, action], failure: null, now });
   bridgeStep();
@@ -1592,6 +1608,7 @@ export async function sendCare(kind: CareKind, on?: boolean): Promise<void> {
   updateLocal(action.id, null);
   bridgeStep();
   if (moment) refuseCan(moment.at);
+  if (topUp) refuseTopUp(action.at);
   if (res.status === 401) {
     signedOut("signed-out", true);
     return;
