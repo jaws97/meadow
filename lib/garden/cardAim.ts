@@ -27,6 +27,7 @@ const FACE: Record<Exclude<SpeciesId, "lotus">, number> = {
   marigold: deg(58),
   island: deg(60),
   jasmine: deg(22),
+  lily: deg(48),
 };
 
 /**
