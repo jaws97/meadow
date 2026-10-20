@@ -1,9 +1,12 @@
 "use client";
-// Whose garden this device is showing, as a small pill in the top-left corner, and the two things a colleague may need
+// Whose garden this device is showing, as a small pill in the top-left corner, and the things a colleague may need
 // about it: a fresh personal garden link to open the garden on another device (POST /api/link; the newest five keep
-// working), and, after this device switched gardens, the way back to the one it showed before
-// (POST /api/session/back). The fresh link opens in a dialog with the same panel the planting ended with. A short
-// note ("Now showing Ravi's Marigold garden on this device") can hang under the pill for a few seconds after a switch.
+// working), after this device switched gardens the way back to the one it showed before (POST /api/session/back),
+// and, under a hairline, the picture the garden is drawn at (components/gift/PicturePicker). The fresh link opens in
+// a dialog with the same panel the planting ended with. A short note ("Now showing Ravi's Marigold garden on this
+// device") can hang under the pill for a few seconds after a switch, and once, after the opening's quiet, when a
+// picture chosen above Auto was too much for the device last time and the garden is back on Auto
+// (lib/garden/picture).
 // Two colleagues can share a first name, so the menu opens on the garden's flower and day ("Night Jasmine · Day 3")
 // and the way back names the other garden's flower too (lib/client/gardens).
 //
@@ -17,11 +20,16 @@ import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@/components/gift/Dialog";
 import { Chevron, Leaf, LinkIcon, Swap } from "@/components/gift/icons";
 import { LinkPanel } from "@/components/gift/LinkPanel";
+import { PicturePicker } from "@/components/gift/PicturePicker";
 import { factsLine, gardenNames, useGardenFacts } from "@/lib/client/gardens";
 import { ApiProblem, OFFLINE_MESSAGE, newGardenLink, switchBack, type PersonSummary } from "@/lib/client/session";
+import { uiHeld, useOpening } from "@/lib/garden/opening";
+import { clearFellBack, fellBackNote, usePicture } from "@/lib/garden/picture";
 import { useQuality } from "@/lib/garden/quality";
 
 const possessive = (name: string) => `${name}'s`;
+/** How long the note that a picture fell back to Auto stays under the pill. */
+const FELL_BACK_NOTE_MS = 7000;
 const underVeil = (s: { veiled: boolean; phase: string }) => s.veiled && s.phase !== "revealing" && s.phase !== "live";
 
 export function IdentityMenu({
@@ -47,6 +55,12 @@ export function IdentityMenu({
   const pill = useRef<HTMLButtonElement>(null);
   const [focusFirst] = useState(focusOnMount);
   const covered = useQuality(underVeil);
+  const held = useOpening(uiHeld);
+  const kind = useQuality((s) => s.device?.kind);
+  const fellBack = usePicture((s) => s.fellBack);
+  // said once the pill is in sight, then forgotten (a note about a switch comes first)
+  const sayFellBack = fellBack !== null && !covered && !held && !note;
+  const shownNote = note ?? (sayFellBack ? fellBackNote(fellBack, kind) : null);
   const facts = useGardenFacts(person);
   const previousFacts = useGardenFacts(previous);
   const backTo = previous ? gardenNames(previous, previousFacts, person, facts)[0] : null;
@@ -55,6 +69,12 @@ export function IdentityMenu({
   useEffect(() => {
     if (focusFirst && !covered) pill.current?.focus({ preventScroll: true });
   }, [focusFirst, covered]);
+
+  useEffect(() => {
+    if (!sayFellBack) return;
+    const t = setTimeout(() => clearFellBack(), FELL_BACK_NOTE_MS);
+    return () => clearTimeout(t);
+  }, [sayFellBack]);
 
   // the menu closes on a tap outside it or Escape, and gives focus back to the pill (when Tab moves on past it, it
   // closes too, and focus stays where the person took it: onBlur below)
@@ -154,15 +174,17 @@ export function IdentityMenu({
               {message}
             </p>
           )}
+          <div className="gift-id-sep" role="presentation" />
+          <PicturePicker />
         </div>
       )}
       {/* a live region that stays on the page, so the note is announced when its words arrive */}
       <p className="gift-sr" role="status">
-        {note && !open ? note : ""}
+        {shownNote && !open ? shownNote : ""}
       </p>
-      {note && !open && (
+      {shownNote && !open && (
         <p className="gift-id-note" aria-hidden="true">
-          {note}
+          {shownNote}
         </p>
       )}
       {link && (

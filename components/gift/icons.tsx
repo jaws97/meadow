@@ -73,6 +73,15 @@ export const ArrowLeft = (p: IconProps) => (
   </Icon>
 );
 
+/** The picture the garden is drawn at (the name pill's menu): a framed hill under a sun. */
+export const Picture = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+    <path d="m3.5 16.5 5-4.5 4 3.5 3-2.5 5 4" />
+    <circle cx="15.5" cy="9.5" r="1.6" />
+  </Icon>
+);
+
 export const Swap = (p: IconProps) => (
   <Icon {...p}>
     <path d="M7 7h11l-3-3" />

@@ -21,6 +21,8 @@
   --gift-ink-3: rgba(246, 234, 214, 0.56);
   --gift-ink-4: rgba(246, 234, 214, 0.36);
   --gift-gold: #f2cd8e;
+  /* a caution, never an error: what a richer picture may cost (PicturePicker) */
+  --gift-warm: #eab48e;
   --gift-line: rgba(255, 236, 200, 0.12);
   --gift-glass-a: rgba(17, 21, 33, 0.93);
   --gift-glass-b: rgba(10, 13, 21, 0.96);
@@ -1510,6 +1512,10 @@
   top: 52px;
   left: 0;
   min-width: 250px;
+  /* with the Picture choices open it is taller than a phone held sideways: it scrolls inside, never off the screen */
+  max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - 64px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 6px;
   border-radius: 18px;
   background: linear-gradient(180deg, var(--gift-glass-a), var(--gift-glass-b));
@@ -1579,6 +1585,173 @@
   font-size: 13px;
   line-height: 1.45;
   color: #ffcbb8;
+}
+
+/* ---- the picture the garden is drawn at (PicturePicker) ------------------------------------ */
+
+.gift-id-sep {
+  height: 1px;
+  margin: 4px 12px;
+  background: var(--gift-line);
+}
+
+/* room for the choices' lines once they are open */
+.gift-id-menu:has(.gift-pic-choices) {
+  width: min(304px, calc(100vw - 24px));
+}
+
+.gift-pic-label {
+  flex: 1;
+}
+
+.gift-pic-now {
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--gift-ink-3);
+}
+
+.gift-pic-row .gift-chevron {
+  color: var(--gift-ink-3);
+  transition: transform 0.25s ease;
+}
+
+.gift-pic-row[aria-expanded="true"] {
+  color: var(--gift-ink);
+}
+
+.gift-pic-row[aria-expanded="true"] .gift-chevron {
+  transform: rotate(180deg);
+}
+
+.gift-pic-choices {
+  display: grid;
+  gap: 2px;
+  padding: 2px 0 4px;
+  animation: gift-pic-in 0.3s var(--gift-ease) both;
+}
+
+@keyframes gift-pic-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -4px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.gift-pic-choice {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: start;
+  width: 100%;
+  padding: 10px 12px 11px 13px;
+  border-radius: 12px;
+  text-align: left;
+  color: var(--gift-ink-2);
+}
+
+@media (hover: hover) {
+  .gift-pic-choice:hover {
+    background: rgba(255, 240, 215, 0.07);
+  }
+}
+
+.gift-pic-dot {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1.5px solid var(--gift-ink-4);
+  transition: border-color 0.3s ease;
+}
+
+.gift-pic-dot::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gift-gold);
+  opacity: 0;
+  transform: scale(0.4);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s var(--gift-ease);
+}
+
+.gift-pic-choice[aria-checked="true"] .gift-pic-dot {
+  border-color: var(--gift-gold);
+}
+
+.gift-pic-choice[aria-checked="true"] .gift-pic-dot::after {
+  opacity: 1;
+  transform: none;
+}
+
+.gift-pic-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gift-pic-name {
+  font-size: 14.5px;
+  color: var(--gift-ink);
+}
+
+.gift-pic-line {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--gift-ink-3);
+}
+
+.gift-pic-warn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--gift-warm);
+}
+
+.gift-pic-warn::before {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* while the chosen picture is prepared: its line turns gold and a hairline creeps under the row, never parking */
+.gift-pic-choice.is-changing .gift-pic-line {
+  color: var(--gift-gold);
+}
+
+.gift-pic-choice.is-changing::after {
+  content: "";
+  position: absolute;
+  left: 43px;
+  right: 14px;
+  bottom: 4px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(242, 205, 142, 0.9), rgba(242, 205, 142, 0.15));
+  transform-origin: left;
+  animation: gift-pic-creep 8s cubic-bezier(0.2, 0.6, 0.1, 1) both;
+}
+
+@keyframes gift-pic-creep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(0.96);
+  }
 }
 
 /* ---- dialogs and the toast -------------------------------------------------------------- */
@@ -1696,9 +1869,20 @@
   .gift-dialog,
   .gift-showcase,
   .gift-id-menu,
-  .gift-id-note {
+  .gift-id-note,
+  .gift-pic-choices {
     animation-name: gift-veil-in;
     animation-duration: 0.4s;
+  }
+  /* the hairline stands still, half drawn, while the picture changes */
+  .gift-pic-choice.is-changing::after {
+    animation: none;
+    transform: scaleX(0.5);
+  }
+  .gift-pic-row .gift-chevron,
+  .gift-pic-dot,
+  .gift-pic-dot::after {
+    transition: none;
   }
   .gift-seed,
   .gift-seed-art img,

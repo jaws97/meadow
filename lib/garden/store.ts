@@ -10,6 +10,7 @@
 // moments this device's own care started); it is null for the six soil flowers.
 import { useSyncExternalStore } from "react";
 import { planFor, readDevice, recallTier } from "@/lib/garden/device";
+import { startPicture } from "@/lib/garden/picture";
 import { quality } from "@/lib/garden/quality";
 import type { SpeciesId } from "@/lib/plant/species";
 
@@ -133,8 +134,10 @@ const QUALITIES: readonly Quality[] = ["cinematic", "balanced", "lite"];
 /**
  * The tier this device starts on, from its class and GPU (lib/garden/device),
  * and the pixel budget the runtime governor starts from (lib/garden/quality).
- * `?quality=` pins a tier for testing, as the development panel does when a
- * tier is picked there; `?governor=off` freezes the budget as well.
+ * A picture chosen by hand in the name pill's menu (lib/garden/picture) comes
+ * first, except on the party screen; `?quality=` pins a tier for testing, as
+ * the development panel does when a tier is picked there, over both;
+ * `?governor=off` freezes the budget as well.
  */
 export function detectQuality(): Quality {
   if (typeof window === "undefined") return initial.quality;
@@ -144,9 +147,12 @@ export function detectQuality(): Quality {
   const plan = planFor(device);
   const pinnedTier = asked && (QUALITIES as readonly string[]).includes(asked) ? (asked as Quality) : null;
   // A device that settled on another tier last time opens on it (device.recallTier).
-  const tier = pinnedTier ?? recallTier(device, plan.maxTier) ?? plan.tier;
+  const autoTier = recallTier(device, plan.maxTier) ?? plan.tier;
+  const party = window.location.pathname.startsWith("/party");
+  const chosen = startPicture(autoTier, { party, pinnedByUrl: pinnedTier !== null });
+  const tier = pinnedTier ?? chosen ?? autoTier;
   quality.init(device, { ...plan, tier }, {
-    pinned: pinnedTier !== null,
+    pinned: pinnedTier !== null || chosen !== null,
     auto: params.get("governor") !== "off",
   });
   return tier;

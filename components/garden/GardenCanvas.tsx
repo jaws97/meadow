@@ -17,7 +17,7 @@
 // the compositor does no filtering: a filter over a live canvas is not proven
 // smooth on a phone's or a tablet's GPU, and the moment is worth more than
 // the blur.
-import { Canvas, type CanvasProps } from "@react-three/fiber";
+import { Canvas, useThree, type CanvasProps } from "@react-three/fiber";
 import { Suspense, useEffect, useLayoutEffect } from "react";
 import * as THREE from "three";
 import { useOpeningFocus } from "@/components/garden/OpeningMoment";
@@ -25,6 +25,7 @@ import { Opening, RenderGovernor, TierPreparer } from "@/components/garden/Rende
 import { Scene } from "@/components/garden/Scene";
 import { setShaderChecks } from "@/components/garden/warmup";
 import { opening } from "@/lib/garden/opening";
+import { watchPicture } from "@/lib/garden/picture";
 import { garden, useGarden } from "@/lib/garden/store";
 import { env } from "@/lib/garden/env";
 import { quality, useQuality, type Phase } from "@/lib/garden/quality";
@@ -45,6 +46,13 @@ const SHADOWS = { enabled: true, type: THREE.PCFShadowMap } as const;
 
 /** Nothing is drawn until the shaders are ready: a half-compiled first frame is the long black screen. */
 const stopped = (p: Phase) => p === "boot" || p === "compiling";
+
+/** Watches a picture chosen above Auto while this canvas draws it (lib/garden/picture): the guard mark, and the fall-back. */
+function PictureGuard() {
+  const canvas = useThree((s) => s.gl.domElement);
+  useEffect(() => watchPicture(canvas), [canvas]);
+  return null;
+}
 
 /** `deer`: the doe may visit this garden (the garden page alone: lib/garden/visitor). */
 export default function GardenCanvas({ deer = false }: { deer?: boolean }) {
@@ -84,6 +92,7 @@ export default function GardenCanvas({ deer = false }: { deer?: boolean }) {
       }}
     >
       <RenderGovernor />
+      <PictureGuard />
       <Suspense fallback={null}>
         <Scene deer={deer} />
         <Opening />
