@@ -58,6 +58,8 @@ export interface LeafSpec {
   /** rachis length for compound leaves; defaults to a third of the blade */
   petiole?: number;
   petioleColor?: string;
+  /** how far up the cane the hero's leaves run, as a share of it (0.88 when left out); a lily's stop under its flowers */
+  top?: number;
   color: string;
   tipColor: string;
   veinColor: string;
@@ -125,6 +127,12 @@ export interface Species {
   };
   leaves: LeafSpec;
   flower: FlowerSpec;
+  /**
+   * Several flowers up the top of one stem, for a lily (lib/plant/raceme): `flowers` of them, the lowest opening first,
+   * each on a stalk `pedicel` metres long leaning `out` radians from the stem, spread over the top `span` of the cane,
+   * with a bud at the tip. Left out, the one flower crowns the stem.
+   */
+  raceme?: { flowers: number; pedicel: number; out: number; span: number; scale: number };
   fx: { glowNight: boolean; pulse: boolean; sparks: boolean; scent: boolean; glowColor: string };
 }
 
@@ -298,8 +306,10 @@ export const SPECIES: Record<SpeciesId, Species> = {
     stem: { height: 1.05, radius: 0.013, segments: 4, lean: 0.06, wobble: 0.25, color: "#557f43", tipColor: "#6f9a52", thorns: false },
     leaves: {
       count: [11, 14], length: 0.19, width: 0.04, serration: 0, fold: 0.38, gloss: 0.65, compound: 1, petiole: 0.012,
-      petioleColor: "#5e8a4a", color: "#2c6a3c", tipColor: "#46904f", veinColor: "#a6d69a",
+      petioleColor: "#5e8a4a", top: 0.7, color: "#2c6a3c", tipColor: "#46904f", veinColor: "#a6d69a",
     },
+    // three flowers like a florist's stem, a little smaller than a single bloom so they share the top of the stem
+    raceme: { flowers: 3, pedicel: 0.09, out: 0.9, span: 0.3, scale: 0.8 },
     flower: {
       layers: [
         { count: 3, length: 0.27, width: 0.14, open: 1.05, bend: 0.5, cup: 0.45, ruffle: 0.32, tip: 0.85, lip: 0.72 },

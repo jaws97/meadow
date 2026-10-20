@@ -116,7 +116,7 @@ export function heroLeaves(seed: string, sp: Species, segments: number): LeafNod
   const out: LeafNode[] = [];
   for (let i = 0; i < count; i++) {
     const order = count === 1 ? 0.5 : i / (count - 1);
-    const along = Math.min(0.9, Math.max(0.06, lerp(0.07, 0.88, order) + rng.range(-0.02, 0.02)));
+    const along = Math.min(0.9, Math.max(0.06, lerp(0.07, sp.leaves.top ?? 0.88, order) + rng.range(-0.02, 0.02)));
     const seg = Math.min(segments - 1, Math.floor(along * segments));
     const t = along * segments - seg;
     const compound = sp.leaves.compound;
