@@ -162,18 +162,23 @@ Use the laptop that will drive the venue screen, connected to that screen, on th
 
 1. Plug the laptop into power and turn battery saver off. Close other apps and browser tabs, and turn on **Do not
    disturb** so no notifications appear on the big screen.
-2. Use Chrome or Edge. Press Windows + P and choose **Second screen only**, or **Duplicate** if you also want to see it
+2. If the laptop has two graphics chips (a built-in Intel or AMD one and a separate NVIDIA or Radeon RX card), the
+   browser uses the built-in one unless it is told otherwise, and the garden then opens on a plainer look. In Windows
+   **Settings > System > Display > Graphics**, find **Google Chrome** (or **Microsoft Edge**), choose **Options >
+   High performance**, save, then close and reopen the browser. To check, open `chrome://gpu` (or `edge://gpu`): the
+   **GL_RENDERER** line should name the separate card, for example NVIDIA.
+3. Use Chrome or Edge. Press Windows + P and choose **Second screen only**, or **Duplicate** if you also want to see it
    on the laptop.
-3. Open `https://meadow-phi.vercel.app/party?code=<party code>` and press **F** for full screen.
-4. Time how long it takes to open. A soft veil shows "Gathering the seeds", "Unfurling the petals" and "Letting the
+4. Open `https://meadow-phi.vercel.app/party?code=<party code>` and press **F** for full screen.
+5. Time how long it takes to open. A soft veil shows "Gathering the seeds", "Unfurling the petals" and "Letting the
    light in", and then Lijas's Enchanted Rose garden appears at golden hour. The gift panel with the QR code appears
    within 30 seconds at the latest, even if the garden is still settling.
-5. Scan the QR code from the back of the room with two phones, one on Wi-Fi and one on mobile data. Both should open
+6. Scan the QR code from the back of the room with two phones, one on Wi-Fi and one on mobile data. Both should open
    the gift, "A seed, just for you", with **Receive your seed**. Stop there: anything planted is a real garden. Check
    that the link under the QR code can be read from the back.
-6. Leave it running for 15 minutes. The view moves slowly by itself, the pointer hides when the mouse rests, and the
+7. Leave it running for 15 minutes. The view moves slowly by itself, the pointer hides when the mouse rests, and the
    laptop should not sleep or dim.
-7. Keys, if you need them: **H** hides or shows the panel, **T** starts or stops a slow tour, and **F** switches full
+8. Keys, if you need them: **H** hides or shows the panel, **T** starts or stops a slow tour, and **F** switches full
    screen.
 
 If loading is slow, or the motion is jerky:
@@ -181,7 +186,8 @@ If loading is slow, or the motion is jerky:
 - Wait. The QR code appears within 30 seconds whatever happens, and people can plant from it.
 - Reload once. The second opening is quicker, because the browser has kept the files and the laptop remembers the
   look it settled on.
-- Check the power, battery saver and other apps again (step 5.1).
+- Check the power, battery saver and other apps again (step 5.1), and that the browser is on the graphics card
+  (step 5.2).
 - Add `&quality=balanced` to the end of the address for a lighter look, or `&quality=lite` for the lightest. Note
   which looks best and use that address on the day.
 - If the screen is 4K, try setting it to 1920 x 1080 in Windows display settings.
