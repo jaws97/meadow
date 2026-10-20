@@ -16,7 +16,8 @@
 // support the bloom instead of competing with it. Each cane is a handful of
 // merged meshes; nothing is allocated per frame. A live plant's own droop and
 // yellowing (lib/client/plant, through the store) reach the bush as they
-// reach the hero.
+// reach the hero. When the watering can pours over a grown bush (canLive), the
+// skirt's leaves shiver a degree or so as the drops land on them.
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { GeoBuilder, HERO_GROUND_Y, makeBudGeometry } from "@/lib/garden/dressing";
@@ -30,6 +31,7 @@ import { Rng, clamp01, easeOutCubic, lerp, smoothstep } from "@/lib/plant/prng";
 import { SPECIES, type Species, type SpeciesId } from "@/lib/plant/species";
 import { leafMaterial, petioleMaterial, sepalMaterial, stemMaterial } from "@/components/garden/materials";
 import { useLayerFrame } from "@/components/garden/TierLayers";
+import { canLive } from "@/components/garden/garden/canLive";
 
 /** One unlit-looking crimson per species for the side buds: no emissive, so they stay quiet at night. */
 const sideBudMaterials = new Map<SpeciesId, THREE.MeshStandardMaterial>();
@@ -315,6 +317,10 @@ export function HeroBush({ speciesId, seed, quality }: { speciesId: SpeciesId; s
       const g = show * lerp(0.42, 1, easeOutCubic(smoothstep(0.06, 0.6, v.growth)));
       sk.visible = g > 0.002;
       sk.scale.set(Math.max(0.0001, g), Math.max(0.0001, g * (1 - 0.35 * droop)), Math.max(0.0001, g));
+      // the watering can's drops landing on the low leaves: a shiver of a degree or so, never the plant reviving
+      const shiver = canLive.soil.shiver;
+      sk.rotation.x = shiver * 0.022 * Math.sin(t * 23) * Math.sin(t * 7.1 + 0.6);
+      sk.rotation.z = shiver * 0.018 * Math.sin(t * 19 + 1.3) * Math.sin(t * 5.3);
     }
   });
 

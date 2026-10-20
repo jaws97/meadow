@@ -7,7 +7,7 @@
 // part of a production build, where the panel still opens with ?dev.
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { garden, useGarden, type GardenState, type Quality } from "@/lib/garden/store";
+import { garden, useGarden, type CanSoil, type GardenState, type Quality } from "@/lib/garden/store";
 import { SPECIES_LIST } from "@/lib/plant/species";
 import { STAGES, stageOf } from "@/lib/plant/growth";
 
@@ -39,6 +39,31 @@ const PRESETS: ReadonlyArray<{ label: string; patch: Partial<GardenState> }> = [
   { label: "Night", patch: { hour: 21.5, cloud: 0.1, autoClock: false } },
   { label: "Rain", patch: { rain: 0.8, cloud: 0.9, hour: 15, autoClock: false } },
 ];
+
+const CAN_SOILS: ReadonlyArray<{ soil: CanSoil; label: string }> = [
+  { soil: "thirsty", label: "Can: thirsty" },
+  { soil: "ok", label: "Can: ok" },
+  { soil: "damp", label: "Can: damp" },
+];
+
+/**
+ * The watering can's moment (components/garden/garden/canLive), past the four-hour rule: on a signed-in plant in a
+ * development build through the care layer's own press without telling the server (lib/client/plant rehearseWater: the
+ * plant's own soil, its word in the card), otherwise straight into the store with the soil as chosen here, the bed's
+ * moisture rising as a can's does.
+ */
+function waterMoment(soil: CanSoil) {
+  const rehearse = (window as unknown as { __rehearseWater?: () => boolean }).__rehearseWater;
+  if (rehearse?.()) return;
+  const g = garden.get();
+  garden.set({ canMoment: { at: Date.now(), refusedAt: 0, soil }, moisture: Math.max(g.moisture, Math.min(0.8, g.moisture + 0.27)) });
+}
+
+/** The moment playing now, refused as the server would: the can goes home. */
+function refuseMoment() {
+  const m = garden.get().canMoment;
+  if (m && !m.refusedAt) garden.set({ canMoment: { ...m, refusedAt: Date.now() } });
+}
 
 /** Development builds only (the condition is constant, so a production build leaves the import out). */
 const LotusDevControls =
@@ -422,6 +447,19 @@ export function DevPanel() {
                   {p.label}
                 </button>
               ))}
+            </div>
+          </Section>
+
+          <Section title="Watering can">
+            <div className="flex flex-wrap gap-1.5">
+              {CAN_SOILS.map((c) => (
+                <button key={c.soil} type="button" onClick={() => waterMoment(c.soil)} className={smallButtonClass}>
+                  {c.label}
+                </button>
+              ))}
+              <button type="button" onClick={refuseMoment} className={smallButtonClass}>
+                Refuse
+              </button>
             </div>
           </Section>
 

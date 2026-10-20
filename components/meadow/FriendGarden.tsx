@@ -59,7 +59,8 @@ function useFriendInStore(look: Partial<GardenState> | null): boolean {
   useEffect(() => {
     if (!look) return;
     const before = garden.get();
-    garden.set({ ...look, autoClock: false, hour: istNow() });
+    // a friend's garden plays none of this device's own moments (the watering can stays where it stands)
+    garden.set({ ...look, autoClock: false, hour: istNow(), canMoment: null });
     const id = window.setInterval(() => garden.set({ hour: istNow() }), 30_000);
     const raf = requestAnimationFrame(() => setReady(true));
     return () => {
@@ -80,6 +81,7 @@ function useFriendInStore(look: Partial<GardenState> | null): boolean {
         flowerSize: before.flowerSize,
         glow: before.glow,
         pond: before.pond,
+        canMoment: null,
         autoClock: before.autoClock,
         hour: before.hour,
       });

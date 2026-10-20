@@ -3,14 +3,16 @@
 // through it, the same seed of light the planting moment closes the soil over (components/gift/PlantingMoment). It
 // keeps a newly planted bed from looking bare during the hours before the first shoot (the stem shows from growth
 // 0.03, its first leaves from 0.04), and settles away as the shoot comes up through it. A grown plant never shows
-// it, so the owner's rose is drawn exactly as before.
+// it, so the owner's rose is drawn exactly as before. When the watering can pours onto it (canLive), the soil darkens
+// from where the water lands, as the bed's mulch does, and the seed's light takes one deeper breath as it drinks.
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { HERO_GROUND_Y, withGardenLight } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { LAYOUT } from "@/lib/garden/layout";
 import { garden, type Quality } from "@/lib/garden/store";
-import { gardenMaterials } from "@/components/garden/garden/materials";
+import { gardenMaterials, withCanWet } from "@/components/garden/garden/materials";
+import { canLive } from "@/components/garden/garden/canLive";
 import { smoothstep } from "@/lib/plant/prng";
 import { useLayerFrame } from "@/components/garden/TierLayers";
 
@@ -80,18 +82,21 @@ export function SeedMound({ quality }: { quality: Quality }) {
   const lite = quality === "lite";
   const parts = useMemo(() => {
     const mulch = gardenMaterials().mulch;
-    const soil = withGardenLight(
-      new THREE.MeshStandardMaterial({
-        map: mulch.map,
-        bumpMap: mulch.bumpMap,
-        bumpScale: 0.8,
-        // turned earth: darker and finer than the bark mulch round it, never a black hole in the bed
-        color: new THREE.Color("#a68e7b"),
-        roughness: 0.97,
-        metalness: 0,
-      }),
-      "garden-seed-mound",
-      false,
+    const soil = withCanWet(
+      withGardenLight(
+        new THREE.MeshStandardMaterial({
+          map: mulch.map,
+          bumpMap: mulch.bumpMap,
+          bumpScale: 0.8,
+          // turned earth: darker and finer than the bark mulch round it, never a black hole in the bed
+          color: new THREE.Color("#a68e7b"),
+          roughness: 0.97,
+          metalness: 0,
+        }),
+        "garden-seed-mound",
+        false,
+      ),
+      "canwet",
     );
     const glow = new THREE.SpriteMaterial({
       map: glowTexture(),
@@ -134,8 +139,10 @@ export function SeedMound({ quality }: { quality: Quality }) {
     g.scale.set(RADIUS * (1 + 0.15 * (1 - here)), HEIGHT * here, RADIUS * (1 + 0.15 * (1 - here)));
     if (sp) {
       const breath = 0.5 + 0.5 * Math.sin((env.time / BREATH) * Math.PI * 2);
-      live.current.glow.opacity = here * (0.2 + 0.26 * breath);
-      const r = 0.038 + 0.014 * breath;
+      // one deeper breath as the can's water reaches the seed
+      const drink = canLive.soil.breath;
+      live.current.glow.opacity = here * (0.2 + 0.26 * breath) * (1 + 0.4 * drink);
+      const r = (0.038 + 0.014 * breath) * (1 + 0.15 * drink);
       sp.scale.set(r, r, r);
     }
   });

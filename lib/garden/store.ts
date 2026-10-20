@@ -7,7 +7,8 @@
 // The care layer also says how much of the screen its card covers (dock), so
 // the camera can keep the plant in the open part of the view. A lotus brings
 // its pond as well (pond: the model's pond numbers, eased the same way, and the
-// moments this device's own care started); it is null for the six soil flowers.
+// moments this device's own care started); it is null for the six soil flowers, whose own can (canMoment) the
+// garden plays once instead.
 import { useSyncExternalStore } from "react";
 import { planFor, readDevice, recallTier, rememberTier } from "@/lib/garden/device";
 import { startPicture } from "@/lib/garden/picture";
@@ -61,6 +62,21 @@ export interface PondShown {
   plantedAt: number;
 }
 
+/** The soil as it was before a can: the plant asked for water, it was fine, or it was still damp (watered anyway). */
+export type CanSoil = "thirsty" | "ok" | "damp";
+
+/**
+ * This page's own can for a soil flower (lib/client/plant sendCare), which the garden plays once: the watering can is
+ * carried to the bed and pours (components/garden/garden/canMoment). Never remembered, so a reload never replays it.
+ */
+export interface CanMoment {
+  /** when Water was pressed (epoch ms) */
+  at: number;
+  /** when the server refused it, or the phone gave up offline (epoch ms), 0 for not: the can goes home */
+  refusedAt: number;
+  soil: CanSoil;
+}
+
 export interface GardenState {
   speciesId: SpeciesId;
   seed: string;
@@ -98,6 +114,8 @@ export interface GardenState {
   quality: Quality;
   /** a lotus's pond (lib/client/plant pondShownOf), or null for a soil flower and before the lotus's numbers arrive */
   pond: PondShown | null;
+  /** this page's own can for a soil flower, played once by the garden; null for none (and for a lotus, a friend's garden) */
+  canMoment: CanMoment | null;
 }
 
 const initial: GardenState = {
@@ -127,6 +145,7 @@ const initial: GardenState = {
   rain: 0,
   quality: "cinematic",
   pond: null,
+  canMoment: null,
 };
 
 const QUALITIES: readonly Quality[] = ["cinematic", "balanced", "lite"];

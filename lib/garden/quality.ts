@@ -279,6 +279,28 @@ export const visitorHold = {
   },
 };
 
+/**
+ * A moment playing in the garden (the watering can carried to the bed and poured: components/garden/garden/canLive):
+ * held like a visitor (RenderBudget measures and decides nothing, and keeps no still for the next visit, so the
+ * moment's cost never steps the picture down mid-pour or is learnt as the device's), but kept apart from visitorHold,
+ * which the garden's sounds read as the doe being there.
+ */
+const moments = new Set<{ until: number }>();
+export const momentHold = {
+  active(now = performance.now()): boolean {
+    for (const m of moments) if (now < m.until) return true;
+    return false;
+  },
+  /** Holds from now until the returned release is called, or for `maxMs` at most. */
+  acquire(maxMs = 15_000): () => void {
+    const m = { until: performance.now() + maxMs };
+    moments.add(m);
+    return () => {
+      moments.delete(m);
+    };
+  },
+};
+
 export function useQuality<T>(selector: (s: QualityState) => T): T {
   return useSyncExternalStore(
     quality.subscribe,

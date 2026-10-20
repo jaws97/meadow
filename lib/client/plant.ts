@@ -32,7 +32,7 @@ import { useSyncExternalStore } from "react";
 import { getJson, newEventId, postJson, type ApiFail } from "@/lib/client/api";
 import { rememberGarden } from "@/lib/client/gardens";
 import { flowerSizeOf, pondShownOf } from "@/lib/client/plantShown";
-import { garden, type GardenState, type PondShown } from "@/lib/garden/store";
+import { garden, type CanMoment, type CanSoil, type GardenState, type PondShown } from "@/lib/garden/store";
 import { underVeil } from "@/lib/garden/quality";
 import { swapSettled } from "@/lib/garden/swapGate";
 import { SPECIES, isLotus, type SpeciesId } from "@/lib/plant/species";
@@ -698,6 +698,27 @@ export function pondStamps(base: Pick<PondVisual, "stage" | "moveReady">, events
   return { topUpAt, pinchAt, plantedAt };
 }
 
+/**
+ * The watering can's moment for this page's own can (the garden carries its can to the bed and pours it, and the soil
+ * answers: components/garden/garden/canMoment), or null: only a living soil flower's own water starts one, never a
+ * lotus's (its brass pot has its own pour), a resting plant's or a friend's sprinkle. It carries how the soil was before
+ * this can, as the plant shows it: it asked for water, it was fine, or it was still damp (watered anyway).
+ */
+export function canMomentFor(me: MeView, kind: CareKind, local: readonly LocalAction[], now: number): CanMoment | null {
+  if (kind !== "water" || isPondVisual(me.visual) || !me.visual.alive) return null;
+  const v = shownVisual(me, local, now);
+  if (isPondShown(v)) return null;
+  const soil: CanSoil =
+    v.canAdvice === "thirsty" || v.canAdvice === "ready" || v.mood === "thirsty" ? "thirsty" : v.canAdvice === "damp" || v.moisture >= 0.66 ? "damp" : "ok";
+  return { at: now, refusedAt: 0, soil };
+}
+
+/** The garden's can goes home: the press it is pouring for was refused (or the phone gave up offline). */
+function refuseCan(at: number) {
+  const m = garden.get().canMoment;
+  if (m && m.at === at && !m.refusedAt) garden.set({ canMoment: { ...m, refusedAt: Date.now() } });
+}
+
 /** Seconds each eased pond number takes to cover most of the way (levels over 3 s); the rest (counts, flags, stamps) step. */
 const POND_EASE = {
   waterMM: 3, stonesMM: 3, jarClarity: 3, algae: 8, floatBrown: 8, nibbled: 6, koiHunger: 3, koiGather: 2, aphids: 3,
@@ -1134,7 +1155,8 @@ function currentTarget(me: MeView, now: number): { target: RenderTarget; pond: P
 
 function writeTarget(t: RenderTarget, pond: PondShown | null, identity?: { speciesId: SpeciesId; seed: string }) {
   const g = garden.get();
-  const p: Partial<GardenState> = identity ? { ...identity } : {};
+  // a can poured for one plant is never played over the next
+  const p: Partial<GardenState> = identity ? { ...identity, canMoment: null } : {};
   let changed = !!identity;
   for (const k of RENDER_KEYS) {
     const now = g[k];
@@ -1546,9 +1568,12 @@ export async function sendCare(kind: CareKind, on?: boolean): Promise<void> {
   const now = Date.now();
   // a lotus's tend is the koi's pinch only once every few hours (it always rinses): known before this one is counted
   const pinch = kind === "tend" && isLotus(me.plant.species) ? tendIsPinch(me, snap.local, now) : true;
+  // a soil flower's can is carried to the bed and poured at once, read against the soil as it was before it
+  const moment = canMomentFor(me, kind, snap.local, now);
   const action: LocalAction = { id: newEventId(), kind, on: on ?? null, at: now, status: "sending", confirmedAt: 0 };
   patch({ local: [...snap.local, action], failure: null, now });
   bridgeStep();
+  if (moment) garden.set({ canMoment: moment });
   const thanks = thanksFor(kind, on ?? null, plantNoun(me.plant.species), me.visual.pests, talkCount++, isSeed(me, me.visual), me.visual, pinch);
   const afterYes = THANKS_AFTER_YES.has(kind);
   if (!afterYes) say(thanks);
@@ -1566,6 +1591,7 @@ export async function sendCare(kind: CareKind, on?: boolean): Promise<void> {
   }
   updateLocal(action.id, null);
   bridgeStep();
+  if (moment) refuseCan(moment.at);
   if (res.status === 401) {
     signedOut("signed-out", true);
     return;
@@ -1573,6 +1599,37 @@ export async function sendCare(kind: CareKind, on?: boolean): Promise<void> {
   const text = declinedText(kind, res, me.plant.species);
   patch({ failure: { id: ++failureId, kind, text } });
   say(text, "gentle");
+}
+
+/**
+ * Development only: a can given without telling the server, so the garden's watering moment can be watched again and
+ * again past the four-hour rule (the development panel's Water buttons; window.__rehearseWater in scripted captures).
+ * Everything else follows a real press: the card's word, the soil's soak, the can's moment. With `refuseAfterMs` the
+ * press is withdrawn after that long, as a refusal from the server would be, and the can goes home.
+ */
+export function rehearseWater(refuseAfterMs?: number): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  const me = snap.me;
+  if (!me) return false;
+  const now = Date.now();
+  const moment = canMomentFor(me, "water", snap.local, now);
+  const action: LocalAction = { id: newEventId(), kind: "water", on: null, at: now, status: "sent", confirmedAt: now };
+  patch({ local: [...snap.local, action], failure: null, now });
+  bridgeStep();
+  if (moment) garden.set({ canMoment: moment });
+  say(thanksFor("water", null, plantNoun(me.plant.species), me.visual.pests, talkCount++, isSeed(me, me.visual), me.visual, true));
+  if (refuseAfterMs !== undefined) {
+    setTimeout(() => {
+      updateLocal(action.id, null);
+      bridgeStep();
+      if (moment) refuseCan(moment.at);
+      say("The water did not reach the garden just now. Please try again in a moment.", "gentle");
+    }, refuseAfterMs);
+  }
+  return true;
+}
+if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+  (window as unknown as { __rehearseWater?: typeof rehearseWater }).__rehearseWater = rehearseWater;
 }
 
 /** For the care layer: the plant as shown right now (with this page's care on top), for words and cues. */

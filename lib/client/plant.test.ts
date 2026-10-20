@@ -11,6 +11,7 @@ import {
   RAIN_POND_LINE,
   JAR_LINE,
   bloomText,
+  canMomentFor,
   careKeysFor,
   careLabels,
   declinedText,
@@ -274,6 +275,23 @@ describe("optimistic care", () => {
     expect(later.moisture).toBeGreaterThan(base.moisture);
   });
 
+  it("starts the watering can's moment for this page's own can on a living soil plant, read against the soil before it", () => {
+    const me = (v: Partial<Visual>, alive = true) => ({ ...view({ stateH: h, alive }), visual: visual({ ...v, alive }) }) as unknown as MeView;
+    expect(canMomentFor(me({ canAdvice: "ready", says: "ready for a drink", mood: "thirsty", moisture: 0.2 }), "water", [], t0)).toEqual({
+      at: t0,
+      refusedAt: 0,
+      soil: "thirsty",
+    });
+    expect(canMomentFor(me({ canAdvice: "ok", moisture: 0.45 }), "water", [], t0)?.soil).toBe("ok");
+    expect(canMomentFor(me({ canAdvice: "damp", moisture: 0.7 }), "water", [], t0)?.soil).toBe("damp");
+    // a second can within the hour reads the soil the first one left: damp
+    expect(canMomentFor(me({ canAdvice: "ok", moisture: 0.5 }), "water", [action("water", t0 - 60_000)], t0)?.soil).toBe("damp");
+    // never for another kind of care, or for a resting plant
+    expect(canMomentFor(me({}), "tend", [], t0)).toBeNull();
+    expect(canMomentFor(me({}), "cover", [], t0)).toBeNull();
+    expect(canMomentFor(me({}, false), "water", [], t0)).toBeNull();
+  });
+
   it("clears pests when tended and glows after a kind word", () => {
     const base = visual({ pests: 0.5, snails: 2 });
     const tended = withCare(base, [{ kind: "tend", on: null, t: t0, mine: true }], t0 + 10_000);
@@ -419,6 +437,8 @@ describe("the lotus", () => {
     expect(pondStamps({ stage: "jar", moveReady: true }, water(t0))).toEqual({ topUpAt: 0, pinchAt: 0, plantedAt: t0 });
     expect(pondStamps({ stage: "jar", moveReady: false }, water(t0))).toEqual({ topUpAt: 0, pinchAt: 0, plantedAt: 0 });
     expect(pondStamps({ stage: "pond", moveReady: false }, water(t0, false))).toEqual({ topUpAt: 0, pinchAt: 0, plantedAt: 0 });
+    // the brass pot has its own pour: the soil garden's watering can never plays for a lotus
+    expect(canMomentFor({ ...view(), visual: pondV() } as unknown as MeView, "water", [], t0)).toBeNull();
   });
 
   it("gives the garden its pond, easing the levels and stepping the counts", () => {

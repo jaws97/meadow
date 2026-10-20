@@ -1898,9 +1898,11 @@ export function makeLantern(): LanternGeometry {
 /**
  * Where the watering can stands: on the close-mown lawn at the bed's right
  * front shoulder, spout turned back over the bed, as if just set down. Far
- * enough right to sit outside a phone's portrait frame, where so near the
- * lens it would loom over the kerb; in the landscape frame it balances the
- * lantern on the left.
+ * enough right to sit just past the edge of a phone's portrait frame while the
+ * plant is growing (so near the lens it would loom over the kerb; the seed's
+ * bed shot and the grown plant's framing show it), and in the landscape frame
+ * it balances the lantern on the left. When it waters the plant it is carried
+ * in from there (components/garden/garden/canMoment).
  */
 export const WATERING_CAN = { x: 0.74, z: 0.2, yaw: 1.9, scale: 1.15 } as const;
 

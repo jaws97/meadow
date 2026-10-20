@@ -94,7 +94,7 @@ import {
 import { rememberTier } from "@/lib/garden/device";
 import { opening } from "@/lib/garden/opening";
 import { garden, useGarden, type Quality } from "@/lib/garden/store";
-import { Governor, quality, stepTier, underVeil, useQuality, visitorHold, type Phase, type QualityState } from "@/lib/garden/quality";
+import { Governor, momentHold, quality, stepTier, underVeil, useQuality, visitorHold, type Phase, type QualityState } from "@/lib/garden/quality";
 import { isLotus } from "@/lib/plant/species";
 
 /**
@@ -574,7 +574,7 @@ export function RenderGovernor() {
     swap: null as SwapHold | null,
     /** Settled under the veil, the garden waits for the opening's quote and breath (lib/garden/opening) before its reveal. */
     waiting: false,
-    /** A visitor (the doe) is in the showing garden (visitorHold), and when the last one left. */
+    /** A visitor (the doe) is in the showing garden (visitorHold) or a moment plays (momentHold), and when it ended. */
     visiting: false,
     visitEnd: -Infinity,
   });
@@ -770,8 +770,9 @@ export function RenderGovernor() {
     // Room above is only ever noted for the next visit, so the session's tier changes do not limit it.
     const highest = q.pinned || stepTier(tier, 1, q.plan?.maxTier ?? tier) === null;
     const interacting = touched;
-    // A visitor in the showing garden (the doe): nothing is measured or decided until she has gone.
-    const visiting = !underVeil(q) && visitorHold.active(now);
+    // A visitor in the showing garden (the doe), or a moment playing (the watering can): nothing is measured or decided
+    // until it is over.
+    const visiting = !underVeil(q) && (visitorHold.active(now) || momentHold.active(now));
     if (c.visiting && !visiting) {
       governor.resume(now, VISIT_GRACE_MS);
       c.visitEnd = now;

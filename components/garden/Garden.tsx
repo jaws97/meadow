@@ -14,7 +14,11 @@
 // For a signed-in visitor's plant two more parts follow the store: a mound of
 // fresh soil while the seed has not come up (SeedMound), and the shade cloth
 // and rain cover on their hoops (BedCovers); neither draws for a grown plant
-// with both folded away, as the owner's rose always is.
+// with both folded away, as the owner's rose always is. And when the owner
+// waters it on this page, the watering can is carried to the bed and pours:
+// canLive steps that moment first in the same frame callback, so the weather
+// and the materials read its soil the frame it changes, and CanShower draws
+// the water. Nothing of it draws otherwise.
 import { swayUniforms } from "@/lib/garden/dressing";
 import { garden, useGarden } from "@/lib/garden/store";
 import { Bed } from "@/components/garden/garden/Bed";
@@ -26,6 +30,8 @@ import { Lantern } from "@/components/garden/garden/Lantern";
 import { Path } from "@/components/garden/garden/Path";
 import { SeedMound } from "@/components/garden/garden/SeedMound";
 import { WateringCan } from "@/components/garden/garden/WateringCan";
+import { CanShower } from "@/components/garden/garden/CanShower";
+import { stepCan } from "@/components/garden/garden/canLive";
 import { driveGardenMaterials, gardenMaterials } from "@/components/garden/garden/materials";
 import { stepWeather, weather } from "@/components/garden/garden/weather";
 import { companionGrow, companionOpen } from "@/components/garden/garden/heroGrowth";
@@ -42,8 +48,9 @@ export function Garden() {
   const quality = useTier();
   const speciesId = useGarden((s) => s.speciesId);
 
-  useLayerFrame((_, delta) => {
+  useLayerFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
+    stepCan(Date.now(), state.camera, weather.moisture);
     stepWeather(dt);
     driveGardenMaterials(gardenMaterials(), weather);
     const { growth: g, seed: owner } = garden.get();
@@ -63,6 +70,7 @@ export function Garden() {
       <Path seed={seed} quality={quality} />
       <Lantern quality={quality} />
       <WateringCan quality={quality} />
+      <CanShower quality={quality} />
       <Companions seed={seed} quality={quality} />
       <HeroBush speciesId={speciesId} seed={seed} quality={quality} />
       <SeedMound quality={quality} />
