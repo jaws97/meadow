@@ -213,6 +213,19 @@ describe("a lotus checkpoint", () => {
     expect(baseState({ h: 60, state: s, simVersion: 1001, version: 2 }, { ...LOTUS, speciesId: "rose" }).rebuilt).toBe(true);
   });
 
+  it("rebuilds a soil state planted before 10 Nov that still carries the old -1 \"not yet\" marks", () => {
+    const early: Planting = { ...PLANTING, plantedH: -494 };
+    const now = createPlant(early.speciesId, -494, OWNER);
+    expect(baseState({ h: -494, state: now, simVersion: SIM_VERSION, version: 1 }, early)).toEqual({ state: now, rebuilt: false });
+    // as the build of 20 Oct wrote it: bud, bloom and death marks at -1, which now read as real hours
+    const old = { ...now, ripeH: -1, bloomH: -1, diedH: -1, budDropDay: -1 };
+    expect(baseState({ h: -494, state: old, simVersion: SIM_VERSION, version: 1 }, early)).toEqual({ state: now, rebuilt: true });
+    // a planting on or after 10 Nov keeps the -1 marks and is trusted as ever
+    const late = createPlant(PLANTING.speciesId, 17, OWNER);
+    expect(late.ripeH).toBe(-1);
+    expect(baseState({ h: 17, state: late, simVersion: SIM_VERSION, version: 1 }, { ...PLANTING, plantedH: 17 }).rebuilt).toBe(false);
+  });
+
   it("catches up in its own model and saves under its own version", async () => {
     const seed = seedState(LOTUS);
     let cp: CheckpointRecord = { h: seed.h, state: seed, simVersion: modelVersionOf("lotus"), version: 0 };
@@ -236,29 +249,27 @@ describe("a lotus checkpoint", () => {
     expect(r.state).toMatchObject({ medium: "pond", sp: "lotus", v: POND_VERSION });
   });
 
-  it("needs no rehearsal shift before the party: its \"not yet\" marks are POND_NONE", () => {
-    const rehearsal: Planting = { ...LOTUS, plantedH: -577 };
-    expect(seedState(rehearsal)).toEqual(createPlant("lotus", -577, OWNER));
-    const s = catchUp(seedState(rehearsal), [{ id: 1, h: -577, kind: "water" }, { id: 2, h: -577, kind: "tend" }], wx, -570);
+  it("needs nothing extra before 10 Nov: its \"not yet\" marks are POND_NONE", () => {
+    const early: Planting = { ...LOTUS, plantedH: -577 };
+    expect(seedState(early)).toEqual(createPlant("lotus", -577, OWNER));
+    const s = catchUp(seedState(early), [{ id: 1, h: -577, kind: "water" }, { id: 2, h: -577, kind: "tend" }], wx, -570);
     expect(s.lastCanH).toBe(-577);
     expect(s).toMatchObject({ lastKoiH: -577, lastFeedH: POND_NONE, bloomH: POND_NONE });
   });
 });
 
 describe("seedState", () => {
-  it("is exactly createPlant() for a real planting", () => {
+  it("is exactly createPlant() for any planting, before 10 Nov too", () => {
     expect(seedState(PLANTING)).toEqual(createPlant(PLANTING.speciesId, PLANTING.plantedH, PLANTING.owner));
     expect(seedState({ ...PLANTING, plantedH: 400 })).toEqual(createPlant(PLANTING.speciesId, 400, PLANTING.owner));
+    expect(seedState({ ...PLANTING, plantedH: -577 })).toEqual(createPlant(PLANTING.speciesId, -577, PLANTING.owner));
   });
 
-  it("lets a rehearsal plant at a negative hour take a can and a feed straight away", () => {
-    const rehearsal: Planting = { ...PLANTING, plantedH: -577 };
+  it("lets a plant planted before 10 Nov take a can and a feed straight away", () => {
+    const early: Planting = { ...PLANTING, plantedH: -577 };
     const events: TimedEvent[] = [{ id: 1, h: -577, kind: "water" }, { id: 2, h: -577, kind: "feed" }];
-    const s = catchUp(seedState(rehearsal), events, wx, -570);
+    const s = catchUp(seedState(early), events, wx, -570);
     expect(s.lastCanH).toBe(-577);
     expect(s.lastFeedH).toBe(-577);
-    // the model's own seed would have ignored both
-    const raw = catchUp(createPlant(rehearsal.speciesId, -577, OWNER), events, wx, -570);
-    expect(raw.lastCanH).toBe(-99);
   });
 });

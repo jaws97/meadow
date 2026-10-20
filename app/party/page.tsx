@@ -18,7 +18,7 @@ const display = Cormorant_Garamond({
 });
 
 export const metadata: Metadata = {
-  title: "Party screen - Disney Garden",
+  title: "Party screen - Meadow",
   description: "The celebration's big screen: the Enchanted Rose and the seed gift QR code",
   robots: { index: false, follow: false },
 };

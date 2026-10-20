@@ -153,7 +153,7 @@ export function bandOf(p: Pick<MeadowPlot, "stage" | "bloom">): Band | null {
     case "bud":
       return "bud";
     case "bloom":
-      // a closed flower (and a practice plant before 10 Nov, which has no bloom hour) is drawn as its bud
+      // a closed flower is drawn as its bud
       return p.bloom > 0 ? "bloom" : "bud";
     default:
       return null;

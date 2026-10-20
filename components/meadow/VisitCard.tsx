@@ -178,7 +178,7 @@ function PlantCard({ plot }: { plot: number }) {
     };
   }, [plot]);
 
-  // the plant has gone (a practice plant cleared away): nothing to show
+  // the plant has gone (a garden removed, or a practice plant cleared away): nothing to show
   useEffect(() => {
     if (entry === null && info && !info.friend) ui.set({ card: null });
   }, [entry, info]);

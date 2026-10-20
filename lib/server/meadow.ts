@@ -8,7 +8,7 @@
 // checkpoint that moves between the two queries cannot drop events), and the advanced checkpoints are saved in a single
 // statement with the same optimistic version check as a single visit (a plant whose version moved meanwhile is skipped
 // and catches up on its next read; the statement runs through db.ts transaction(), so it waits a bounded time for row
-// locks). Outside production nothing is saved, and rehearsal plants show only where env.ts practiceVisible() says so
+// locks). Outside production nothing is saved, and rehearsal plants show only where env.ts showRehearsals() says so
 // (never in production on or after 10 Nov). An instance shares one build among concurrent requests and reuses it for
 // a few seconds, short enough that a new sprout reaches the big screen quickly. A plant of a species this build does not
 // know is never loaded, and one that fails to catch up is logged and left out, so one plant never fails the whole
@@ -25,7 +25,7 @@ import type { SpeciesId } from "@/lib/plant/species";
 import { catchUp, hourIndexOf, modelVersionOfState, toVisual, type PlantState, type TimedEvent, type Visual } from "@/lib/sim";
 import { advanceCheckpoint, baseState } from "./catchup";
 import { db, transaction } from "./db";
-import { practiceVisible, writesDerivedState } from "./env";
+import { showRehearsals, writesDerivedState } from "./env";
 import { ApiError } from "./http";
 import { KNOWN_SPECIES, knownPlants } from "./species-guard";
 import { bloomBand, healthBand, hourIso, istClock, stageOf, toRecordedEvent, toTimedEvent, type EventRow, type HealthBand, type Stage } from "./rules";
@@ -92,9 +92,7 @@ export function meadowSnapshot(now: Date = new Date()): Promise<MeadowSnapshot> 
 async function buildSnapshot(now: Date): Promise<MeadowSnapshot> {
   const sql = db();
   const toH = hourIndexOf(now);
-  // every practice plant (outside production), or only the live site's own practice plants (production, before 10 Nov)
-  const allPractice = practiceVisible(false, toH);
-  const livePractice = practiceVisible(true, toH);
+  const includeRehearsal = showRehearsals();
   const rows = knownPlants(await sql<SnapshotRow[]>`
     select p.id as plant_id, pe.id as person_id, pe.first_name, pe.show_name, p.species, p.plot_index, p.planted_h,
            c.h as cp_h, c.state as cp_state, c.sim_version as cp_sim_version, c.version as cp_version
@@ -102,7 +100,7 @@ async function buildSnapshot(now: Date): Promise<MeadowSnapshot> {
     join meadow.gardens g on g.id = p.garden_id
     join meadow.people pe on pe.id = g.person_id
     join meadow.checkpoints c on c.plant_id = p.id
-    where (not p.rehearsal or ${allPractice} or (${livePractice} and p.live_practice)) and p.species = any(${KNOWN_SPECIES as string[]}::text[])
+    where (${includeRehearsal} or not p.rehearsal) and p.species = any(${KNOWN_SPECIES as string[]}::text[])
     order by p.created_at, p.plot_index`);
 
   // A plant that cannot be read (a broken checkpoint, a species the model cannot step) is logged and left out: one plant
@@ -229,7 +227,6 @@ interface FriendRow {
   seed: string;
   planted_h: number;
   rehearsal: boolean;
-  live_practice: boolean;
 }
 
 interface CheckpointRow {
@@ -248,8 +245,7 @@ export async function gardenOfPlot(plot: number, now: Date = new Date()): Promis
   const sql = db();
   const nowH = hourIndexOf(now);
   const rows = await sql<FriendRow[]>`
-    select p.id as plant_id, pe.id as person_id, pe.first_name, pe.show_name, p.species, p.seed, p.planted_h, p.rehearsal,
-           p.live_practice
+    select p.id as plant_id, pe.id as person_id, pe.first_name, pe.show_name, p.species, p.seed, p.planted_h, p.rehearsal
     from meadow.plants p
     join meadow.gardens g on g.id = p.garden_id
     join meadow.people pe on pe.id = g.person_id
@@ -257,7 +253,7 @@ export async function gardenOfPlot(plot: number, now: Date = new Date()): Promis
   const r = rows[0];
   // a practice plant hidden from this Meadow counts as an empty plot, as it does for sprinkles; so does a plant of a
   // species this build does not know (species-guard.ts)
-  if (!r || (r.rehearsal && !practiceVisible(r.live_practice, nowH))) throw plotEmpty();
+  if (!r || (r.rehearsal && !showRehearsals())) throw plotEmpty();
 
   const planting = { speciesId: r.species, plantedH: r.planted_h, owner: r.person_id };
   const adv = await advanceCheckpoint({

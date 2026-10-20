@@ -7,7 +7,7 @@ import { notFound } from "next/navigation";
 import { DeerConcepts } from "@/components/deer/DeerConcepts";
 
 export const metadata: Metadata = {
-  title: "Deer concepts - Disney Garden",
+  title: "Deer concepts - Meadow",
   robots: { index: false },
 };
 

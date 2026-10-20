@@ -1,18 +1,17 @@
-// Removes rehearsal plantings: plants marked plants.rehearsal when they went in, because they were planted before the
-// seeds were handed out, or through a server that is not the production deployment (the local dev server and Vercel
-// Preview share this database). It deletes the people whose every plant is a rehearsal, cascading to their gardens,
-// plants, events, checkpoints, sprinkles, sessions and links. Real plants are never touched: the mark is set at insert
-// and never inferred from the planting hour, so moving the opening hour cannot turn a colleague's plant into a
-// rehearsal.
+// Removes rehearsal plantings: plants marked plants.rehearsal when they went in, because they were planted through a
+// server that is not the production deployment (the local dev server and Vercel Preview share this database; every
+// planting on the live site is real, from 20 Oct on). It deletes the people whose every plant is a rehearsal, cascading
+// to their gardens, plants, events, checkpoints, sprinkles, sessions and links. Real plants are never touched: the mark
+// is set at insert and never inferred from the planting hour.
 //
-// From the start of the game clock (10 Nov 00:00 IST, lib/sim's GAME_START) colleagues are planting, so deleting then
-// also needs --force: look at the list first.
+// From the start of the game clock (10 Nov 00:00 IST, lib/sim's GAME_START) deleting also needs --force, so the list is
+// looked at first while the party is on.
 //
 //   node --env-file=.env.local scripts/clear-rehearsals.mjs                  list what would go
 //   node --env-file=.env.local scripts/clear-rehearsals.mjs --yes            delete it (before 10 Nov)
 //   node --env-file=.env.local scripts/clear-rehearsals.mjs --yes --force    delete it on or after 10 Nov
-//   add --weather to also delete the weather hours from before the game clock (h < 0) once no rehearsal plant needs them
-//   (they are real Open-Meteo data and harmless to keep)
+//   add --weather to also delete the weather hours from before the game clock (h < 0) once no plant at all needs them
+//   (they are real Open-Meteo data and harmless to keep; colleagues' gardens planted before 10 Nov replay from them)
 import { connect } from "./db-connect.mjs";
 import { ensureTypeScript, importSim } from "./lib/load-sim.mjs";
 
@@ -57,7 +56,8 @@ async function main() {
         returning pe.id`;
       let weatherGone = 0;
       if (weather) {
-        const [left] = await tx`select count(*)::int as n from meadow.plants where rehearsal and planted_h < 0`;
+        // every plant planted before 10 Nov, real ones included, replays from these hours whenever it is rebuilt
+        const [left] = await tx`select count(*)::int as n from meadow.plants where planted_h < 0`;
         if (left.n === 0) weatherGone = (await tx`delete from meadow.weather_hours where h < 0 returning h`).length;
       }
       return { people: gone.length, weather: weatherGone };

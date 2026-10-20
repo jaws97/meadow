@@ -24,7 +24,7 @@
 // metres, centred between the four bridges on the diagonals), numbered WATER_BASE + k in sowing order k, a range of
 // their own clear of every bed plot. A lotus takes the lowest free pocket; once all 56 are taken it takes the lowest
 // free bed plot like any seed, and the Meadow stands it in a brass urli there. Every other seed ignores the pockets.
-// The pocket count and sowing order lock when the first real lotus is planted (10 Nov 15:00 IST): after that more
+// The pocket count and sowing order lock when the first real lotus is planted (planting opened on 20 Oct): after that more
 // pockets may only be appended (new indexes after the last, existing angles untouched). Radii and angles are never
 // stored, so they may still move.
 

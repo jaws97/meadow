@@ -6,7 +6,7 @@ import type { Metadata } from "next";
 import { FriendGardenView } from "@/components/meadow/FriendGarden";
 
 export const metadata: Metadata = {
-  title: "A friend's garden - Disney Garden",
+  title: "A friend's garden - Meadow",
   description: "A look at a friend's flower from the Meadow",
 };
 

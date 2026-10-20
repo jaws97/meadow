@@ -42,7 +42,6 @@ import {
   BED,
   IST_OFFSET_MIN,
   JAR,
-  PLANT_OPEN_H,
   POND,
   POND_GEO,
   dateOfHour,
@@ -489,8 +488,6 @@ export type Resting =
   | { mode: "sprouting" }
   /** the sprout is going in this hour */
   | { mode: "replanting" }
-  /** before the seeds are handed out (rehearsals), a sprout waits for the party */
-  | { mode: "replant-later" }
   /** planting has closed for the season */
   | { mode: "closed" };
 
@@ -506,7 +503,7 @@ export function restingOf(me: Pick<MeView, "state" | "care" | "pending" | "now">
   if (sending("replant")) return { mode: "sprouting" };
   if (me.care.revive || !me.state.fairyUsed) return { mode: "revive" };
   if (me.care.replant) return { mode: "replant" };
-  return me.now.h < PLANT_OPEN_H ? { mode: "replant-later" } : { mode: "closed" };
+  return { mode: "closed" };
 }
 
 // ---- optimistic care -----------------------------------------------------------------------------------------------------

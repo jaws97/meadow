@@ -10,7 +10,7 @@
 // modelVersionOf: SIM_VERSION 7, and 1000 + POND_VERSION for the lotus), so a checkpoint is trusted only when its
 // version, its state's own mark and its state's species all match what the planting is stepped by now. A deployment that must not write checkpoints (env.ts: anything but production, while the database is
 // shared) leaves saveCheckpoint out and gets the catch-up computed once, returned and dropped.
-import { catchUp, createPlant, isCurrentState, isPondState, modelVersionOf, type PlantState, type Planting, type TimedEvent, type WeatherAt } from "@/lib/sim";
+import { catchUp, createPlant, isCurrentState, modelVersionOf, type PlantState, type Planting, type TimedEvent, type WeatherAt } from "@/lib/sim";
 
 export interface CheckpointRecord {
   h: number;
@@ -44,17 +44,12 @@ export interface AdvanceResult {
 }
 
 /**
- * A fresh seed for a planting: createPlant(), except for a soil rehearsal planted before the game clock starts (a
- * negative hour, only ever before the party). The soil model marks "never watered or fed" as hour -99, which at a
- * negative hour would read as a recent can and refuse every can and feed for weeks, so for those plants alone the marks
- * move 99 hours before the planting. Real plantings (from PLANT_OPEN_H, on 10 Nov) are exactly createPlant(). A lotus
- * needs no such move: the pond model marks "not yet" with POND_NONE, far before any hour.
+ * A fresh seed for a planting: createPlant(). Plantings before 10 Nov (negative hours, open since 20 Oct) need nothing
+ * extra: the soil model sets its "not yet" marks below the planting hour (model.ts createPlant), and the pond model uses
+ * POND_NONE, far before any hour.
  */
 export function seedState(planting: Planting): PlantState {
-  const s = createPlant(planting.speciesId, planting.plantedH, planting.owner);
-  if (planting.plantedH >= 0 || isPondState(s)) return s;
-  const never = planting.plantedH - 99;
-  return { ...s, lastCanH: Math.min(s.lastCanH, never), lastFeedH: Math.min(s.lastFeedH, never) };
+  return createPlant(planting.speciesId, planting.plantedH, planting.owner);
 }
 
 /**

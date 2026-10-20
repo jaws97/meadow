@@ -46,7 +46,7 @@ const LotusDevControls =
 // (loaded at once in development, panel or not, so scripted captures find its window.__lotusDev handle with ?nopanel)
 if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") void import("@/components/lotus/product/LotusDevControls");
 
-const COLLAPSED_KEY = "disney-garden:devpanel-collapsed";
+const COLLAPSED_KEY = "meadow:devpanel-collapsed";
 
 /** Pause in typing before a new seed reaches the store (and rebuilds the plant). */
 const SEED_COMMIT_MS = 350;
@@ -375,7 +375,7 @@ export function DevPanel() {
       <header className="space-y-2">
         <div className="flex items-start justify-between gap-2 select-none">
           <div>
-            <h2 className="text-sm font-semibold text-white">Disney Garden</h2>
+            <h2 className="text-sm font-semibold text-white">Meadow</h2>
             <p className="text-[10px] text-white/45">visual development build</p>
           </div>
           <button

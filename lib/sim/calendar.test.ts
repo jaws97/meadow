@@ -29,14 +29,15 @@ describe("game clock", () => {
     expect(istHour(2026, 12, 11)).toBe(744);
   });
 
-  it("opens planting at the party, 10 Nov 15:00 IST, and closes it after 10 Dec 23:59", () => {
+  it("names the party hour, 10 Nov 15:00 IST, keeps planting open from 20 Oct, and closes it after 10 Dec 23:59", () => {
     expect(PLANT_OPEN_H).toBe(hourIndexOf(new Date("2026-11-10T15:00:00+05:30")));
-    expect(canPlant(hourIndexOf(new Date("2026-11-10T14:59:00+05:30")))).toBe(false);
+    expect(canPlant(hourIndexOf(new Date("2026-10-20T10:00:00+05:30")))).toBe(true);
+    expect(canPlant(hourIndexOf(new Date("2026-11-10T14:59:00+05:30")))).toBe(true);
     expect(canPlant(hourIndexOf(new Date("2026-11-10T15:00:00+05:30")))).toBe(true);
     expect(canPlant(hourIndexOf(new Date("2026-12-10T23:59:59+05:30")))).toBe(true);
     expect(PLANT_CLOSE_H).toBe(hourIndexOf(new Date("2026-12-11T00:00:00+05:30")));
     expect(canPlant(PLANT_CLOSE_H)).toBe(false);
-    expect([-1, 0, 14, 15, 16, 400, 743, 744, 745].map(canPlant)).toEqual([false, false, false, true, true, true, true, false, false]);
+    expect([-494, -1, 0, 14, 15, 16, 400, 743, 744, 745].map(canPlant)).toEqual([true, true, true, true, true, true, true, true, false, false]);
   });
 
   it("names the typical bloom day for copy only", () => {

@@ -26,7 +26,6 @@ import {
   istClock,
   istDayOfHour,
   lastPinchH,
-  plantingOpensText,
   plantingWindow,
   sprinkleMessage,
   stageOf,
@@ -52,23 +51,11 @@ function ctx(over: Partial<CareContext> = {}): CareContext {
 }
 
 describe("planting window", () => {
-  // from the model's PLANT_OPEN_H, so choosing another opening hour in lib/sim needs no change here
-  it("opens at the party (PLANT_OPEN_H on 10 Nov) and closes after 10 Dec", () => {
-    expect(plantingWindow(PLANT_OPEN_H, false)).toBe("open");
-    expect(plantingWindow(743, false)).toBe("open");
-    expect(plantingWindow(744, false)).toBe("closed");
-    expect(plantingWindow(PLANT_OPEN_H - 1, false)).toBe("early");
-    expect(plantingWindow(-600, false)).toBe("early");
-  });
-
-  it("names the opening moment from the model's PLANT_OPEN_H", () => {
-    expect(plantingOpensText()).toMatch(/^\d{1,2} Nov at \d{2}:00 IST$/);
-  });
-
-  it("allows rehearsals before the party only when enabled, never after the close", () => {
-    expect(plantingWindow(PLANT_OPEN_H - 1, true)).toBe("rehearsal");
-    expect(plantingWindow(-600, true)).toBe("rehearsal");
-    expect(plantingWindow(744, true)).toBe("closed");
+  // from lib/sim's canPlant, so a change of the window there needs no change here
+  it("is open from 20 Oct, through the party morning, to 10 Dec 23:59 IST, then closed", () => {
+    for (const h of [-494, -1, 0, PLANT_OPEN_H - 1, PLANT_OPEN_H, 743]) expect(plantingWindow(h), `h ${h}`).toBe("open");
+    expect(plantingWindow(744)).toBe("closed");
+    expect(plantingWindow(800)).toBe("closed");
   });
 });
 
@@ -221,7 +208,10 @@ describe("decideCare: Fairy Dust and replanting", () => {
     expect(decideCare({ kind: "replant", on: null }, ctx())).toMatchObject({ action: "reject", code: "not_needed" });
     expect(decideCare({ kind: "replant", on: null }, ctx({ state: asleep() }))).toMatchObject({ action: "reject", code: "revive_first" });
     expect(decideCare({ kind: "replant", on: null }, ctx({ state: spent, nowH: 800, checkpointH: 800 }))).toMatchObject({ code: "planting_closed" });
-    expect(decideCare({ kind: "replant", on: null }, ctx({ state: spent, nowH: 5, checkpointH: 5 }))).toMatchObject({ code: "not_yet" });
+    // before the party too: planting opened on 20 Oct, and a plant planted then can need its second chance before 10 Nov
+    expect(decideCare({ kind: "replant", on: null }, ctx({ state: spent, nowH: 5, checkpointH: 5 }))).toMatchObject({ action: "insert", h: 5 });
+    expect(decideCare({ kind: "replant", on: null }, ctx({ state: spent, nowH: -300, checkpointH: -300 }))).toMatchObject({ action: "insert", h: -300 });
+    expect(careStatus(spent, [], -300).replant).toBe(true);
   });
 });
 
@@ -285,6 +275,13 @@ describe("Meadow bands", () => {
     expect(stageOf(fresh({ D: 0.8 }))).toBe("bud");
     expect(stageOf(fresh({ D: 1, bloomH: 300 }))).toBe("bloom");
     expect(stageOf(asleep())).toBe("resting");
+  });
+
+  it("stages a plant planted before the party as in bloom from the hour it opened, before 10 Nov", () => {
+    const early = createPlant("rose", -494, OWNER);
+    expect(stageOf({ ...early, D: 1, ripeH: -172, bloomH: -160 })).toBe("bloom");
+    expect(stageOf({ ...early, D: 1, ripeH: -172 })).toBe("bud");
+    expect(stageOf(early)).toBe("seed");
   });
 
   it("bands health and bloom from the visual", () => {

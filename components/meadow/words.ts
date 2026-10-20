@@ -151,7 +151,7 @@ export function moodLine(f: Pick<FriendGarden, "species" | "stage" | "visual" | 
     case "leafy":
       return "Leafy and growing well.";
     case "bud":
-      // a flower open now reads as one (a practice plant before 10 Nov has no bloom hour to mark it by)
+      // a flower open now reads as one, whatever its bloom hour says
       if (f.visual.bloom >= 0.2) return "In full bloom.";
       return "A bud is forming. The flower is on its way.";
     case "bloom":

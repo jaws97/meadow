@@ -235,8 +235,8 @@ describe("resting", () => {
       .toEqual({ mode: "replanting" });
   });
 
-  it("waits for the party before the seeds are handed out, and says when planting has closed", () => {
-    expect(restingOf(view({ nowH: -200, alive: false, fairyUsed: true }), [])).toEqual({ mode: "replant-later" });
+  it("offers the sprout before the party too, and says when planting has closed", () => {
+    expect(restingOf(view({ nowH: -200, alive: false, fairyUsed: true, replant: true }), [])).toEqual({ mode: "replant" });
     expect(restingOf(view({ nowH: 800, alive: false, fairyUsed: true }), [])).toEqual({ mode: "closed" });
   });
 });

@@ -1,4 +1,4 @@
-// The Disney Garden plant model, SIM_VERSION 7: a line-for-line TypeScript port of the locked scratch prototype
+// The Meadow plant model, SIM_VERSION 7: a line-for-line TypeScript port of the locked scratch prototype
 // (sim/model.js). One step() is one real hour of a seedling-scale plant (grams, not a shrub) in a raised bed in
 // Bangalore. Water, weather, damage, pests, nitrogen and biomass run in real time.
 //
@@ -51,7 +51,10 @@ export type { TwinEntry } from "./twin";
 export const SIM_VERSION = 7;
 /** h = 0: 10 Nov 2026 00:00 IST, the day of the party. */
 export const GAME_START = "2026-11-10T00:00+05:30";
-/** 10 Nov 15:00 IST: the party starts and the seeds are handed out. */
+/**
+ * 10 Nov 15:00 IST: the party starts and Lijas hands out the seeds. Planting itself opened earlier, on 20 Oct, for anyone
+ * with the party link (canPlant), so this hour now only names the party; the prototype opened planting here.
+ */
 export const PLANT_OPEN_H = 15;
 /** 11 Dec 00:00 IST: the last planting hour is 10 Dec 23:00-23:59. */
 export const PLANT_CLOSE_H = 744;
@@ -269,7 +272,7 @@ export interface PlantState {
   Sc: number;
   budS: number;
   op: number;
-  /** hour the bud matured and the hour it bloomed (op >= 0.5), or -1 */
+  /** hour the bud matured and the hour it bloomed (op >= 0.5), or a "not yet" mark below plantedH (createPlant) */
   ripeH: number;
   bloomH: number;
   shade: boolean;
@@ -456,8 +459,12 @@ export function leafArea(s: PlantState, sp: SimSpecies): number {
 export function soilN(s: PlantState): number { return s.Ns / (BED.rho * BED.A * s.Zr); }
 /** A feed adds no growth once the plant is N-sufficient (fN = 1 at NNI >= 0.9) and the bed still holds plenty. */
 export function nRich(s: PlantState): boolean { return s.NNI >= 0.9 && soilN(s) >= BED.Nrich; }
-/** Planting (and replanting) is open from the party, 10 Nov 15:00, to 10 Dec 23:59 IST. */
-export function canPlant(h: number): boolean { return h >= PLANT_OPEN_H && h < PLANT_CLOSE_H; }
+/**
+ * Planting (and replanting) is open until 10 Dec 23:59 IST. It opened on 20 Oct, before the party (the prototype opened
+ * it at PLANT_OPEN_H), and needs no lower bound: a plant can only be replanted after it exists, and step() ignores hours
+ * before its planting. parity.test.ts records this departure from the golden file's window.
+ */
+export function canPlant(h: number): boolean { return h < PLANT_CLOSE_H; }
 /** Rose, sundrop, magnolia, marigold and the Island Bloom open with the morning light; Night Jasmine at dusk. */
 export function opensInMorning(sp: SimSpecies): boolean { return sp.openHod < 12; }
 /**
@@ -516,17 +523,25 @@ export function abaSignal(sp: SimSpecies, f: number, KsRoot: number, KsSalt: num
   return Math.max(smooth(BED.abaF0, sp.p + BED.abaDp, f), 1 - KsRoot * KsSalt);
 }
 
-/** A fresh seed in a bed watered at planting. plantedAtIndex is the game hour it goes in (check canPlant first). */
+/**
+ * A fresh seed in a bed watered at planting. plantedAtIndex is the game hour it goes in (check canPlant first).
+ *
+ * "Not yet" marks sit below the planting hour, so they never collide with a real hour: -1 (and -99 for the last can and
+ * feed, -1 for the last bud-drop day) as in the prototype for a planting on or after 10 Nov, and further back for a
+ * planting before it, whose real hours are negative. Every check of a mark compares it with plantedH, never with 0.
+ */
 export function createPlant(speciesId: SoilSpeciesId, plantedAtIndex: number, owner?: string | null): PlantState {
+  const none = Math.min(-1, plantedAtIndex - 1);
+  const never = Math.min(-99, plantedAtIndex - 99);
   return {
     v: SIM_VERSION, sp: speciesId, owner: owner == null ? null : owner, h: plantedAtIndex, plantedH: plantedAtIndex,
-    hod: hodOf(plantedAtIndex), alive: true, gen: 1, fairyUsed: false, diedH: -1,
+    hod: hodOf(plantedAtIndex), alive: true, gen: 1, fairyUsed: false, diedH: none,
     W: Wx(BED.tfc, BED.Zr0), L: Wx(BED.tfc, BED.Zbed - BED.Zr0), Zr: BED.Zr0, turgor: 1,   // bed watered at planting
     Dw: 0, Ds: 0, Dd: 0, Qd: 0, Qc: 0, Qr: 0, O: 0, R: 0, Sf: 0, Dsalt: 0, Ns: BED.N0 * BED.rho * BED.A * BED.Zr0, Np: 45 * BED.B0,
-    B: BED.B0, D: 0, fDev: 1, aba: 0, Sc: 0, budS: 0, op: 0, ripeH: -1, bloomH: -1,
+    B: BED.B0, D: 0, fDev: 1, aba: 0, Sc: 0, budS: 0, op: 0, ripeH: none, bloomH: none,
     shade: false, cover: false, shadeH: 0, naiveH: 0,
     Ps: 0, Pa: 0, Pm: 0, Dpest: 0, M: 0, Lw: 0, BS: 0,
-    daySpr: 0, givers: [], budDropDay: -1, glowH: 0, richH: 0, lastCanH: -99, lastFeedH: -99,
+    daySpr: 0, givers: [], budDropDay: Math.min(-1, Math.floor(plantedAtIndex / 24) - 1), glowH: 0, richH: 0, lastCanH: never, lastFeedH: never,
     cap: 1,
     dryH: 99,
     wR: 0, wC: 0,
@@ -744,9 +759,9 @@ export function step(state: PlantState, hour: HourInput, events?: readonly SimEv
   s.D = Math.min(1, s.D + dD);
   if (sp.budDrop && f > 0.7 && s.D >= 0.64 && s.D < 0.85 && s.budDropDay !== day) { s.D -= 0.04; s.budDropDay = day; }
   if (s.D >= 1) {          // a mature bud opens at its natural hour (first light, or dusk); petals need turgor to expand
-    if (s.ripeH < 0) s.ripeH = h + 1;
+    if (s.ripeH < s.plantedH) s.ripeH = h + 1;
     if (s.op < 1 && openWindow(sp, hod) && (s.op > 0 || hod === sp.openHod)) s.op = Math.min(1, s.op + smooth(0.3, 0.7, s.turgor) / sp.openDur);
-    if (s.op >= 0.5 && s.bloomH < 0) s.bloomH = h + 1;
+    if (s.op >= 0.5 && s.bloomH < s.plantedH) s.bloomH = h + 1;
   }
 
   // 13. death
@@ -759,11 +774,18 @@ export function step(state: PlantState, hour: HourInput, events?: readonly SimEv
 
 /**
  * Mean hourly temperature at hour k: climT (mean of past years by h), extended past its end by the mean daily cycle of
- * its last 7 days, so a forecast for a late planting never runs off the table.
+ * its last 7 days, so a forecast for a late planting never runs off the table, and before its start (a planting before
+ * 10 Nov) by the mean daily cycle of its first 7 days.
  */
 export function climAt(climT: readonly number[], k: number): number {
   const n = climT.length;
-  if (k < n) return climT[Math.max(0, k)];
+  if (k < 0) {
+    const hh = hodOf(k);
+    let t = 0, m = 0;
+    for (let j = 0; j < 7; j++) { const i = 24 * j + hh; if (i < n) { t += climT[i]; m++; } }
+    return m ? t / m : climT[0];
+  }
+  if (k < n) return climT[k];
   const hh = (k - n) % 24;
   let t = 0, m = 0;
   for (let j = 1; j <= 7; j++) { const i = n - 24 * j + hh; if (i >= 0) { t += climT[i]; m++; } }
@@ -781,11 +803,11 @@ export function expectBloom(s: PlantState, sp: SimSpecies | null | undefined, ho
   if (!s.alive) return null;
   let k = Math.max(hour.h, s.h), D = s.D, ripe = s.ripeH, op = s.op, bloom = s.bloomH;
   const lim = k + 24 * 90;
-  for (; bloom < 0 && k < lim; k++) {
+  for (; bloom < s.plantedH && k < lim; k++) {
     if (D < 1) { D += ttHour(sp, climAt(hour.climT, k)) * BED.expDev / sp.TT; if (D >= 1) { D = 1; ripe = k + 1; } }
     if (D >= 1 && openWindow(sp, hodOf(k)) && (op > 0 || hodOf(k) === sp.openHod)) { op += 1 / sp.openDur; if (op >= 0.5) bloom = k + 1; }
   }
-  return { ripeH: ripe, bloomH: bloom, days: bloom < 0 ? null : (bloom - s.plantedH) / 24 };
+  return { ripeH: ripe, bloomH: bloom, days: bloom < s.plantedH ? null : (bloom - s.plantedH) / 24 };
 }
 
 // ---- forecast hint ----------------------------------------------------------------------------------------------------
@@ -917,7 +939,7 @@ export function toVisual(s: PlantState, sp?: SimSpecies | null, clock?: number):
     : bloomNow ? (second ? "in bloom; a smaller second-chance flower" : "in bloom")
     : opening ? (openWindow(sp, t) ? "my petals are opening" : paused) : budReady ? bud
     : ready ? "ready for a drink"
-    : s.shade && !night ? "growing slowly in the shade" : second && s.bloomH < 0 ? "a second-chance sprout; my flower will be smaller" : "happy";
+    : s.shade && !night ? "growing slowly in the shade" : second && s.bloomH < s.plantedH ? "a second-chance sprout; my flower will be smaller" : "happy";
   let yaw = 90;
   if (sp.id === "sundrop" && D < 0.85 && t >= 6 && t <= 18) yaw = 105 + (t - 6) * 12.5;
   return {

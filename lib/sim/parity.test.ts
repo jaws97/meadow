@@ -109,8 +109,10 @@ describe("golden-v7 parity with the prototype", () => {
     expect(same(CLIM_T, G.climT, true), "climT").toBe(true);
   });
 
-  it("agrees on the planting window", () => {
-    for (const [h, ok] of G.canPlant) expect(canPlant(h), `canPlant(${h})`).toBe(ok);
+  it("agrees on the planting window, except that planting opened on 20 Oct rather than at the party", () => {
+    // the one departure from the prototype (model.ts canPlant): before PLANT_OPEN_H the live window is open, so a plant
+    // planted before 10 Nov can be replanted before the party too; from the party on the two agree
+    for (const [h, ok] of G.canPlant) expect(canPlant(h), `canPlant(${h})`).toBe(h < PLANT_OPEN_H ? true : ok);
   });
 
   it("agrees on every heavy-rain hint case (rainSoon), junk rows included", () => {

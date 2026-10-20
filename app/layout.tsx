@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Disney Garden",
+  title: "Meadow",
   description: "A living garden for the Bangalore celebration",
 };
 

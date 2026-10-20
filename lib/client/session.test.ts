@@ -4,7 +4,7 @@
 // connection, is tried again as soon as the browser is back online (with the same request), and success drops the
 // party code from the address through replaceState(null, ...). And the gift's season check, by lib/sim's hours.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { giftSeasonAt, nextGiftSeasonChangeMs, seasonAt, seedsOpenText, showcaseLine } from "@/components/gift/copy";
+import { PLANTING_CLOSES_MS, nextSeasonChangeMs, seasonAt, showcaseLine } from "@/components/gift/copy";
 import { cleanFirstName, isUuid } from "@/lib/server/validate";
 import {
   ApiProblem,
@@ -163,32 +163,22 @@ describe("a planting whose answer was lost", () => {
 });
 
 describe("the gift's season", () => {
-  it("follows lib/sim's hours: early before 15:00 IST on 10 Nov, open until 10 Dec, then closed", () => {
-    expect(seasonAt(new Date("2026-11-10T14:59:00+05:30"))).toBe("early");
-    expect(seasonAt(new Date("2026-11-10T15:00:00+05:30"))).toBe("open");
+  it("is open from 20 Oct, through the party, until 10 Dec, then closed", () => {
+    expect(seasonAt(new Date("2026-10-20T10:00:00+05:30"))).toBe("open");
+    expect(seasonAt(new Date("2026-11-10T00:00:00+05:30"))).toBe("open");
+    expect(seasonAt(new Date("2026-11-10T14:59:00+05:30"))).toBe("open");
     expect(seasonAt(new Date("2026-12-10T23:59:00+05:30"))).toBe("open");
     expect(seasonAt(new Date("2026-12-11T00:00:00+05:30"))).toBe("closed");
   });
 
-  it("is open on the live site for practice plantings until the game clock starts, then waits for 15:00 on 10 Nov", () => {
-    expect(giftSeasonAt(new Date("2026-10-20T10:00:00+05:30"))).toBe("open");
-    expect(giftSeasonAt(new Date("2026-11-09T23:59:00+05:30"))).toBe("open");
-    expect(giftSeasonAt(new Date("2026-11-10T00:00:00+05:30"))).toBe("early");
-    expect(giftSeasonAt(new Date("2026-11-10T14:59:00+05:30"))).toBe("early");
-    expect(giftSeasonAt(new Date("2026-11-10T15:00:00+05:30"))).toBe("open");
-    expect(giftSeasonAt(new Date("2026-12-11T00:00:00+05:30"))).toBe("closed");
+  it("knows when the welcome step changes by itself: when planting closes", () => {
+    expect(PLANTING_CLOSES_MS).toBe(Date.parse("2026-12-11T00:00:00+05:30"));
+    expect(nextSeasonChangeMs(Date.parse("2026-10-20T10:00:00+05:30"))).toBe(PLANTING_CLOSES_MS);
+    expect(nextSeasonChangeMs(PLANTING_CLOSES_MS)).toBeNull();
   });
 
-  it("knows when the welcome step changes by itself: at the game clock's start, then when seeds open", () => {
-    const start = Date.parse("2026-11-10T00:00:00+05:30"), open = Date.parse("2026-11-10T15:00:00+05:30");
-    expect(nextGiftSeasonChangeMs(Date.parse("2026-10-20T10:00:00+05:30"))).toBe(start);
-    expect(nextGiftSeasonChangeMs(start)).toBe(open);
-    expect(nextGiftSeasonChangeMs(open)).toBeNull();
-  });
-
-  it("names the opening moment plainly, and the showcase line follows the season", () => {
-    expect(seedsOpenText()).toBe("3 pm on 10 November");
-    expect(showcaseLine(new Date("2026-10-20T10:00:00+05:30"))).toBe("Seeds are handed out at the party on 10 November.");
+  it("tells someone without a seed where seeds come from, and when planting has closed", () => {
+    expect(showcaseLine(new Date("2026-10-20T10:00:00+05:30"))).toBe("Seeds come with the party link. Ask a colleague to share it with you.");
     expect(showcaseLine(new Date("2026-12-20T10:00:00+05:30"))).toMatch(/^Planting closed/);
   });
 });

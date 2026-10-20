@@ -63,7 +63,7 @@ export function simulate({ year = 2025, plantH = PARTY, endH = null, policy = nu
   const rec: Rec[] = [];
   const ctx: Ctx = { wx, nWater: 0, nFeed: 0, nJar: 0, nTop: 0, nMove: 0, p0: plantH };
   for (let h = init ? init.h : plantH; h < end; h++) {
-    const hod = h % 24, w = wx(h);
+    const hod = ((h % 24) + 24) % 24, w = wx(h);   // a planting before 10 Nov has negative hours
     if (!w) break;
     const ev = policy ? policy(h, hod, s, ctx) : [];
     const w0 = s.lastCanH, f0 = s.lastFeedH, st0 = s.stage;
@@ -77,7 +77,7 @@ export function simulate({ year = 2025, plantH = PARTY, endH = null, policy = nu
 
 export function sumP(ctx: Pick<Ctx, "wx">, a: number, b: number): number {
   let t = 0;
-  for (let k = Math.max(0, a); k < b; k++) { const w = ctx.wx(k); if (w) t += w.P; }
+  for (let k = a; k < b; k++) { const w = ctx.wx(k); if (w) t += w.P; }   // hours with no row (before the fixture) add nothing
   return t;
 }
 

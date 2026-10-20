@@ -11,21 +11,18 @@
 // holds one. A reload in the middle keeps the name and seed (pendingSeed), so a retry reuses the same request id and
 // never plants twice.
 //
-// Seeds open at the party (10 Nov, 15:00 IST) and planting closes after 10 Dec. Until 10 Nov the live site takes
-// practice plantings from anyone with the party link, so colleagues can test it. On the live site the welcome step
-// checks the season by the same hours the server does (copy.ts giftSeasonAt): open for practice before 10 Nov, and
-// on 10 Nov someone who scans the QR code early is told when to come back before they type anything; the step opens by
-// itself at 15:00. ?rehearsal skips the check on a production build (the server still decides); on a development
-// server, ?season=early or ?season=closed shows those states.
+// Planting is open from 20 Oct, before the party, to 10 Dec for anyone with the party link, and every planting on the
+// live site is a real garden. On the live site the welcome step follows the season by the same hours the server does
+// (copy.ts seasonAt), so after 10 Dec it says planting has closed; on a development server, ?season=closed shows that.
 //
 // Names are unique in the Meadow (ignoring case), so a friend finds the right flower: the name step says so, asks the
 // server whether the name is free before the seeds appear (this tab's own planting whose answer was lost does not
 // count, so planting again returns that garden), and a name taken in the meantime brings the person back to the name
 // step with the server's words. An answer that arrives after the name was changed, or the step left, is dropped.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { OWNER, giftSeasonAt, nextGiftSeasonChangeMs, seedsOpenText, type Season } from "@/components/gift/copy";
+import { OWNER, nextSeasonChangeMs as nextChangeMs, seasonAt, type Season } from "@/components/gift/copy";
 import { GiftSheet } from "@/components/gift/GiftSheet";
-import { ArrowLeft, Soil, Sparkle } from "@/components/gift/icons";
+import { ArrowLeft, Sparkle } from "@/components/gift/icons";
 import { LinkPanel } from "@/components/gift/LinkPanel";
 import { PlantingMoment } from "@/components/gift/PlantingMoment";
 import { SeedPicker } from "@/components/gift/SeedPicker";
@@ -62,23 +59,21 @@ const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
  * Whether the welcome step follows the planting season: on the live site (Vercel's production, or a production build
- * elsewhere), unless the address says ?rehearsal. Previews and development servers plant practice seeds at any time.
+ * elsewhere). Previews and development servers plant practice seeds at any time.
  */
-const SEASON_GATED =
-  (process.env.NEXT_PUBLIC_VERCEL_ENV ? process.env.NEXT_PUBLIC_VERCEL_ENV === "production" : process.env.NODE_ENV === "production") &&
-  !(typeof window !== "undefined" && new URLSearchParams(window.location.search).has("rehearsal"));
+const SEASON_GATED = process.env.NEXT_PUBLIC_VERCEL_ENV ? process.env.NEXT_PUBLIC_VERCEL_ENV === "production" : process.env.NODE_ENV === "production";
 
-/** On a development server, ?season=early or ?season=closed shows what the live site shows then. */
+/** On a development server, ?season=closed shows what the live site shows after 10 Dec. */
 const PREVIEW_SEASON: Season | null = (() => {
   if (process.env.NODE_ENV === "production" || typeof window === "undefined") return null;
   const asked = new URLSearchParams(window.location.search).get("season");
-  return asked === "early" || asked === "open" || asked === "closed" ? asked : null;
+  return asked === "open" || asked === "closed" ? asked : null;
 })();
 
-const seasonNow = (): Season => PREVIEW_SEASON ?? (SEASON_GATED ? giftSeasonAt() : "open");
+const seasonNow = (): Season => PREVIEW_SEASON ?? (SEASON_GATED ? seasonAt() : "open");
 
 /** When the season shown can next change by itself, or null (a development server's ?season=, or no gate at all). */
-const nextSeasonChangeMs = (): number | null => (PREVIEW_SEASON || !SEASON_GATED ? null : nextGiftSeasonChangeMs());
+const nextSeasonChangeMs = (): number | null => (PREVIEW_SEASON || !SEASON_GATED ? null : nextChangeMs());
 
 /** "Plant the Night Jasmine", "Plant the Island Bloom". */
 const plantLabel = (name: string) => `Plant the ${name}`;
@@ -89,10 +84,7 @@ function signLength(text: string): "mid" | "long" | undefined {
   return n > 18 ? "long" : n > 12 ? "mid" : undefined;
 }
 
-/**
- * The season as it stands, moving on by itself when the practice days end and when seeds open (or when a sleeping
- * phone wakes past either moment).
- */
+/** The season as it stands, moving on by itself when planting closes (or when a sleeping phone wakes past it). */
 function useSeason(): Season {
   const [season, setSeason] = useState(seasonNow);
   useEffect(() => {
@@ -269,7 +261,6 @@ export function GiftFlow({
       </div>
     );
   } else if (step === "welcome") {
-    const early = season === "early";
     body = (
       <div className="gift-step" key="welcome">
         <p className="gift-eyebrow">
@@ -279,25 +270,13 @@ export function GiftFlow({
           A seed, just for you
         </h2>
         <p className="gift-text">This Enchanted Rose, grown by {OWNER}, is in full bloom. There is a seed waiting for you too.</p>
-        {early ? (
-          <p className="gift-text">
-            You can choose your flower and plant it at the party. Keep this page open, or scan the code again then. With gentle care,
-            it blooms in about two weeks.
-          </p>
-        ) : (
-          <p className="gift-text">
-            Choose a flower and plant it today. Look after it a little each day, in the real Bangalore weather. With gentle care, it
-            blooms in about two weeks.
-          </p>
-        )}
+        <p className="gift-text">
+          Choose a flower and plant it today. Look after it a little each day, in the real Bangalore weather. With gentle care, it
+          blooms in about two weeks.
+        </p>
       </div>
     );
-    foot = early ? (
-      <p className="gift-season" role="status">
-        <Soil size={18} />
-        Seeds open at {seedsOpenText()}
-      </p>
-    ) : (
+    foot = (
       <button type="button" className="gift-primary" onClick={() => setStep("name")}>
         Receive your seed
       </button>
@@ -440,8 +419,7 @@ export function GiftFlow({
         : `Your ${flower} is tucked into its bed, with its first drink of water.`;
     } else {
       title = "Your seed is safe in your hand";
-      // the app's own words for "not yet", as for a busy garden: the server's ends on an exclamation mark
-      line = planting.problem.code === "not_yet" ? `Seeds open at ${seedsOpenText()}, at the party. Come back then to plant it.` : planting.problem.message;
+      line = planting.problem.message;
     }
     body = (
       <div className="gift-step gift-plant" key="planting">

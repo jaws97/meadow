@@ -92,7 +92,7 @@ export function simulate({ spId, year = 2025, plantH = PARTY, endH = null, polic
   const rec: Rec[] = [];
   const ctx: Ctx = { wx, nWater: 0, nFeed: 0 };
   for (let h = init ? init.h : plantH; h < end; h++) {
-    const hod = h % 24, w = wx(h);
+    const hod = ((h % 24) + 24) % 24, w = wx(h);   // a planting before 10 Nov has negative hours
     if (!w) break;
     const ev = policy ? policy(h, hod, s, ctx) : [];
     const w0 = s.lastCanH, f0 = s.lastFeedH;
@@ -106,7 +106,7 @@ export function simulate({ spId, year = 2025, plantH = PARTY, endH = null, polic
 
 export function sumP(ctx: Ctx, a: number, b: number): number {
   let t = 0;
-  for (let k = Math.max(0, a); k < b; k++) { const w = ctx.wx(k); if (w) t += w.P; }
+  for (let k = a; k < b; k++) { const w = ctx.wx(k); if (w) t += w.P; }   // hours with no row (before the fixture) add nothing
   return t;
 }
 
@@ -234,7 +234,7 @@ export const isDroop = (x: Rec) => x.s.alive && x.v.droop >= DROOP_SIGN && fOf(x
 export interface Bloom { days: number; ripe: number; flower: number; size: number; health: number; at: number; Q: number }
 /** days from planting to the bloom moment (op >= 0.5) and the flower and plant at that hour; null if it never bloomed */
 export function bloomOf(r: Run): Bloom | null {
-  const s = r.s, b = r.rec.find((x) => x.s.bloomH > 0 && x.s.gen === s.gen && x.h >= x.s.bloomH);
+  const s = r.s, b = r.rec.find((x) => x.s.bloomH >= x.s.plantedH && x.s.gen === s.gen && x.h >= x.s.bloomH);
   if (!b || !b.s.alive) return null;
   const pl = b.s.plantedH;
   return { days: (b.s.bloomH - pl) / 24, ripe: (b.s.ripeH - pl) / 24, flower: b.v.flower, size: b.v.size, health: b.v.health, at: b.s.bloomH, Q: 1 - 2 * b.s.budS };

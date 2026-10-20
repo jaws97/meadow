@@ -30,8 +30,8 @@
 // (`node run.mjs <mode>` and `node checks.mjs`), then `node golden-pond.mjs` writes the golden file for this folder.
 //
 // "Not yet" hour marks (lastCanH, lastFeedH, lastKoiH, ripeH, bloomH, flH, movedH, diedH) start at POND_NONE (-1e6) and are
-// compared against it, never against 0, so a practice planting at a negative hour (before the party) behaves like any
-// other. The soil model keeps its own -1 / -99 marks.
+// compared against it, never against 0, so a planting at a negative hour (before 10 Nov: planting opened on 20 Oct)
+// behaves like any other. The soil model keeps its own -1 / -99 marks.
 //
 // Hour index h counts whole hours from GAME_START (10 Nov 2026 00:00 IST), as model.ts. No runtime import from model.ts
 // (types only): it keeps its own copies of the small helpers, as the prototype does.
@@ -41,7 +41,6 @@ export const POND_VERSION = 1;
 /** "Not yet": an hour mark that has never been set. */
 export const POND_NONE = -1e6;
 const NONE = POND_NONE;
-const PLANT_OPEN_H = 15;
 const PLANT_CLOSE_H = 744;
 
 export const POND = Object.freeze({
@@ -424,7 +423,11 @@ function shownLA(s: PondState, sp: PondSpecies): number {
 }
 function mudN(s: PondState): number { return s.Ns / GEO.mass; }
 function nRich(s: PondState): boolean { return s.NNI >= 0.9 && mudN(s) >= POND.Nrich; }
-function canPlant(h: number): boolean { return h >= PLANT_OPEN_H && h < PLANT_CLOSE_H; }
+/**
+ * Planting (and replanting) is open until 10 Dec 23:59 IST: it opened on 20 Oct, before the party (the prototype opened it
+ * at the party, 10 Nov 15:00), as model.ts canPlant. No lower bound is needed: stepPond ignores hours before the planting.
+ */
+function canPlant(h: number): boolean { return h < PLANT_CLOSE_H; }
 /** The petals open (and a paused opening resumes) only from openHod to closeHod. */
 export function pondOpenWindow(sp: PondSpecies, hod: number): boolean { return hod >= sp.openHod && hod < sp.closeHod; }
 const openWindow = pondOpenWindow;
@@ -467,7 +470,7 @@ export function createPond(speciesId: "lotus", plantedAtIndex: number, owner?: s
     Vp: POND.Vfill, Vq: GEO.Vqrim, Wm: GEO.Wsat,                        // the pond at its line, the pot full and its mud soaked
     Tw: 22, Tm: 22, Tw3: 22, Tn5: 20, TnRun: 99, Ta: 22, cl: 0.4, Ts24: 24, Al: 0.005,
     Nw: POND.nBg / 0.15 * POND.Vfill, Nm: 0,
-    kH: 0, lastKoiH: NONE, koiDay: 0,                                     // the koi were fed at the party
+    kH: 0, lastKoiH: NONE, koiDay: 0,                                     // the koi were fed at the planting
     B: POND.B0, D: 0, dD: 0, fDev: 1, aba: 0, turgor: 1, aer: 1,
     Dw: 0, Ds: 0, Dd: 0, Dg: 0, R: 0, Sc: 0, Ns: POND.N0 * GEO.mass, Np: 45 * POND.B0, NNI: 1,
     Ps: 0, Pa: 0, Pm: 0, Dpest: 0, budS: 0, op: 0, ripeH: NONE, bloomH: NONE, cap: 1,
@@ -763,7 +766,14 @@ export function stepPond(state: PondState, hour: HourInput, events?: readonly Si
 
 function climAt(climT: readonly number[], k: number): number {
   const n = climT.length;
-  if (k < n) return climT[Math.max(0, k)];
+  // before 10 Nov (a planting from 20 Oct): the mean daily cycle of the table's first 7 days, as model.ts climAt
+  if (k < 0) {
+    const hh = ((k % 24) + 24) % 24;
+    let t = 0, m = 0;
+    for (let j = 0; j < 7; j++) { const i = 24 * j + hh; if (i < n) { t += climT[i]; m++; } }
+    return m ? t / m : climT[0];
+  }
+  if (k < n) return climT[k];
   const hh = (k - n) % 24;
   let t = 0, m = 0;
   for (let j = 1; j <= 7; j++) { const i = n - 24 * j + hh; if (i >= 0) { t += climT[i]; m++; } }

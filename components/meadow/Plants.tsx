@@ -403,7 +403,7 @@ export function Plants({ layout: L, shadows }: { layout: MeadowLayout; shadows: 
       if (p.stage === "bud" || p.stage === "bloom") {
         // the head rides the top of the stem, following the plant's lean
         const top = pos.set(plot.x, plot.y, plot.z).addScaledVector(tilt, s * 0.99);
-        // a flower open now is drawn open (a practice plant before 10 Nov has no bloom hour, so it reads as a bud)
+        // a flower open now is drawn open, whatever its stage says
         const open = p.bloom > 0;
         if (open) {
           // an open flower turns its face a little toward the path, and opens wider as the hours go

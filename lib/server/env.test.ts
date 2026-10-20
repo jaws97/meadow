@@ -1,9 +1,8 @@
 // Which deployment this is, and what it may write: only production saves checkpoints and weather; Vercel without
-// VERCEL_ENV is never production; rehearsals are open everywhere except production, where they are open only before
-// the game clock starts, so no plant planted on or after 10 Nov can be marked or hidden as a rehearsal.
+// VERCEL_ENV is never production; practice (rehearsal) plants come only from a dev server or a Preview and never show in
+// production, where every planting is real, before the party too.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PLANT_OPEN_H } from "@/lib/sim";
-import { deployment, isProduction, partyCodes, practiceVisible, rehearsalAllowed, writesDerivedState } from "./env";
+import { deployment, isProduction, partyCodes, showRehearsals, writesDerivedState } from "./env";
 import { plantingWindow } from "./rules";
 
 afterEach(() => {
@@ -30,7 +29,7 @@ describe("deployment", () => {
     vi.stubEnv("VERCEL_ENV", "");
     expect(deployment()).toBe("preview");
     expect(writesDerivedState()).toBe(false);
-    expect(rehearsalAllowed(PLANT_OPEN_H + 1)).toBe(true);
+    expect(showRehearsals()).toBe(true);
   });
 
   it("treats next dev and tests as development, and a local production build (no VERCEL) as production", () => {
@@ -45,53 +44,21 @@ describe("deployment", () => {
   });
 });
 
-describe("rehearsals", () => {
-  it("are open outside production at any hour before the seeds are handed out", () => {
+describe("practice plants", () => {
+  it("show on a dev server or a Preview, which plant only those", () => {
     vi.stubEnv("VERCEL_ENV", "preview");
-    vi.stubEnv("MEADOW_REHEARSAL", "");
-    expect(rehearsalAllowed(-48)).toBe(true);
-    expect(rehearsalAllowed(15)).toBe(true);
-    // a dev server or a Preview shows every practice plant, the live site's own included
-    expect(practiceVisible(false, 15)).toBe(true);
-    expect(practiceVisible(true, -48)).toBe(true);
+    expect(showRehearsals()).toBe(true);
   });
 
-  it("are open in production before the game clock starts, with or without the old MEADOW_REHEARSAL switch", () => {
+  it("never show in production, whatever the old MEADOW_REHEARSAL switch says, and planting is open from 20 Oct", () => {
     vi.stubEnv("VERCEL_ENV", "production");
     for (const flag of ["", "0", "1"]) {
       vi.stubEnv("MEADOW_REHEARSAL", flag);
-      expect(rehearsalAllowed(-24)).toBe(true);
-      expect(practiceVisible(true, -24)).toBe(true);
-      expect(rehearsalAllowed(-1)).toBe(true);
-      expect(practiceVisible(true, -1)).toBe(true);
-      expect(rehearsalAllowed(0)).toBe(false);
-      expect(practiceVisible(true, 0)).toBe(false);
-      expect(plantingWindow(-1, rehearsalAllowed(-1))).toBe("rehearsal");
+      expect(showRehearsals()).toBe(false);
     }
-  });
-
-  it("cannot touch a party-day planting at 15:00 IST in production, even with the old MEADOW_REHEARSAL=1 left on", () => {
-    vi.stubEnv("VERCEL_ENV", "production");
-    vi.stubEnv("MEADOW_REHEARSAL", "1");
-    const h = 15; // 10 Nov 15:00 IST, when the party starts
-    expect(rehearsalAllowed(h)).toBe(false);
-    expect(practiceVisible(true, h)).toBe(false);
-    // the planting is either real (open) or refused until the opening hour (early), never a rehearsal
-    expect(plantingWindow(h, rehearsalAllowed(h))).toBe(h >= PLANT_OPEN_H ? "open" : "early");
-    for (let hour = 0; hour < PLANT_OPEN_H + 48; hour++) {
-      expect(plantingWindow(hour, rehearsalAllowed(hour))).not.toBe("rehearsal");
-    }
-  });
-});
-
-describe("practice plants in the live Meadow", () => {
-  it("are only the live site's own, and only before the game clock starts: never a dev server's or a Preview's seeds", () => {
-    vi.stubEnv("VERCEL_ENV", "production");
-    for (const h of [-500, -1, 0, 15, 400]) expect(practiceVisible(false, h), `a dev or Preview seed at h ${h}`).toBe(false);
-    expect(practiceVisible(true, -500)).toBe(true);
-    expect(practiceVisible(true, -1)).toBe(true);
-    expect(practiceVisible(true, 0)).toBe(false);
-    expect(practiceVisible(true, 400)).toBe(false);
+    // 20 Oct, the party morning, the party and the last hour of 10 Dec: open; after it, closed
+    for (const h of [-494, -1, 0, 14, 15, 743]) expect(plantingWindow(h), `h ${h}`).toBe("open");
+    expect(plantingWindow(744)).toBe("closed");
   });
 });
 

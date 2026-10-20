@@ -5,7 +5,7 @@
 // rebuilds only a few times a day. The frame's own writes put the flower where the model says.
 import { describe, expect, it } from "vitest";
 import { pondShownOf, flowerSizeOf } from "@/lib/client/plantShown";
-import { toVisualPond, type PondState } from "@/lib/sim";
+import { POND_NONE, toVisualPond, type PondState } from "@/lib/sim";
 import { goodCare, simulate } from "@/lib/sim/__fixtures__/pond-harness";
 import type { LotusLookInput } from "@/components/lotus/live/pondLook";
 import { aphidShare, applyLive, nibbleOf, shapeKey, shapeLook } from "@/components/lotus/product/liveLook";
@@ -23,7 +23,7 @@ const at = (fn: (s: PondState, h: number) => boolean) => {
 const with_ = (i: LotusLookInput, pond: Partial<LotusLookInput["pond"]>, rest: Partial<LotusLookInput> = {}): LotusLookInput => ({ ...i, ...rest, pond: { ...i.pond, ...pond } });
 
 describe("the courtyard lotus rebuilds only when its shape changes", () => {
-  const leafy = input(at((s) => s.stage === 1 && s.aMax >= 2 && s.bloomH < 0), 12);
+  const leafy = input(at((s) => s.stage === 1 && s.aMax >= 2 && s.bloomH === POND_NONE), 12);
   const key = shapeKey(leafy, 12);
 
   it("keeps its shape through what moves every frame", () => {

@@ -22,11 +22,10 @@
 // lower(first_name) (migration 0007) holds the line for every other writer. A taken name is a 409 name_taken with
 // field firstName, and the name step asks first (checkNameFree, POST /api/name).
 //
-// Rehearsals (env.ts): before the seeds are handed out, planting works outside production, or in production before
-// the game clock starts (never on or after 10 Nov). Such plants are marked plants.rehearsal: they take plots from the
-// outer end of the planned rings, and scripts/clear-rehearsals.mjs removes them. Production's own are also marked
-// plants.live_practice, and the production Meadow shows only those, and only before 10 Nov (env.ts practiceVisible).
-// A non-production server may tend only rehearsal plants.
+// Planting is open from 20 Oct to 10 Dec (lib/sim canPlant) for anyone with the party link, and every planting through
+// production is real, before the party too. Plantings through a dev server or a Preview (env.ts) are marked
+// plants.rehearsal: they take plots from the outer end of the planned rings, the production Meadow never shows them,
+// scripts/clear-rehearsals.mjs removes them, and such a server may tend only them.
 //
 // Writes outside a locking transaction (checkpoint saves) still go through db.ts transaction(), so every write waits
 // a bounded time for a lock whichever role the app connects as.
@@ -57,7 +56,7 @@ import {
 } from "@/lib/sim";
 import { advanceCheckpoint, seedState, type AdvanceDeps, type CheckpointRecord } from "./catchup";
 import { db, transaction, type Queryable } from "./db";
-import { isProduction, partyCodes, practiceVisible, rehearsalAllowed, writesDerivedState } from "./env";
+import { isProduction, partyCodes, showRehearsals, writesDerivedState } from "./env";
 import { ApiError } from "./http";
 import { createGardenLink, createSession } from "./identity";
 import { requirePartyCode } from "./party";
@@ -71,7 +70,6 @@ import {
   hourIso,
   istClock,
   istDayOfHour,
-  plantingOpensText,
   plantingWindow,
   sprinkleMessage,
   stageOf,
@@ -253,7 +251,7 @@ export interface MeView {
     generation: number;
     plantedH: number;
     plantedAt: string;
-    /** a practice plant (before the opening hour, or planted through a non-production server); hidden from the live Meadow */
+    /** a practice plant, planted through a dev server or a Preview; the live Meadow never shows it */
     rehearsal: boolean;
   };
   now: { h: number; at: string; clock: number };
@@ -275,10 +273,7 @@ export interface MeView {
     sprinklesToday: number;
   };
   visual: Visual;
-  /**
-   * when the flower should open if care stays good from now; null once it has bloomed, when asleep, beyond 90 days, or
-   * for a plant planted before the game clock starts
-   */
+  /** when the flower should open if care stays good from now; null once it has bloomed, when asleep, or beyond 90 days */
   forecast: { bloomH: number; bloomAt: string; days: number | null } | null;
   care: {
     /** a lotus's `planted`: its last water was its planting, so the next one is the pond's first top-up (rules careStatus) */
@@ -319,11 +314,8 @@ function buildMe(plant: PlantRef, state: PlantState, pending: readonly RecordedE
   const visual = toVisual(state, null, clock);
   const pond = isPondState(state);
   const bloomed = bloomedAt(state), ripe = ripeAt(state), died = diedAt(state);
-  // the soil model's -1 "not yet" marks misread at negative hours, so a soil plant planted before the game clock gets no
-  // forecast; the pond model's POND_NONE does not, so a practice lotus gets one
-  const forecast = bloomed === null && (pond || plant.plantedH >= 0)
-    ? expectBloom(state, null, { h: Math.max(nowH, state.h), climT: CLIM_T })
-    : null;
+  // both models' "not yet" marks read right at negative hours too, so a plant planted before 10 Nov gets its forecast
+  const forecast = bloomed === null ? expectBloom(state, null, { h: Math.max(nowH, state.h), climT: CLIM_T }) : null;
   const care = careStatus(state, pending, nowH);
   return {
     person: { firstName: plant.firstName, showName: plant.showName },
@@ -463,11 +455,7 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
   const now = opts.now ?? new Date();
   const h = hourIndexOf(now);
   requirePartyCode(input.partyCode, partyCodes(), isProduction());
-  const window = plantingWindow(h, rehearsalAllowed(h));
-  if (window === "early") {
-    throw new ApiError(409, "not_yet", `Seeds are handed out at the party on ${plantingOpensText()}. See you there.`);
-  }
-  if (window === "closed") {
+  if (plantingWindow(h) === "closed") {
     throw new ApiError(409, "planting_closed", "Planting closed on 10 Dec. You can still wander the Meadow and enjoy everyone's flowers.");
   }
   // a retry first, so a device whose first attempt set the cookie but lost the response still gets its garden link
@@ -483,9 +471,8 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
   }
 
   const species = input.species;
-  const rehearsal = window === "rehearsal" || !isProduction();
-  // a practice plant planted through the live site itself: the only kind the live Meadow shows (env.ts practiceVisible)
-  const livePractice = rehearsal && isProduction();
+  // the live site plants real gardens; a dev server or a Preview, practice ones
+  const rehearsal = !isProduction();
   const seed = randomBytes(6).toString("base64url");
   try {
     const created = await transaction(async (tx) => {
@@ -513,8 +500,8 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
         values (${input.firstName}, ${input.showName}, ${requestHash}) returning id`;
       const [garden] = await tx<{ id: string }[]>`insert into meadow.gardens (person_id) values (${person.id}) returning id`;
       const [plant] = await tx<{ id: string }[]>`
-        insert into meadow.plants (garden_id, garden_slot, species, seed, plot_index, planted_h, sim_version, rehearsal, live_practice)
-        values (${garden.id}, 0, ${species}, ${seed}, ${plot}, ${h}, ${modelVersionOf(species)}, ${rehearsal}, ${livePractice}) returning id`;
+        insert into meadow.plants (garden_id, garden_slot, species, seed, plot_index, planted_h, sim_version, rehearsal)
+        values (${garden.id}, 0, ${species}, ${seed}, ${plot}, ${h}, ${modelVersionOf(species)}, ${rehearsal}) returning id`;
       const state = seedState({ speciesId: species, plantedH: h, owner: person.id });
       await tx`
         insert into meadow.checkpoints (plant_id, h, state, sim_version)
@@ -633,9 +620,9 @@ export interface SprinkleResult {
 /** One small sprinkle from the caller to the plant in another person's plot: one per giver per IST day. */
 export async function sprinkle(giverId: string, input: SprinkleInput, now: Date = new Date()): Promise<SprinkleResult> {
   const nowH = hourIndexOf(now);
-  const rows = await db()<(PlantRefRow & { live_practice: boolean })[]>`
+  const rows = await db()<PlantRefRow[]>`
     select pe.id as person_id, pe.first_name, pe.show_name, p.id as plant_id, p.species, p.seed, p.plot_index, p.planted_h,
-           p.rehearsal, p.live_practice
+           p.rehearsal
     from meadow.plants p
     join meadow.gardens g on g.id = p.garden_id
     join meadow.people pe on pe.id = g.person_id
@@ -643,9 +630,7 @@ export async function sprinkle(giverId: string, input: SprinkleInput, now: Date 
   const target = rows[0] ? toPlantRef(rows[0]) : null;
   // a practice plant hidden from this Meadow counts as an empty plot, and so does a plant of a species this build does not
   // know (species-guard.ts)
-  if (!target || (target.rehearsal && !practiceVisible(rows[0].live_practice, nowH))) {
-    throw new ApiError(404, "plot_empty", "Nobody has planted in that plot yet.");
-  }
+  if (!target || (target.rehearsal && !showRehearsals())) throw new ApiError(404, "plot_empty", "Nobody has planted in that plot yet.");
   if (!target.rehearsal && !isProduction()) throw practiceOnly();
   if (target.personId === giverId) {
     throw new ApiError(400, "own_plant", target.species === "lotus"

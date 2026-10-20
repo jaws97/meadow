@@ -113,7 +113,7 @@ describe("targets: bloom timing", () => {
       const r = simulate({ spId: id, year: y, policy: null });
       expect(r.s.alive, `${id} ${y} alive`).toBe(false);
       expect(bloomOf(r), `${id} ${y} bloom`).toBeNull();
-      expect(r.rec.some((x) => x.s.bloomH > 0), `${id} ${y} ever bloomed`).toBe(false);
+      expect(r.rec.some((x) => x.s.bloomH >= x.s.plantedH), `${id} ${y} ever bloomed`).toBe(false);
     }
   });
 });

@@ -15,7 +15,7 @@ import { notFound } from "next/navigation";
 import { LotusConcepts } from "@/components/lotus/LotusConcepts";
 
 export const metadata: Metadata = {
-  title: "Lotus concepts - Disney Garden",
+  title: "Lotus concepts - Meadow",
   robots: { index: false },
 };
 

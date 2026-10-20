@@ -1,6 +1,6 @@
 # Sound credits
 
-The recordings the Disney Garden plays in a person's own garden (the sound button, top right). Generated from
+The recordings the Meadow plays in a person's own garden (the sound button, top right). Generated from
 `lib/sound/library.ts`: edit that file (by re-running the assets script), then write this one again; do not edit
 it by hand.
 

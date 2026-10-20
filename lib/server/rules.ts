@@ -15,7 +15,6 @@ import {
   GAME_START_MS,
   HOUR_MS,
   IST_OFFSET_MIN,
-  PLANT_OPEN_H,
   POND,
   POND_NONE,
   bloomedAt,
@@ -62,23 +61,13 @@ export function formatIstHour(h: number, nowH: number): string {
 // ---- planting window ------------------------------------------------------------------------------------------------
 
 /**
- * open: the real window (PLANT_OPEN_H on 10 Nov, to 10 Dec 23:59 IST). rehearsal: before the party, where env.ts allows it
- * (outside production, or production before the game clock starts). early: before the party otherwise. closed:
- * after 10 Dec.
+ * open: planting is open, from 20 Oct (before the party) to 10 Dec 23:59 IST (lib/sim canPlant). closed: after 10 Dec.
+ * Whether a planting is a practice one is the deployment's call (env.ts), not the hour's.
  */
-export type PlantingWindow = "open" | "rehearsal" | "early" | "closed";
+export type PlantingWindow = "open" | "closed";
 
-export function plantingWindow(h: number, rehearsal: boolean): PlantingWindow {
-  if (canPlant(h)) return "open";
-  if (h < PLANT_OPEN_H) return rehearsal ? "rehearsal" : "early";
-  return "closed";
-}
-
-/** "10 Nov at 15:00 IST" (or whatever hour the model sets): when planting opens, from PLANT_OPEN_H, for messages. */
-export function plantingOpensText(): string {
-  const d = new Date(dateOfHour(PLANT_OPEN_H).getTime() + IST_OFFSET_MIN * 60_000);
-  const hod = String(((PLANT_OPEN_H % 24) + 24) % 24).padStart(2, "0");
-  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} at ${hod}:00 IST`;
+export function plantingWindow(h: number): PlantingWindow {
+  return canPlant(h) ? "open" : "closed";
 }
 
 // ---- retried plantings ------------------------------------------------------------------------------------------------
@@ -392,9 +381,7 @@ export function decideCare(input: { kind: CareKind; on: boolean | null }, ctx: C
         return { action: "reject", status: 409, code: "revive_first", message: "Try the Fairy Dust first; it can wake a sleeping plant once." };
       }
       if (!canPlant(h)) {
-        return h < PLANT_OPEN_H
-          ? { action: "reject", status: 409, code: "not_yet", message: `Replanting opens with the party on ${plantingOpensText()}.` }
-          : { action: "reject", status: 409, code: "planting_closed", message: "Planting closed on 10 Dec, so a fresh seed cannot go in now. Your friends' flowers are still there to visit." };
+        return { action: "reject", status: 409, code: "planting_closed", message: "Planting closed on 10 Dec, so a fresh seed cannot go in now. Your friends' flowers are still there to visit." };
       }
       return { action: "insert", h, amount: null };
     }
@@ -427,14 +414,14 @@ export type HealthBand = "thriving" | "fine" | "poorly" | "resting";
  */
 export function stageOf(s: PlantState): Stage {
   if (!s.alive) return "resting";
+  // bloomedAt reads either model's "not yet" mark, so a flower that opened before 10 Nov (a negative hour) is in bloom
+  if (bloomedAt(s) !== null) return "bloom";
   if (isPondState(s)) {
-    if (bloomedAt(s) !== null) return "bloom";
     if (s.stage === 0) return "seed";
     if (s.D >= POND.Dbud) return "bud";
     if (s.D >= POND.Daer) return "leafy";
     return "sprout";
   }
-  if (s.bloomH >= 0) return "bloom";
   if (s.D >= 0.64) return "bud";
   if (s.D >= 0.3) return "leafy";
   if (s.D >= 0.05) return "sprout";

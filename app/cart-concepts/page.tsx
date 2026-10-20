@@ -7,7 +7,7 @@ import { notFound } from "next/navigation";
 import { CartConcepts } from "@/components/meadow/concepts/CartConcepts";
 
 export const metadata: Metadata = {
-  title: "Lantern Cart concepts - Disney Garden",
+  title: "Lantern Cart concepts - Meadow",
   robots: { index: false },
 };
 

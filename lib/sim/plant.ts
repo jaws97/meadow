@@ -6,8 +6,8 @@
 //   * modelVersionOf(species) is what a checkpoint's sim_version column stores: SIM_VERSION (7) for the six, and
 //     1000 + POND_VERSION (1001) for the lotus, so the two never collide in the one smallint column. isCurrentState()
 //     says whether a stored state came from the model running now.
-//   * bloomedAt(), ripeAt() and diedAt() read the "not yet" marks of either model (the soil model's -1, the pond's
-//     POND_NONE) and answer an hour or null.
+//   * bloomedAt(), ripeAt() and diedAt() read the "not yet" marks of either model (the soil model's marks below the
+//     planting hour, the pond's POND_NONE) and answer an hour or null.
 // Pure, like the models.
 import type { SoilSpeciesId, SpeciesId } from "@/lib/plant/species";
 import {
@@ -62,13 +62,20 @@ export function modelVersionOfState(s: PlantState): number {
   return isPondState(s) ? POND_MODEL_BASE + s.v : s.v;
 }
 
-/** The state was written by the model running now (its own version mark, for its own medium). */
+/**
+ * The state was written by the model running now (its own version mark, for its own medium). A soil state planted
+ * before 10 Nov whose bud and bloom marks are both -1 was written before the "not yet" marks moved below the planting
+ * hour (20 Oct 2026, same SIM_VERSION): those -1s would read as real hours, so it is rebuilt from its planting. The model
+ * now never writes that pair for such a planting, and a real bud and bloom can never share one hour.
+ */
 export function isCurrentState(s: PlantState): boolean {
-  return isPondState(s) ? s.v === POND_VERSION : s.v === SIM_VERSION;
+  if (isPondState(s)) return s.v === POND_VERSION;
+  return s.v === SIM_VERSION && !(s.plantedH < -1 && s.ripeH === -1 && s.bloomH === -1);
 }
 
-// A soil plant's -1 mark misreads at negative hours (a practice plant before the party); the pond's POND_NONE does not.
-const markOf = (s: PlantState, h: number): number | null => (isPondState(s) ? (h === POND_NONE ? null : h) : h >= 0 ? h : null);
+// A soil plant's "not yet" marks sit below its planting hour (model.ts createPlant), so a real hour before 10 Nov reads
+// as an hour; the pond marks "not yet" with POND_NONE.
+const markOf = (s: PlantState, h: number): number | null => (isPondState(s) ? (h === POND_NONE ? null : h) : h >= s.plantedH ? h : null);
 /** The hour the flower opened (op 0.5), or null. */
 export function bloomedAt(s: PlantState): number | null { return markOf(s, s.bloomH); }
 /** The hour the bud matured, or null. */

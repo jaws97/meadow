@@ -11,9 +11,10 @@
 // rehearsals, and the server must write no checkpoint and no weather row; the test checks both.
 //
 // SMOKE_EXPECT=production runs it against a production-mode server instead (a local `next build && next start`, or the
-// Production deployment) before the game clock starts (before 10 Nov, when every production planting is a practice
-// one): it then expects the Secure cookie, catch-ups saved as checkpoints (single and bulk), and weather rows written
-// once, and the cleanup also removes the pre-game weather hours the run wrote.
+// Production deployment): its two test seeds are real gardens for the few minutes the run takes (they show in the live
+// Meadow and the party screen's feed until the cleanup), and it expects the Secure cookie, catch-ups saved as
+// checkpoints (single and bulk), and weather rows written once. Before 10 Nov the cleanup also removes the pre-game
+// weather hours the run wrote, unless a colleague's garden planted before 10 Nov needs them.
 //
 // SMOKE_PARTY_CODE (or the first code in MEADOW_PARTY_CODE) is sent with every planting; when one is known the test
 // also checks that a planting without it, or with an old one, is refused.
@@ -113,8 +114,8 @@ async function run(sql) {
   const attrs = a.attrs.get("meadow_session") ?? "";
   check(a.has("meadow_session") && /httponly/i.test(attrs) && /samesite=lax/i.test(attrs), "the session cookie is httpOnly and SameSite=Lax");
   if (PRODUCTION) check(/;\s*secure/i.test(attrs), "in production the session cookie is Secure");
-  check(seed.json.me.plant.rehearsal === true,
-    PRODUCTION ? "a planting before the game clock is marked as a rehearsal" : "a planting through the dev server is marked as a rehearsal",
+  check(seed.json.me.plant.rehearsal === !PRODUCTION,
+    PRODUCTION ? "a planting on the live site is a real garden (not a rehearsal)" : "a planting through the dev server is marked as a rehearsal",
     `plot ${plotA}, h ${seed.json.me.plant.plantedH}`);
 
   const again = await call("POST", "/api/seed", { body: withCode({ firstName: TEST_NAME, species: "marigold", clientEventId: seedId }) });
@@ -206,7 +207,7 @@ async function run(sql) {
   const plots = meadow.json?.plots ?? [];
   const pa = plots.find((p) => p.plot === plotA), pb = plots.find((p) => p.plot === plotB);
   check(meadow.status === 200 && pa?.name === TEST_NAME && pb?.name === "A friend",
-    `GET /api/meadow lists both plants (${PRODUCTION ? "a production rehearsal before the game clock" : "a dev server"} shows rehearsals)`, `count ${meadow.json?.count}, plot ${plotA}: ${pa?.species}/${pa?.stage}/${pa?.health}/bloom ${pa?.bloom}`);
+    `GET /api/meadow lists both plants (${PRODUCTION ? "real gardens" : "a dev server shows its rehearsals"})`, `count ${meadow.json?.count}, plot ${plotA}: ${pa?.species}/${pa?.stage}/${pa?.health}/bloom ${pa?.bloom}`);
   const etag = meadow.headers.get("etag");
   check(Boolean(etag) && /s-maxage=5\b/.test(meadow.headers.get("cache-control") ?? "") && !meadow.headers.get("set-cookie"),
     "the snapshot has an ETag, s-maxage=5 and no cookie", meadow.headers.get("cache-control"));
@@ -399,9 +400,12 @@ async function main() {
         where lower(pe.first_name) = any(${TEST_KEYS})`;
       const removed = await sql`delete from meadow.people where lower(first_name) = any(${TEST_KEYS}) returning id`;
       console.log(`cleanup: removed ${removed.length} test people (with their gardens, plants, events, checkpoints, sprinkles, sessions, links)`);
-      // a production-mode run stores the weather it fetched; only pre-game hours (h < 0), which no real plant needs
-      const wx = await sql`delete from meadow.weather_hours where h < 0 and fetched_at >= ${started} returning h`;
+      // a production-mode run stores the weather it fetched; its pre-game hours (h < 0) go too, unless a garden planted
+      // before 10 Nov (a colleague's, from 20 Oct on) replays from them
+      const [early] = await sql`select count(*)::int as n from meadow.plants where planted_h < 0`;
+      const wx = early.n > 0 ? [] : await sql`delete from meadow.weather_hours where h < 0 and fetched_at >= ${started} returning h`;
       if (wx.length > 0) console.log(`cleanup: removed ${wx.length} pre-game weather hours this run stored`);
+      if (early.n > 0) console.log(`cleanup: kept the pre-game weather hours (${early.n} gardens planted before 10 Nov replay from them)`);
       const after = await counts(sql);
       check(after.test_people === 0, "no test people remain");
       // everything the test made went with its people; counted by the test's own ids, since colleagues practising on the
