@@ -5,9 +5,11 @@
 import type { Metadata } from "next";
 import { FriendGardenView } from "@/components/meadow/FriendGarden";
 
+// Kept out of search engines: each address is one person's garden. The preview stays general (no name, no plot).
 export const metadata: Metadata = {
   title: "A friend's garden - Meadow",
-  description: "A look at a friend's flower from the Meadow",
+  description: "A friend's flower in the Meadow, growing in the real Bangalore weather.",
+  robots: { index: false, follow: true },
 };
 
 export default function FriendGardenPage() {

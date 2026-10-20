@@ -7,7 +7,9 @@ import { Meadow } from "@/components/meadow/Meadow";
 
 export const metadata: Metadata = {
   title: "The Meadow",
-  description: "Everyone's flowers, growing together round the rose",
+  description:
+    "Everyone's flowers, growing together round the rose. Ride the lantern cart, visit a friend's flower and leave a sprinkle.",
+  alternates: { canonical: "/meadow" },
 };
 
 export default function MeadowPage() {

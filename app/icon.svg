@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="sky" cx="50%" cy="38%" r="75%">
+      <stop offset="0" stop-color="#1a2133"/>
+      <stop offset="1" stop-color="#06080f"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#f2cd8e" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#f2cd8e" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff6a5c"/>
+      <stop offset="1" stop-color="#c91f30"/>
+    </linearGradient>
+    <linearGradient id="side" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f04a4c"/>
+      <stop offset="1" stop-color="#b3192b"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#sky)"/>
+  <circle cx="32" cy="25" r="21" fill="url(#glow)"/>
+  <path d="M32 58 C32 50 31.5 44 32 36" fill="none" stroke="#8cc27a" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M31.6 47.5 C26 47.5 20.5 44.5 18 39 C24.5 38.5 29.8 41.5 31.6 47.5 Z" fill="#8cc27a"/>
+  <!-- the closed heart of the bud -->
+  <path d="M32 9 C38.6 13.2 42.8 19.5 42.6 26 C42.4 32.8 37.8 38 32 38 C26.2 38 21.6 32.8 21.4 26 C21.2 19.5 25.4 13.2 32 9 Z" fill="#9c1527"/>
+  <!-- a petal unfurling from the right -->
+  <path d="M42.6 25 C42.4 18.5 38.8 13.6 33.4 10.4 C36 15.5 35.8 21.8 30.8 27.4 C35.4 28.4 40 27.4 42.6 25 Z" fill="url(#side)"/>
+  <!-- the outer petal wrapped round the front -->
+  <path d="M21.5 25 C24.2 29.6 30 31.2 35.8 29.6 C39.2 28.6 41.6 26.6 42.6 24.6 C43 32 38.2 38 32 38 C25.6 38 21.1 32.2 21.5 25 Z" fill="url(#front)"/>
+  <path d="M22.5 32.5 C25.5 36.5 29 37.6 32 37.7 L29 41.8 Z M41.5 32.5 C38.5 36.5 35 37.6 32 37.7 L35 41.8 Z" fill="#6fa660"/>
+</svg>

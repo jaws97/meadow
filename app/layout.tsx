@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { PUBLIC_ORIGIN } from "@/components/party/logic";
 import { SafeAnalytics } from "./analytics";
 import "./globals.css";
 
@@ -13,9 +14,19 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// The link preview every page shares: the picture is app/opengraph-image.jpg (with its alt text beside it), and the
+// title and description are each page's own, because neither openGraph nor twitter names them here (Next fills both
+// from the page's title and description). A page that sets its own openGraph would drop the picture, so pages set
+// only title and description. No og:url on purpose: a personal garden link (/garden#k=...) must open as it was sent,
+// never be swapped for a canonical address by a chat app. Nothing here reads the address, so no key, party code or
+// name can reach a preview.
 export const metadata: Metadata = {
+  metadataBase: new URL(PUBLIC_ORIGIN),
   title: "Meadow",
   description: "A living garden for the Bangalore celebration",
+  applicationName: "Meadow",
+  openGraph: { type: "website", siteName: "Meadow", locale: "en_IN" },
+  twitter: { card: "summary_large_image" },
 };
 
 // A full-screen dark canvas: match the browser chrome to it and let the
