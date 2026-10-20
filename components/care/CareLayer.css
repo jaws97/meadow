@@ -116,9 +116,9 @@
     --care-glass-a: rgba(17, 21, 33, 0.72);
     --care-glass-b: rgba(10, 13, 21, 0.82);
   }
+  /* backdrop-filter alone: the build adds Safari's -webkit- copy, and a hand-written one after it left only that */
   .care-panel {
     backdrop-filter: blur(20px) saturate(1.15);
-    -webkit-backdrop-filter: blur(20px) saturate(1.15);
   }
 }
 

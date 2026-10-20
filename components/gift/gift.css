@@ -7,6 +7,10 @@
  *
  * Backdrop blur over a live canvas re-blurs every frame, so it is kept to
  * wide screens; phones get a more opaque backing instead (as DevPanel does).
+ * It is written as backdrop-filter alone: the build (Lightning CSS, through
+ * Tailwind) adds the -webkit- copy Safari needs, and a hand-written -webkit-
+ * line after the plain one made it keep only the prefixed line, which Chrome
+ * and Firefox ignore, so the glass had no blur there at all.
  * Motion is transform and opacity only, and calmer still, or none, when the
  * person asks for reduced motion.
  */
@@ -81,7 +85,6 @@
 @media (min-width: 768px) {
   .gift-sheet {
     backdrop-filter: blur(20px) saturate(1.15);
-    -webkit-backdrop-filter: blur(20px) saturate(1.15);
   }
 }
 
@@ -1512,7 +1515,6 @@
   .gift-id-pill,
   .gift-id-menu {
     backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
   }
 }
 
