@@ -25,7 +25,7 @@ import {
 } from "@/components/meadow/data";
 import { findButton } from "@/components/meadow/FindFriend";
 import { CloseIcon, DropIcon, GateIcon, LeafIcon } from "@/components/meadow/icons";
-import { OWNER_NAME } from "@/components/meadow/plantLook";
+import { ROSE_LINE, ROSE_NAME } from "@/components/meadow/plantLook";
 import { meadow } from "@/components/meadow/runtime";
 import { ui, useUi } from "@/components/meadow/ui";
 import { dayText, moodLine, speciesName } from "@/components/meadow/words";
@@ -144,14 +144,14 @@ function LookHint({ rose }: { rose: boolean }) {
 function RoseCard() {
   return (
     <>
-      <h2 id="meadow-card-name">{OWNER_NAME}</h2>
+      <h2 id="meadow-card-name">{ROSE_NAME}</h2>
       <p id="meadow-card-sub" className="meadow-sub">
-        Enchanted Rose · Always in bloom
+        Always in bloom
       </p>
-      <p className="meadow-mood">The rose at the heart of the Meadow. Every seed here was a gift from {OWNER_NAME}.</p>
+      <p className="meadow-mood">{ROSE_LINE}</p>
       <div className="meadow-row">
         <a className="meadow-button meadow-button-quiet" href="/meadow/garden?plot=rose">
-          <GateIcon /> See their garden
+          <GateIcon /> See its garden
         </a>
       </div>
     </>

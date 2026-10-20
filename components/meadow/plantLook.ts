@@ -13,9 +13,14 @@ import { isPocketIndex } from "@/lib/server/plots";
 
 export type Stage = MeadowPlot["stage"];
 
-/** The owner of the Meadow, whose rose stands on the dais (the garden's default seed). */
-export const OWNER_NAME = "Lijas";
+/**
+ * The rose on the dais goes by its species, never by a person's name (the owner's choice): its visit card and its
+ * garden page are headed with this. Its seed is the owner's, the garden's default, which shapes its leaves and petals.
+ */
+export const ROSE_NAME = "The Enchanted Rose";
 export const OWNER_SEED = "Lijas";
+/** The rose's line on its card and its garden page. */
+export const ROSE_LINE = "The rose at the heart of the Meadow, where every flower here began.";
 
 /** The rose on the dais stands this much larger than life, so it reads as the centrepiece from anywhere. */
 export const ROSE_SCALE = 2.3;

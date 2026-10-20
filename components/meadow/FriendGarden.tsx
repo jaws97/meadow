@@ -14,7 +14,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { loadFriend, type FriendGarden } from "@/components/meadow/data";
-import { OWNER_NAME, OWNER_SEED } from "@/components/meadow/plantLook";
+import { OWNER_SEED, ROSE_LINE, ROSE_NAME } from "@/components/meadow/plantLook";
 import { dayText, moodLine, speciesName } from "@/components/meadow/words";
 import { useQuality } from "@/lib/garden/quality";
 import { flowerSizeOf, pondShownOf } from "@/lib/client/plantShown";
@@ -125,10 +125,10 @@ export function FriendGardenView() {
 
   const back = which.kind === "plot" ? `/meadow?plot=${which.plot}` : "/meadow";
   const friend = loaded?.ok ? loaded.friend : null;
-  const title = which.kind === "rose" ? `${possessive(OWNER_NAME)} garden` : friend ? `${possessive(friend.name)} garden` : "A friend's garden";
-  const sub = which.kind === "rose" ? "Enchanted Rose · Always in bloom" : friend ? `${speciesName(friend.species)} · ${dayText(friend.day)}` : "";
-  const line = which.kind === "rose" ? `The rose at the heart of the Meadow, a gift from ${OWNER_NAME}.` : friend ? moodLine(friend) : "";
-  const opening = which.kind === "rose" || friend ? `Opening ${title}` : "Opening a friend's garden";
+  const title = which.kind === "rose" ? ROSE_NAME : friend ? `${possessive(friend.name)} garden` : "A friend's garden";
+  const sub = which.kind === "rose" ? "Always in bloom" : friend ? `${speciesName(friend.species)} · ${dayText(friend.day)}` : "";
+  const line = which.kind === "rose" ? ROSE_LINE : friend ? moodLine(friend) : "";
+  const opening = which.kind === "rose" ? "Opening the Enchanted Rose" : friend ? `Opening ${title}` : "Opening a friend's garden";
   const failed = which.kind === "none" ? "That garden could not be found. It may have moved to a new plot." : loaded && !loaded.ok ? loaded.message : null;
   const showing = ready && opened;
   const veilGone = ready && settled && !failed;
