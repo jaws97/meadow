@@ -15,8 +15,11 @@ import { BANGALORE } from "@/lib/sky/sun";
 
 export const PUBLIC_ORIGIN = "https://meadow-phi.vercel.app";
 
-/** Whose gift this is: the owner's first name, and the plant the screen shows (the garden's own default, lib/garden/store). */
-export const OWNER = Object.freeze({ name: "Lijas", seed: "Lijas", species: "rose" as SpeciesId });
+/**
+ * The plant the screen shows: the owner's seed (the garden's own default, lib/garden/store) and their rose. The screens
+ * never show the owner's name (their choice): the gift is "for you".
+ */
+export const OWNER = Object.freeze({ seed: "Lijas", species: "rose" as SpeciesId });
 
 /** The longest party code the planting API accepts (lib/server/validate.ts PARTY_CODE_MAX). */
 export const PARTY_CODE_MAX = 64;

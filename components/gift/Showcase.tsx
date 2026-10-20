@@ -4,7 +4,7 @@
 // planted already that their personal garden link opens their own garden here. The caption lets every touch through
 // to the garden, so it can still be turned and zoomed.
 import { useState } from "react";
-import { OWNER, showcaseLine } from "@/components/gift/copy";
+import { showcaseLine } from "@/components/gift/copy";
 import { Sparkle } from "@/components/gift/icons";
 
 export function Showcase() {
@@ -13,7 +13,7 @@ export function Showcase() {
     <section className="gift-showcase" aria-label="The garden">
       <p className="gift-eyebrow">
         <Sparkle size={16} />
-        Grown by {OWNER}
+        In full bloom
       </p>
       <h1 className="gift-title">The Enchanted Rose</h1>
       <p className="gift-showcase-line">{line}</p>

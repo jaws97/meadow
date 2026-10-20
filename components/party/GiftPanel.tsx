@@ -1,5 +1,5 @@
 "use client";
-// The panel on the big screen: whose gift this is, one line asking people to
+// The panel on the big screen: "A gift for you", one line asking people to
 // scan, the QR code that opens the garden with the party code, and the live
 // tally of seeds planted (SeedFeed). Sized in "1080p pixels" (party.css
 // --px), so it reads the same from across the room on a 1080p or a 4K
@@ -10,7 +10,7 @@
 // As it lays out, the panel tells the camera how far to slide the lens so the
 // rose sits in the open part of the screen (logic.ts lensShift).
 import { useLayoutEffect, useRef } from "react";
-import { gardenLink, lensShift, OWNER, PARTY_CODE_MAX, typedLink, type PartyCode } from "@/components/party/logic";
+import { gardenLink, lensShift, PARTY_CODE_MAX, typedLink, type PartyCode } from "@/components/party/logic";
 import { QrCode } from "@/components/party/QrCode";
 import { SeedFeed } from "@/components/party/SeedFeed";
 import { party } from "@/components/party/store";
@@ -93,7 +93,7 @@ export function GiftPanel({ code, show }: { code: PartyCode | null; show: boolea
     <aside ref={ref} className={`party-panel${show ? " party-panel-on" : ""}`} aria-hidden={!show}>
       <Crest />
       <h1 className="party-title">
-        A gift from <span className="party-title-name">{OWNER.name}</span>
+        A gift <span className="party-title-name">for you</span>
       </h1>
       <p className="party-invite">Scan to choose your seed and plant it</p>
       {link ? (

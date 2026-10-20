@@ -39,7 +39,7 @@ a password, since the link is meant to be shared at the party, but keep it to yo
    is the code, and its environment is **Production** only. Save.
 4. Redeploy so the site picks it up: under **Deployments**, open the newest Production deployment's menu (the three
    dots), choose **Redeploy**, and wait for **Ready**. Every change to a variable needs a redeploy like this.
-5. Check it: open `https://meadow-phi.vercel.app/party?code=<party code>`. The panel says "A gift from Lijas" and shows
+5. Check it: open `https://meadow-phi.vercel.app/party?code=<party code>`. The panel says "A gift for you" and shows
    a QR code, with the link written underneath it. Scan it with your phone. The phone offers **Receive your seed**.
    Stop there unless you want a garden of your own: anything planted is a real garden that stays.
 

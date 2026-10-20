@@ -8,7 +8,6 @@
 // screen it is drawn a little larger, so it does not shrink to a speck. If
 // the garden cannot start at all the veil steps aside for the panel alone.
 import { useParty } from "@/components/party/store";
-import { OWNER } from "@/components/party/logic";
 import { useQuality, type Phase } from "@/lib/garden/quality";
 import "@/components/garden/LoadingVeil.css";
 
@@ -110,7 +109,7 @@ export function PartyVeil() {
               <Bud />
             </div>
           </div>
-          <p className="garden-veil-title">A gift from {OWNER.name}</p>
+          <p className="garden-veil-title">A gift for you</p>
           <p key={LINES[phase]} className="garden-veil-line" role="status" aria-live="polite">
             {LINES[phase]}
           </p>

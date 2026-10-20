@@ -1,11 +1,8 @@
-// The words the gift flow uses more than once: whose gift it is, where the planting season stands and what someone
+// The words the gift flow uses more than once: where the planting season stands and what someone
 // without a seed is told (lib/sim's calendar: planting opened on 20 Oct for anyone with the party link, Lijas hands the
 // seeds out at the party on 10 Nov, and planting closes after 10 Dec). Plain, warm, short sentences; people are named,
 // never guessed at.
 import { PLANT_CLOSE_H, dateOfHour, hourIndexOf } from "@/lib/sim";
-
-/** The birthday committee member giving the seeds; their Enchanted Rose is the garden everyone sees first. */
-export const OWNER = "Lijas";
 
 export type Season = "open" | "closed";
 

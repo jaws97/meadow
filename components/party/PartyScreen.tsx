@@ -205,7 +205,7 @@ export function PartyScreen({ className = "" }: { className?: string }) {
       <GiftPanel code={code} show={showPanel} />
       <div className={`party-caption${showCaption ? " party-caption-on" : ""}`} aria-hidden={!showCaption}>
         <p className="party-caption-title">The {SPECIES[OWNER.species].name}</p>
-        <p className="party-caption-sub">Grown by {OWNER.name}, in full bloom</p>
+        <p className="party-caption-sub">In full bloom</p>
       </div>
       <TrailerButton awake={!resting} live={showing && !fallback} />
       {note && (

@@ -1,5 +1,5 @@
 "use client";
-// The gift itself, in one glass sheet over the live garden: Lijas's seed offered ("A gift from Lijas"), a first name
+// The gift itself, in one glass sheet over the live garden: the owner's seed offered ("A gift", unnamed), a first name
 // for the little sign by the flower (or "A friend"), one of seven seeds, and the planting moment, which ends with the
 // personal garden link for a laptop or an iPad and a way into the new garden. A lotus seed goes into a glass of water
 // by its pond rather than into a bed (PlantingMoment's jar), and the words say so.
@@ -20,7 +20,7 @@
 // count, so planting again returns that garden), and a name taken in the meantime brings the person back to the name
 // step with the server's words. An answer that arrives after the name was changed, or the step left, is dropped.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { OWNER, nextSeasonChangeMs as nextChangeMs, seasonAt, type Season } from "@/components/gift/copy";
+import { nextSeasonChangeMs as nextChangeMs, seasonAt, type Season } from "@/components/gift/copy";
 import { GiftSheet } from "@/components/gift/GiftSheet";
 import { ArrowLeft, Sparkle } from "@/components/gift/icons";
 import { LinkPanel } from "@/components/gift/LinkPanel";
@@ -252,24 +252,24 @@ export function GiftFlow({
     body = (
       <div className="gift-step" key="closed">
         <p className="gift-eyebrow">
-          <Sparkle size={16} />A gift from {OWNER}
+          <Sparkle size={16} />A gift
         </p>
         <h2 ref={heading} tabIndex={-1} className="gift-title">
           The planting season is over
         </h2>
-        <p className="gift-text">Planting closed on 10 December. {OWNER}&rsquo;s Enchanted Rose is here for you to enjoy.</p>
+        <p className="gift-text">Planting closed on 10 December. The Enchanted Rose is here for you to enjoy.</p>
       </div>
     );
   } else if (step === "welcome") {
     body = (
       <div className="gift-step" key="welcome">
         <p className="gift-eyebrow">
-          <Sparkle size={16} />A gift from {OWNER}
+          <Sparkle size={16} />A gift
         </p>
         <h2 ref={heading} tabIndex={-1} className="gift-title">
           A seed, just for you
         </h2>
-        <p className="gift-text">This Enchanted Rose, grown by {OWNER}, is in full bloom. There is a seed waiting for you too.</p>
+        <p className="gift-text">This Enchanted Rose is in full bloom, and there is a seed waiting for you too.</p>
         <p className="gift-text">
           Choose a flower and plant it today. Look after it a little each day, in the real Bangalore weather. With gentle care, it
           blooms in about two weeks.
@@ -452,7 +452,7 @@ export function GiftFlow({
   }
 
   return (
-    <GiftSheet label={`A gift from ${OWNER}`} foot={foot}>
+    <GiftSheet label="A gift" foot={foot}>
       {body}
     </GiftSheet>
   );
