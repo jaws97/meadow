@@ -136,6 +136,17 @@ let idle = true;
 let stillParam: boolean | null = null;
 /** Development only: the moment held at this many seconds from its press (for sign-off stills), or null to let it run. */
 let heldAt: number | null = null;
+/** The moment's time set by another clock (the party trailer's), or null to run on the wall clock. */
+let drivenAt: number | null = null;
+
+/**
+ * Plays the moment on another clock: the party trailer (components/party/trailer) gives the seed its first drink on its
+ * own clock, which slows on a struggling laptop rather than skipping, so the can keeps time with the picture. `t` is
+ * seconds since the press; null hands the moment back to the wall clock.
+ */
+export function driveCan(t: number | null) {
+  drivenAt = t;
+}
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
@@ -274,7 +285,7 @@ export function stepCan(nowMs: number, camera: THREE.Camera, drawn: number) {
   const L = latch;
   if (!L) return toIdle();
 
-  const t = heldAt ?? (nowMs - L.origin) / 1000;
+  const t = heldAt ?? drivenAt ?? (nowMs - L.origin) / 1000;
   const plan = L.plan;
   // the server's refusal, as it arrives; a cover moved while the can is out: either brings the last drops forward
   if (m && m.at === L.at && m.refusedAt > 0 && plan.refusedAt < 0) {

@@ -1,10 +1,11 @@
 // The party trailer's music, written to its timeline (script.ts): a music box over a warm pad and a soft bass, in D
 // major, quiet and slow, as calm as the garden. Every note is placed on the trailer's own clock, so it lands with the
-// picture whatever the laptop does: a twinkle or two over the seed at dawn; an arpeggio that climbs and quickens as the
-// rose grows, thinning to a hush for the shower; a swell into D as the bloom opens; a little theme for the doe, its
-// last note as she lifts her head to the rose; low, sparse notes as night falls; a chime as each flower comes up out
-// of the black; and the home chord under "Your seed is waiting". Pure data, read by components/party/trailer/music.ts.
-import { BLOOM_AT, CARD, END_AT, FLOWER_S, FLOWERS_AT, GATES, GROW_AT, MONTAGE, NIGHT_AT, VISIT_AT } from "@/components/party/trailer/script";
+// picture whatever the laptop does: a twinkle or two over the seed at dawn; a trickle of high notes as the watering
+// can's first drink lands; an arpeggio that climbs and quickens as the rose grows, thinning to a hush for the shower; a
+// swell into D as the bloom opens; a little theme for the doe, its last note as she lifts her head to the rose; low,
+// sparse notes as night falls; a chime as each flower comes up out of the black; and the home chord under "Your seed is
+// waiting". Pure data, read by components/party/trailer/music.ts.
+import { BLOOM_AT, CARD, END_AT, FLOWER_S, FLOWERS_AT, GATES, GROW_AT, MONTAGE, NIGHT_AT, VISIT_AT, WATER_AT } from "@/components/party/trailer/script";
 
 /** A music-box note, a pad chord (several notes, slow to swell and fade), or a bass note. */
 export type Voice = "bell" | "pad" | "bass";
@@ -83,76 +84,85 @@ function compose(): Note[] {
   const n: Note[] = [];
 
   // the seed, at dawn: the home chord with an added ninth, and a few twinkles over the mound's glow
-  chord(n, 0, "Dadd9", GROW_AT + 1.2, 0.7);
+  chord(n, 0, "Dadd9", WATER_AT + 0.8, 0.7);
   bell(n, 1.6, 81, 0.42, 2.4);
-  bell(n, 3.4, 78, 0.36, 2.4);
-  bell(n, 5.2, 76, 0.32, 2.4);
-  bell(n, 7.4, 81, 0.38, 1.2);
-  bell(n, 8.2, 86, 0.42, 2.4);
+  bell(n, 3.2, 78, 0.36, 2.4);
+  bell(n, 4.6, 76, 0.32, 2.4);
 
-  // the rose grows: a chord every bar of 3.2 s, the music box climbing; a hush for the shower; quickening to the bud
+  // the can's first drink: a soft colour under the carry, a little trickle of high notes as the water lands (canMoment
+  // CAN.lands, about 2.85 s in), a sparkle through the shower, and the last drops as the can is righted
+  chord(n, WATER_AT, "Em7", GROW_AT - WATER_AT + 0.8, 0.6);
+  bell(n, WATER_AT + 1.2, 81, 0.3, 1.6);
+  bell(n, WATER_AT + 2.85, 86, 0.36, 1.2);
+  bell(n, WATER_AT + 3.05, 83, 0.32, 1.2);
+  bell(n, WATER_AT + 3.3, 81, 0.3, 1.6);
+  bell(n, WATER_AT + 3.8, 88, 0.22, 1);
+  bell(n, WATER_AT + 4.3, 86, 0.2, 1);
+  bell(n, WATER_AT + 5.3, 81, 0.28, 1.6);
+  bell(n, WATER_AT + 5.8, 78, 0.24, 1.6);
+
+  // the rose grows: a chord every 2.2 s, the music box climbing; a hush for the shower; quickening to the bud
   const grow: [number, ChordName][] = [
     [GROW_AT, "Gmaj9"],
-    [GROW_AT + 3.2, "DoverFs"],
-    [GROW_AT + 6.4, "Em7"],
-    [GROW_AT + 9.6, "Bm7"],
-    [GROW_AT + 12.8, "Gmaj7"],
-    [GROW_AT + 16, "Asus4"],
-    [GROW_AT + 17.6, "A"],
+    [GROW_AT + 2.2, "DoverFs"],
+    [GROW_AT + 4.4, "Em7"],
+    [GROW_AT + 6.6, "Bm7"],
+    [GROW_AT + 8.8, "Gmaj7"],
+    [GROW_AT + 11, "Asus4"],
+    [GROW_AT + 12, "A"],
   ];
   grow.forEach(([t, name], i) => chord(n, t, name, (grow[i + 1]?.[0] ?? BLOOM_AT) - t + 1, i === 3 ? 0.55 : 0.8));
-  arpeggio(n, "Gmaj9", GROW_AT, GROW_AT + 3.2, 0.8, 0.34, 0.4);
-  arpeggio(n, "DoverFs", GROW_AT + 3.2, GROW_AT + 6.4, 0.8, 0.4, 0.42);
-  // the shower (script RAIN, GROW_AT + 7 to + 14.5): fewer and softer notes
-  arpeggio(n, "Em7", GROW_AT + 6.4, GROW_AT + 9.6, 1.6, 0.32, 0.28);
-  arpeggio(n, "Bm7", GROW_AT + 9.6, GROW_AT + 12.8, 1.6, 0.26, 0.3);
-  // after the rain, quickening as the bud forms
-  arpeggio(n, "Gmaj7", GROW_AT + 12.8, GROW_AT + 16, 0.4, 0.32, 0.44);
-  arpeggio(n, "Asus4", GROW_AT + 16, GROW_AT + 17.6, 0.4, 0.44, 0.5);
-  arpeggio(n, "A", GROW_AT + 17.6, BLOOM_AT, 0.4, 0.5, 0.56);
+  arpeggio(n, "Gmaj9", GROW_AT + 0.55, GROW_AT + 2.2, 0.55, 0.34, 0.4);
+  arpeggio(n, "DoverFs", GROW_AT + 2.2, GROW_AT + 4.4, 0.55, 0.4, 0.42);
+  // the shower (script RAIN, GROW_AT + 4 to + 9): fewer and softer notes
+  arpeggio(n, "Em7", GROW_AT + 4.4, GROW_AT + 6.6, 1.1, 0.32, 0.28);
+  arpeggio(n, "Bm7", GROW_AT + 6.6, GROW_AT + 8.8, 1.1, 0.26, 0.3);
+  // after it, climbing quicker into the bud
+  arpeggio(n, "Gmaj7", GROW_AT + 8.8, GROW_AT + 11, 0.36, 0.32, 0.44);
+  arpeggio(n, "Asus4", GROW_AT + 11, GROW_AT + 12, 0.3, 0.44, 0.5);
+  arpeggio(n, "A", GROW_AT + 12, BLOOM_AT, 0.28, 0.5, 0.56);
 
-  // the bloom: the dominant held, a rising run, and the swell home into D as the petals open (script BLOOM, + 3 to + 10)
-  chord(n, BLOOM_AT, "A", 4.8, 0.85);
-  bell(n, BLOOM_AT + 2.2, 81, 0.5, 0.6);
-  bell(n, BLOOM_AT + 2.6, 83, 0.52, 0.6);
-  bell(n, BLOOM_AT + 3.0, 85, 0.55, 1.2);
-  chord(n, BLOOM_AT + 4.5, "D", 7.2, 1);
-  bell(n, BLOOM_AT + 5.0, 78, 0.6, 1.2);
-  bell(n, BLOOM_AT + 5.4, 81, 0.62, 1.2);
-  bell(n, BLOOM_AT + 5.8, 86, 0.66, 2.4);
-  bell(n, BLOOM_AT + 7.4, 88, 0.5, 1.6);
-  bell(n, BLOOM_AT + 8.2, 86, 0.5, 3.2);
-  bell(n, BLOOM_AT + 10.2, 90, 0.36, 3.2);
+  // the bloom: the dominant resolving home to D as the petals open, the music box ringing over it
+  chord(n, BLOOM_AT, "A", 3.6, 0.85);
+  bell(n, BLOOM_AT + 1.6, 81, 0.5, 0.6);
+  bell(n, BLOOM_AT + 1.9, 83, 0.52, 0.6);
+  bell(n, BLOOM_AT + 2.2, 85, 0.55, 1.2);
+  chord(n, BLOOM_AT + 3.4, "D", 5.8, 1);
+  bell(n, BLOOM_AT + 3.8, 78, 0.6, 1.2);
+  bell(n, BLOOM_AT + 4.1, 81, 0.62, 1.2);
+  bell(n, BLOOM_AT + 4.4, 86, 0.66, 2.4);
+  bell(n, BLOOM_AT + 5.6, 88, 0.5, 1.6);
+  bell(n, BLOOM_AT + 6.2, 86, 0.5, 3.2);
+  bell(n, BLOOM_AT + 7.7, 90, 0.36, 3.2);
 
   // the visitor: a little theme for the doe; its last note as she lifts her head toward the rose (tour.ts arrive)
-  chord(n, VISIT_AT - 0.6, "Gmaj7", 4.2, 0.7);
-  chord(n, VISIT_AT + 3.6, "Fsm7", 3.4, 0.65);
-  chord(n, VISIT_AT + 7, "Em7", 3, 0.65);
-  chord(n, VISIT_AT + 10, "Asus4", 1.6, 0.6);
-  chord(n, VISIT_AT + 11.6, "D", NIGHT_AT - VISIT_AT - 11.6 + 1.4, 0.7);
+  chord(n, VISIT_AT - 0.6, "Gmaj7", 3.6, 0.7);
+  chord(n, VISIT_AT + 3, "Fsm7", 2.8, 0.65);
+  chord(n, VISIT_AT + 5.8, "Em7", 2.6, 0.65);
+  chord(n, VISIT_AT + 8.4, "Asus4", 1.4, 0.6);
+  chord(n, VISIT_AT + 9.8, "D", NIGHT_AT - VISIT_AT - 9.8 + 1.4, 0.7);
   const theme: [number, number, number][] = [
-    [1, 78, 0.8],
-    [1.8, 81, 0.8],
-    [2.6, 83, 1.6],
-    [4.2, 81, 0.8],
-    [5, 78, 0.8],
-    [5.8, 76, 1.6],
-    [7.4, 74, 0.8],
-    [8.2, 76, 0.8],
-    [9, 78, 1.6],
-    [10.6, 81, 0.8],
-    [11.4, 86, 3.2],
+    [0.9, 78, 0.75],
+    [1.65, 81, 0.75],
+    [2.4, 83, 1.45],
+    [3.85, 81, 0.75],
+    [4.55, 78, 0.75],
+    [5.3, 76, 1.45],
+    [6.75, 74, 0.75],
+    [7.45, 76, 0.75],
+    [8.2, 78, 1.45],
+    [9.6, 81, 0.75],
+    [10.35, 86, 3.2],
   ];
   for (const [dt, midi, dur] of theme) bell(n, VISIT_AT + dt, midi, 0.46, dur);
 
   // night falls: a darker colour of the home key, low and sparse (crickets come in under it: music.ts)
-  chord(n, NIGHT_AT, "Bmadd9", 4.8, 0.6);
-  chord(n, NIGHT_AT + 4.5, "Gmaj7", FLOWERS_AT - NIGHT_AT - 4.5 + 1.4, 0.55);
-  bell(n, NIGHT_AT + 1, 78, 0.34, 2.4);
-  bell(n, NIGHT_AT + 2.6, 74, 0.3, 2.4);
-  bell(n, NIGHT_AT + 5, 71, 0.3, 2.4);
-  bell(n, NIGHT_AT + 6.6, 69, 0.28, 2.4);
-  bell(n, NIGHT_AT + 7.8, 74, 0.26, 3.2);
+  chord(n, NIGHT_AT, "Bmadd9", 3, 0.6);
+  chord(n, NIGHT_AT + 2.6, "Gmaj7", FLOWERS_AT - NIGHT_AT - 2.6 + 1.4, 0.55);
+  bell(n, NIGHT_AT + 0.9, 78, 0.34, 2.4);
+  bell(n, NIGHT_AT + 1.9, 74, 0.3, 2.4);
+  bell(n, NIGHT_AT + 3.1, 71, 0.28, 2.4);
+  bell(n, NIGHT_AT + 4.1, 69, 0.26, 2.4);
 
   // the flowers: each comes up out of the black with a chime of its own chord
   const flowers: ChordName[] = ["Gmaj7", "A", "Fsm7", "Bm7", "Gmaj9"];
@@ -163,17 +173,17 @@ function compose(): Note[] {
     const [a, b, c, d] = ARP[name];
     bell(n, gate + 0.2, a, 0.46, 0.8);
     bell(n, gate + 0.34, b, 0.48, 0.8);
-    bell(n, gate + 0.48, c, 0.5, 2.4);
-    bell(n, gate + 1.9, d, 0.34, 2.4);
+    bell(n, gate + 0.48, c, 0.5, 2.2);
+    bell(n, gate + 1.5, d, 0.34, 2.2);
   });
 
   // the end: the dominant under the dip to black, then home, ringing down under the closing card
   chord(n, END_AT, "Asus4", CARD.from - END_AT, 0.6);
-  chord(n, CARD.from - 0.2, "D", 6, 0.8);
+  chord(n, CARD.from - 0.2, "D", 5, 0.8);
   bell(n, CARD.from, 86, 0.56, 1.6);
-  bell(n, CARD.from + 0.8, 81, 0.46, 1.6);
-  bell(n, CARD.from + 1.6, 78, 0.4, 2.4);
-  bell(n, CARD.from + 2.8, 74, 0.34, 4);
+  bell(n, CARD.from + 0.7, 81, 0.46, 1.6);
+  bell(n, CARD.from + 1.4, 78, 0.4, 2.4);
+  bell(n, CARD.from + 2.2, 74, 0.34, 4);
 
   return n.sort((a, b) => a.t - b.t);
 }

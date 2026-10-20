@@ -1,14 +1,16 @@
-// The party trailer's script: about a minute and a half in the live garden, from a seed at dawn to the rose in
-// bloom, a visitor at golden hour, night, the other flowers a guest can choose, and the gift again. Everything the
-// trailer shows is a channel keyed in time (the hour, growth, bloom, rain and cloud the garden's store takes, the
-// camera's shot, the focus pull to the doe, the black dips) and read with `trailerAt(t)`, so the timeline is pure and
-// tested without a browser; components/party/trailer/Director plays it in the canvas.
+// The party trailer's script: a little over a minute in the live garden, from a seed at dawn and the watering can's
+// first drink to the rose in bloom, a visitor at golden hour, night, the other flowers a guest can choose, and the gift
+// again. Everything the trailer shows is a channel keyed in time (the hour, growth, bloom, rain and cloud the garden's
+// store takes, the camera's shot, the focus pull to the doe, the black dips, the can's moment) and read with
+// `trailerAt(t)`, so the timeline is pure and tested without a browser; components/party/trailer/Director plays it in the
+// canvas.
 //
 // Channels pass through their keys on monotone cubic curves: continuous in speed, so a crane over several keys never
 // stops and starts at each, and never overshooting a key, so growth never shrinks and a hold stays a hold. The hours
 // are set against the day's golden hour (components/party/logic goldenHour), so a rehearsal in October lights the
 // trailer as the party night will. Species change only at gates, under a black dip; the director holds the clock at a
 // gate until the garden has drawn the new flower, so whatever it costs is never seen.
+import { CAN } from "@/components/garden/garden/canMoment";
 import { HOME, type Shot } from "@/components/party/logic";
 import { SPECIES, type SoilSpeciesId } from "@/lib/plant/species";
 
@@ -70,19 +72,21 @@ export class Track {
 
 /** A seed at dawn, close and low over the bed. */
 export const SEED_AT = 0;
-/** The day passes and the rose grows, with a passing shower. */
-export const GROW_AT = 10;
+/** The watering can is carried to the bed and gives the seed its first drink (components/garden/garden/canMoment). */
+export const WATER_AT = 6;
+/** The day passes and the rose grows, with a passing shower; the can is carried home as it begins. */
+export const GROW_AT = 12;
 /** Golden hour: the bud opens. */
-export const BLOOM_AT = 31;
+export const BLOOM_AT = 25;
 /** The doe walks in, grazes and looks at the rose. */
-export const VISIT_AT = 43;
+export const VISIT_AT = 34;
 /** Dusk and night: the lantern, fireflies and stars; she leaves. */
-export const NIGHT_AT = 55;
+export const NIGHT_AT = 44;
 /** The other flowers, one by one, joined by dips to black. */
-export const FLOWERS_AT = 64;
+export const FLOWERS_AT = 49;
 /** Each flower's share of the montage: the dip in, the swap under black, the dip out and the hold. */
-export const FLOWER_S = 3.8;
-const DIP_S = 0.7;
+export const FLOWER_S = 2.8;
+const DIP_S = 0.6;
 /** The flowers a guest can choose besides the rose (the lotus has its own courtyard, so it is not among them). */
 export const MONTAGE: readonly SoilSpeciesId[] = ["sundrop", "magnolia", "marigold", "island", "jasmine"];
 /** The end: a dip to black, the closing card, then the party screen as it was, the panel coming back. */
@@ -90,7 +94,7 @@ export const END_AT = FLOWERS_AT + MONTAGE.length * FLOWER_S;
 /** Under black at the end: the garden is put back as the party shows it. */
 export const RESTORE_AT = END_AT + 1.6;
 /** The black lifts on the party screen, and the panel and its QR code come back. */
-export const RETURN_AT = END_AT + 5.4;
+export const RETURN_AT = END_AT + 5;
 /** The trailer is over. */
 export const TRAILER_S = RETURN_AT + 2;
 
@@ -105,10 +109,11 @@ export interface Caption {
 }
 
 export const CAPTIONS: readonly Caption[] = [
-  { from: 1.6, to: 8.6, title: "Every garden begins with a seed" },
-  { from: GROW_AT + 2.5, to: GROW_AT + 9, title: "It grows with the real Bangalore sky" },
-  { from: BLOOM_AT + 4, to: BLOOM_AT + 10.5, title: "One golden evening, it blooms" },
-  { from: VISIT_AT + 4.5, to: VISIT_AT + 11, title: "Sometimes, a visitor comes" },
+  { from: 1.6, to: 5.6, title: "Every garden begins with a seed" },
+  { from: WATER_AT + 0.8, to: WATER_AT + 5.6, title: "Look after it a little each day" },
+  { from: GROW_AT + 1.6, to: GROW_AT + 7.6, title: "It grows with the real Bangalore sky" },
+  { from: BLOOM_AT + 2.8, to: BLOOM_AT + 8.4, title: "One golden evening, it blooms" },
+  { from: VISIT_AT + 3.5, to: VISIT_AT + 9.4, title: "Sometimes, a visitor comes" },
   { from: FLOWERS_AT + 0.9, to: END_AT - 0.4, title: "Choose your own flower" },
 ];
 
@@ -121,70 +126,85 @@ export const CARD = { from: END_AT + 1.4, to: RETURN_AT - 0.6, title: "Your seed
 function hourKeys(g: number): Key[] {
   return [
     [0, 6.2],
+    [WATER_AT, 6.45],
     [GROW_AT, 6.9],
-    [GROW_AT + 4, 8.6],
-    [GROW_AT + 10, 11.8],
-    [GROW_AT + 16, 14.4],
+    [GROW_AT + 2.5, 8.6],
+    [GROW_AT + 6, 11.8],
+    [GROW_AT + 10, 14.4],
     [BLOOM_AT, g - 1.85],
-    [BLOOM_AT + 6, g - 0.75],
+    [BLOOM_AT + 4.5, g - 0.75],
     [VISIT_AT, g - 0.1],
     [NIGHT_AT, g + 0.15],
-    [NIGHT_AT + 4, g + 0.85],
-    [NIGHT_AT + 7, g + 1.65],
+    [NIGHT_AT + 2.5, g + 0.85],
+    [NIGHT_AT + 4, g + 1.65],
     [FLOWERS_AT, g + 1.85],
   ];
 }
 
 const GROWTH = new Track([
   [0, 0],
-  // the seed glows in its mound, the head not yet shown
+  // the seed glows in its mound, the head not yet shown, through its first drink from the can
   [GROW_AT, 0.025],
-  [GROW_AT + 4, 0.12],
-  [GROW_AT + 13, 0.55],
+  [GROW_AT + 2.5, 0.12],
+  [GROW_AT + 8, 0.55],
   [BLOOM_AT - 1, 0.86],
-  [BLOOM_AT + 4, 1],
+  [BLOOM_AT + 3, 1],
 ]);
 const BLOOM = new Track([
-  [BLOOM_AT + 3, 0],
-  [BLOOM_AT + 10, 1],
+  [BLOOM_AT + 2, 0],
+  [BLOOM_AT + 7.5, 1],
 ]);
 const RAIN = new Track([
-  [GROW_AT + 7, 0],
-  [GROW_AT + 9, 0.8],
-  [GROW_AT + 12.5, 0.8],
-  [GROW_AT + 14.5, 0],
+  [GROW_AT + 4, 0],
+  [GROW_AT + 5.5, 0.8],
+  [GROW_AT + 7.5, 0.8],
+  [GROW_AT + 9, 0],
 ]);
 const CLOUD = new Track([
-  [GROW_AT + 6, 0.15],
-  [GROW_AT + 9, 0.8],
-  [GROW_AT + 12.5, 0.8],
-  [GROW_AT + 16, 0.25],
-  [BLOOM_AT + 9, 0.15],
+  [GROW_AT + 3.5, 0.15],
+  [GROW_AT + 5.5, 0.8],
+  [GROW_AT + 7.5, 0.8],
+  [GROW_AT + 10, 0.25],
+  [BLOOM_AT + 6, 0.15],
 ]);
 /** 0: the flower head in focus; 1: the doe. */
 const RACK = new Track([
-  [VISIT_AT + 6.5, 0],
-  [VISIT_AT + 8, 1],
-  [VISIT_AT + 11.5, 1],
-  [VISIT_AT + 13.5, 0],
+  [VISIT_AT + 6, 0],
+  [VISIT_AT + 7.5, 1],
+  [VISIT_AT + 9.5, 1],
+  [VISIT_AT + 11, 0],
 ]);
+
+/**
+ * The watering can's moment, on the trailer's clock (s since it was pressed, or -1 for none): played at its own pace
+ * until the can is home again, then hurried on with the time-lapse, so the wet it left dries as the day passes.
+ */
+const WATER_HURRY = 8;
+function waterAt(t: number): number {
+  if (t < WATER_AT || t >= RESTORE_AT) return -1;
+  const s = t - WATER_AT;
+  return s < CAN.still ? s : CAN.still + (s - CAN.still) * WATER_HURRY;
+}
 
 /** The camera's shots, as the party camera takes them (components/party/PartyCamera): offsets from the composed garden. */
 const SHOT_KEYS: readonly (readonly [number, Shot])[] = [
   // close over the bed, looking down into it, pushing in on the mound
   [0, { yaw: -0.02, lift: 0.18, dolly: 0.32, focus: 1, zoom: 1 }],
-  [GROW_AT, { yaw: -0.06, lift: 0.16, dolly: 0.27, focus: 1, zoom: 1 }],
+  [WATER_AT - 1, { yaw: -0.02, lift: 0.17, dolly: 0.3, focus: 1, zoom: 1 }],
+  // back a little and round toward the can's side of the bed, for its carry and its pour
+  [WATER_AT + 2.2, { yaw: 0.12, lift: 0.15, dolly: 0.46, focus: 1, zoom: 1 }],
+  [GROW_AT, { yaw: 0.1, lift: 0.15, dolly: 0.44, focus: 1, zoom: 1 }],
   // rising and pulling back as the rose climbs
-  [GROW_AT + 6, { yaw: -0.02, lift: 0.1, dolly: 0.42, focus: 1, zoom: 1 }],
-  [GROW_AT + 14, { yaw: 0.06, lift: 0.07, dolly: 0.66, focus: 0.85, zoom: 1 }],
+  [GROW_AT + 4, { yaw: 0.02, lift: 0.1, dolly: 0.48, focus: 1, zoom: 1 }],
+  [GROW_AT + 9, { yaw: 0.06, lift: 0.07, dolly: 0.66, focus: 0.85, zoom: 1 }],
   [BLOOM_AT, { yaw: 0.1, lift: 0.05, dolly: 0.86, focus: 0.7, zoom: 1 }],
   // in toward the bud as it opens
-  [BLOOM_AT + 11, { yaw: -0.04, lift: 0.02, dolly: 0.64, focus: 0.9, zoom: 0.96 }],
+  [BLOOM_AT + 8, { yaw: -0.04, lift: 0.02, dolly: 0.64, focus: 0.9, zoom: 0.96 }],
   // wide, and a little toward the lantern's side, for the visitor
-  [VISIT_AT + 4.5, { yaw: -0.12, lift: 0, dolly: 1.02, focus: 0.2, zoom: 1 }],
+  [VISIT_AT + 3.5, { yaw: -0.12, lift: 0, dolly: 1.02, focus: 0.2, zoom: 1 }],
   [NIGHT_AT, { yaw: -0.1, lift: 0, dolly: 1, focus: 0.2, zoom: 1 }],
   // in a little as the light goes
-  [FLOWERS_AT - 2, { yaw: 0.02, lift: 0.03, dolly: 0.86, focus: 0.5, zoom: 1 }],
+  [FLOWERS_AT - 1.5, { yaw: 0.02, lift: 0.03, dolly: 0.86, focus: 0.5, zoom: 1 }],
 ];
 const SHOT_TRACKS = (["yaw", "lift", "dolly", "focus", "zoom"] as const).map(
   (k) => [k, new Track(SHOT_KEYS.map(([t, s]) => [t, s[k]] as const))] as const,
@@ -235,6 +255,8 @@ export interface TrailerFrame {
   rack: number;
   /** the doe is in the garden (she walks in when it first turns on) */
   doe: boolean;
+  /** the watering can's moment (s since it was pressed, on the trailer's clock), or -1 for none */
+  water: number;
   /** the flower in the bed (the rose, or one of the montage) */
   species: SoilSpeciesId;
   /** 0 the picture .. 1 black */
@@ -283,6 +305,7 @@ export function trailerAt(t: number, golden: number, out: TrailerFrame = blankFr
   out.cloud = restored ? 0.15 : CLOUD.at(t);
   out.rack = RACK.at(t);
   out.doe = t >= VISIT_AT && t < GATES[0];
+  out.water = waterAt(t);
   out.cover = Math.min(1, Math.max(0, COVER.at(t)));
   out.bars = t < RETURN_AT;
   out.restored = restored;
@@ -313,6 +336,7 @@ export function blankFrame(): TrailerFrame {
     shot: { ...HOME },
     rack: 0,
     doe: false,
+    water: -1,
     species: "rose",
     cover: 1,
     caption: null,

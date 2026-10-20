@@ -16,6 +16,7 @@ import * as THREE from "three";
 import { Doe, doeHandle, type DoeStage } from "@/components/deer/Doe";
 import { lightSet } from "@/components/garden/lightSets";
 import { weather } from "@/components/garden/garden/weather";
+import { driveCan } from "@/components/garden/garden/canLive";
 import { goldenHour } from "@/components/party/logic";
 import { finishTrailer, OPEN_S, PREPARE_MAX_S, putBack, returnPanel, run, stopTrailer } from "@/components/party/trailer/control";
 import { blankFrame, GATES, MONTAGE, RESTORE_AT, RETURN_AT, TRAILER_S, trailerAt } from "@/components/party/trailer/script";
@@ -78,6 +79,11 @@ function write(t: number, golden: number) {
     Object.assign(trailerCam.shot, frame.shot);
   }
   trailerCues.doe = frame.doe;
+  // the seed's first drink: the can's moment, played on the trailer's clock (components/garden/garden/canLive)
+  if (frame.water >= 0) {
+    if (!garden.get().canMoment) garden.set({ canMoment: { at: Date.now(), refusedAt: 0, soil: "ok" } });
+    driveCan(frame.water);
+  } else driveCan(null);
   const head = doeHandle.anim?.bones[HEAD_BONE];
   if (frame.rack > 0.001 && head) {
     head.getWorldPosition(doeHead);

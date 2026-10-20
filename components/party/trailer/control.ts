@@ -6,6 +6,7 @@
 // (lightSets: the set it opened with at golden hour), so the time-lapse through midday never prepares another.
 import { lightSet } from "@/components/garden/lightSets";
 import { weather } from "@/components/garden/garden/weather";
+import { driveCan } from "@/components/garden/garden/canLive";
 import { HOME } from "@/components/party/logic";
 import { stageShowcase } from "@/components/party/showcase";
 import { party } from "@/components/party/store";
@@ -13,6 +14,7 @@ import { music } from "@/components/party/trailer/music";
 import { TRAILER_S } from "@/components/party/trailer/script";
 import { cover, QUIET, trailer, trailerCam, trailerCues } from "@/components/party/trailer/store";
 import { env } from "@/lib/garden/env";
+import { garden } from "@/lib/garden/store";
 import { quality, visitorHold } from "@/lib/garden/quality";
 
 /** The dip to black as the trailer starts (s); the director prepares the garden under it. */
@@ -100,6 +102,9 @@ export function startTrailer(): boolean {
 /** The garden as the party shows it, the camera home, the doe gone and the focus on the flower again (under black). */
 export function putBack() {
   stageShowcase(window.location.search);
+  // the can stands on its own spot again and the seed's drink has dried (components/garden/garden/canLive)
+  garden.set({ canMoment: null });
+  driveCan(null);
   // the stones dry and the lantern settles at once, rather than over the next half minute
   weather.primed = false;
   env.focus = null;

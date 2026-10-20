@@ -17,6 +17,7 @@ import {
   TRAILER_S,
   trailerAt,
   VISIT_AT,
+  WATER_AT,
 } from "@/components/party/trailer/script";
 
 const GOLDEN = 17.45;
@@ -72,12 +73,25 @@ describe("a track", () => {
 });
 
 describe("the trailer", () => {
-  it("runs about a minute and a half, its beats in order", () => {
-    expect([GROW_AT, BLOOM_AT, VISIT_AT, NIGHT_AT, FLOWERS_AT, END_AT, RESTORE_AT, RETURN_AT, TRAILER_S]).toEqual(
-      [GROW_AT, BLOOM_AT, VISIT_AT, NIGHT_AT, FLOWERS_AT, END_AT, RESTORE_AT, RETURN_AT, TRAILER_S].sort((a, b) => a - b),
+  it("runs a little over a minute, its beats in order", () => {
+    expect([WATER_AT, GROW_AT, BLOOM_AT, VISIT_AT, NIGHT_AT, FLOWERS_AT, END_AT, RESTORE_AT, RETURN_AT, TRAILER_S]).toEqual(
+      [WATER_AT, GROW_AT, BLOOM_AT, VISIT_AT, NIGHT_AT, FLOWERS_AT, END_AT, RESTORE_AT, RETURN_AT, TRAILER_S].sort((a, b) => a - b),
     );
-    expect(TRAILER_S).toBeGreaterThan(85);
-    expect(TRAILER_S).toBeLessThan(115);
+    expect(TRAILER_S).toBeGreaterThan(64);
+    expect(TRAILER_S).toBeLessThan(75);
+  });
+
+  it("gives the seed its first drink from the can before it grows, and dries it with the passing day", () => {
+    expect(trailerAt(WATER_AT - 0.1, GOLDEN).water).toBe(-1);
+    expect(trailerAt(WATER_AT + 1, GOLDEN).water).toBeCloseTo(1, 9);
+    // the can plays at its own pace through the carry and the pour, still a seed in its mound
+    for (const t of times(WATER_AT, GROW_AT)) {
+      expect(trailerAt(t + STEP, GOLDEN).water - trailerAt(t, GOLDEN).water).toBeCloseTo(STEP, 6);
+      expect(trailerAt(t, GOLDEN).growth).toBeLessThan(HEADLESS_GROWTH);
+    }
+    // once the can is home, the wet it left hurries on with the time-lapse and is gone well before the bloom
+    expect(trailerAt(BLOOM_AT, GOLDEN).water).toBeGreaterThan(60);
+    expect(trailerAt(RESTORE_AT, GOLDEN).water).toBe(-1);
   });
 
   it("opens on the seed alone: no head before the growing beat", () => {
@@ -168,8 +182,8 @@ describe("the trailer", () => {
 
   it("pulls focus to the doe after she has arrived, and back to the flower", () => {
     expect(trailerAt(VISIT_AT + 5, GOLDEN).rack).toBe(0);
-    expect(trailerAt(VISIT_AT + 10, GOLDEN).rack).toBeCloseTo(1, 6);
-    expect(trailerAt(VISIT_AT + 16, GOLDEN).rack).toBe(0);
+    expect(trailerAt(VISIT_AT + 8.5, GOLDEN).rack).toBeCloseTo(1, 6);
+    expect(trailerAt(VISIT_AT + 12, GOLDEN).rack).toBe(0);
   });
 
   it("keeps its shots inside the dressed garden", () => {

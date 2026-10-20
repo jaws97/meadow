@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CHIMES, D_MAJOR, FADE_FROM, FADE_S, SCORE } from "@/components/party/trailer/score";
-import { BLOOM_AT, CARD, GATES, NIGHT_AT, RETURN_AT, TRAILER_S, VISIT_AT } from "@/components/party/trailer/script";
+import { BLOOM_AT, CARD, GATES, GROW_AT, NIGHT_AT, RETURN_AT, TRAILER_S, VISIT_AT, WATER_AT } from "@/components/party/trailer/script";
 
 const D = 2;
 
@@ -36,11 +36,17 @@ describe("the trailer's music", () => {
     expect(home!.vel).toBe(1);
   });
 
-  it("gives the doe her theme, ending as she looks up at the rose", () => {
-    const theme = SCORE.filter((n) => n.voice === "bell" && n.t > VISIT_AT && n.t < NIGHT_AT);
+  it("gives the doe her theme, ending as she looks up at the rose as the light goes", () => {
+    const theme = SCORE.filter((n) => n.voice === "bell" && n.t > VISIT_AT && n.t < NIGHT_AT + 0.5);
     expect(theme.length).toBeGreaterThanOrEqual(8);
     const last = theme[theme.length - 1];
     expect(last.t).toBeGreaterThan(VISIT_AT + 10);
+  });
+
+  it("lets a few high notes fall as the can's water lands on the seed", () => {
+    const drops = SCORE.filter((n) => n.voice === "bell" && n.t > WATER_AT + 2.7 && n.t < GROW_AT);
+    expect(drops.length).toBeGreaterThanOrEqual(4);
+    for (const n of drops) expect(n.midi[0]).toBeGreaterThanOrEqual(78);
   });
 
   it("comes home under the closing card and has faded by the time the panel is back", () => {
