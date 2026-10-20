@@ -113,3 +113,51 @@ export function roomAlong(tx: number, ty: number, tz: number, dx: number, dy: nu
   while (s > near && treeAt(tx + dx * s, ty + dy * s, tz + dz * s)) s -= STEP;
   return Math.max(near, s);
 }
+
+// ---- the lantern, for a still that must not look through it -------------------------------------------------------
+
+/**
+ * The lantern as a camera looking at the flower must not see it close up: its lamp (hung on its arm toward the bed, at
+ * lampHeight) and its post. The live camera passes it by (a slim post is no obstacle while orbiting), but the bloom card
+ * is one still photograph, and a lamp a metre from the lens and across the flower would fill it.
+ */
+const lantern = (() => {
+  const [px, , pz] = LAYOUT.lantern.position;
+  const bx = LAYOUT.bed.center[0] - px;
+  const bz = LAYOUT.bed.center[2] - pz;
+  const len = Math.hypot(bx, bz) || 1;
+  const ARM = 0.27;
+  return { px, pz, postTop: 1.6, post: 0.06, lx: px + (bx / len) * ARM, ly: LAYOUT.lantern.lampHeight, lz: pz + (bz / len) * ARM, lamp: 0.14 };
+})();
+
+/** The camera's half-view across, as a share of distance (the card's 30 degree lens, a little to spare). */
+const VIEW = 0.28;
+
+/** Whether a sphere of radius r at (x, y, z) shows between a camera at distance d along the line and the target. */
+function inView(x: number, y: number, z: number, r: number, tx: number, ty: number, tz: number, dx: number, dy: number, dz: number, d: number): boolean {
+  const ox = x - tx;
+  const oy = y - ty;
+  const oz = z - tz;
+  const s = ox * dx + oy * dy + oz * dz;
+  // behind the target it is scenery; behind the camera it is not seen
+  if (s <= 0 || s >= d) return false;
+  const lateral = Math.hypot(ox - dx * s, oy - dy * s, oz - dz * s);
+  return lateral < VIEW * (d - s) + r;
+}
+
+/**
+ * Whether a camera standing `d` from (tx, ty, tz) along the unit direction (dx, dy, dz) sees the flower clear of the
+ * lantern: neither its lamp nor its post stands in the picture between the camera and the flower.
+ */
+export function lanternClear(tx: number, ty: number, tz: number, dx: number, dy: number, dz: number, d: number): boolean {
+  if (inView(lantern.lx, lantern.ly, lantern.lz, lantern.lamp, tx, ty, tz, dx, dy, dz, d)) return false;
+  for (let y = 0.1; y < lantern.postTop; y += 0.15) if (inView(lantern.px, y, lantern.pz, lantern.post, tx, ty, tz, dx, dy, dz, d)) return false;
+  return true;
+}
+
+/** How far from the target, up to `want`, the camera may stand along the line with the lantern out of the picture (at least `near`). */
+export function lanternAlong(tx: number, ty: number, tz: number, dx: number, dy: number, dz: number, want: number, near = 0.6): number {
+  let d = want;
+  while (d > near && !lanternClear(tx, ty, tz, dx, dy, dz, d)) d -= STEP;
+  return Math.max(near, d);
+}

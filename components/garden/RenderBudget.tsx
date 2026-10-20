@@ -94,6 +94,7 @@ import {
 import { rememberTier } from "@/lib/garden/device";
 import { opening } from "@/lib/garden/opening";
 import { garden, useGarden, type Quality } from "@/lib/garden/store";
+import { cardShot } from "@/lib/garden/cardShot";
 import { Governor, momentHold, quality, stepTier, underVeil, useQuality, visitorHold, type Phase, type QualityState } from "@/lib/garden/quality";
 import { isLotus } from "@/lib/plant/species";
 
@@ -735,7 +736,8 @@ export function RenderGovernor() {
     // touching the garden (a tier picked by hand goes at once).
     const stage = tierStage.get();
     const touched = now - lastInput.current < INPUT_QUIET_MS;
-    if (stage.ready && stage.preparing !== null && showing && !c.resize && !c.swap && !(stage.byGovernor && touched)) {
+    // (and never while the bloom card is being photographed: its frames are drawn behind a still of their own)
+    if (stage.ready && stage.preparing !== null && showing && !c.resize && !c.swap && !cardShot.busy && !(stage.byGovernor && touched)) {
       c.swap = swapTier(stage.preparing, stage.byGovernor, gl.domElement, governor, ownTier, now);
       return;
     }

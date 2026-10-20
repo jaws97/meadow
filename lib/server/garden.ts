@@ -267,6 +267,8 @@ export interface MeView {
     ripeH: number | null;
     bloomH: number | null;
     bloomedAt: string | null;
+    /** how far a bed flower has opened, 0 (the bud) to 1 (fully open; it never closes again); null for a lotus, whose flower opens and closes with its days */
+    open: number | null;
     diedH: number | null;
     fairyUsed: boolean;
     /** sprinkles received today that the model counted (up to 2) */
@@ -330,6 +332,7 @@ function buildMe(plant: PlantRef, state: PlantState, pending: readonly RecordedE
       ripeH: ripe,
       bloomH: bloomed,
       bloomedAt: bloomed === null ? null : hourIso(bloomed),
+      open: isPondState(state) ? null : round(state.op, 2),
       diedH: died,
       fairyUsed: state.fairyUsed,
       sprinklesToday: Math.min(state.daySpr, pond ? POND.sprinkleCap : BED.sprinkleCap),

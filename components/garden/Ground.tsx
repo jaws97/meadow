@@ -33,6 +33,7 @@ import {
 } from "@/lib/garden/dressing";
 import { LAYOUT } from "@/lib/garden/layout";
 import { Rng, clamp01, lerp, smoothstep, vnoise2 } from "@/lib/plant/prng";
+import { cardShot } from "@/lib/garden/cardShot";
 import { env } from "@/lib/garden/env";
 import { useGarden, type Quality } from "@/lib/garden/store";
 import { useLayerFrame, useTier } from "@/components/garden/TierLayers";
@@ -673,25 +674,27 @@ export function Ground() {
     if (!s.primed) {
       s.primed = true;
       s.wetness = env.rain;
-    } else {
+    } else if (!cardShot.active) {
       s.wetness += (env.rain - s.wetness) * (1 - Math.exp(-dt * 1.5));
     }
+    // the bloom card's frames are drawn in the card's own fair weather at once; the lawn's eased wetness waits for them
+    const wetness = cardShot.active ? env.rain : s.wetness;
 
-    lawnMat.color.copy(WHITE).lerp(WET_GRASS, s.wetness);
-    lawnMat.roughness = lerp(1, 0.6, s.wetness);
+    lawnMat.color.copy(WHITE).lerp(WET_GRASS, wetness);
+    lawnMat.roughness = lerp(1, 0.6, wetness);
     // The blades are the grass too: tint and gloss them with the turf so they do
     // not float bright over a darkened lawn in the rain.
-    grassMat.color.copy(WHITE).lerp(WET_GRASS, s.wetness);
-    grassMat.roughness = lerp(0.8, 0.5, s.wetness);
-    lowMat.color.copy(WHITE).lerp(WET_GRASS, s.wetness);
-    lowMat.roughness = lerp(0.75, 0.45, s.wetness);
-    fallenMat.color.copy(WHITE).lerp(WET_LEAF, s.wetness);
-    fallenMat.roughness = lerp(0.9, 0.5, s.wetness);
+    grassMat.color.copy(WHITE).lerp(WET_GRASS, wetness);
+    grassMat.roughness = lerp(0.8, 0.5, wetness);
+    lowMat.color.copy(WHITE).lerp(WET_GRASS, wetness);
+    lowMat.roughness = lerp(0.75, 0.45, wetness);
+    fallenMat.color.copy(WHITE).lerp(WET_LEAF, wetness);
+    fallenMat.roughness = lerp(0.9, 0.5, wetness);
 
     swayUniforms.uTime.value = env.time;
     swayUniforms.uWind.value = env.wind;
     // the low sun behind the lawn lights every blade tip from within at golden hour
-    swayUniforms.uBacklight.value = (0.3 + 0.9 * lightState.golden) * (1 - 0.4 * s.wetness);
+    swayUniforms.uBacklight.value = (0.3 + 0.9 * lightState.golden) * (1 - 0.4 * wetness);
   });
   /* eslint-enable react-hooks/immutability */
 

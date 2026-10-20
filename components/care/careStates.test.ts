@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { copyFor } from "@/components/care/RestingCard";
 import {
+  fullBloom,
   koiChip,
   koiWaitText,
   lotusFeedQuestion,
@@ -184,5 +185,44 @@ describe("the tucked-away card's tab", () => {
 
   it("calls a plant that has gone to sleep resting, whatever its line", () => {
     expect(tabWords(plant("unwell"), { resting: true, pond: false })).toEqual({ words: "Resting", mood: "resting", asks: false });
+  });
+
+  it("says a flower is in full bloom whenever it asks for nothing", () => {
+    const full = { ...bed, fullBloom: true };
+    expect(tabWords(plant("blooming"), full)).toEqual({ words: "In full bloom", mood: "blooming", asks: false });
+    // a jasmine resting by day, or a lotus closed for the afternoon, is still in full bloom
+    expect(tabWords(plant("content"), full).words).toBe("In full bloom");
+    expect(tabWords(plant("thirsty"), full)).toMatchObject({ words: "Ready for a drink", asks: true });
+    expect(tabWords(plant("blooming"), { ...full, resting: true }).words).toBe("Resting");
+  });
+});
+
+describe("full bloom: when the flower can be sent", () => {
+  const bedMe = (state: { alive?: boolean; bloomH?: number | null; open?: number | null }, nowH = 400) =>
+    ({ state: { alive: true, bloomH: null, open: 0, ...state }, visual: { stage: "bloom" }, now: { h: nowH } }) as unknown as MeView;
+
+  it("is a bed flower once it has fully opened, whatever it looks like this hour", () => {
+    expect(fullBloom(bedMe({ bloomH: null, open: 0.3 }))).toBe(false);
+    // half open is when it counts as bloomed; full bloom is when it is all the way open
+    expect(fullBloom(bedMe({ bloomH: 390, open: 0.5 }))).toBe(false);
+    expect(fullBloom(bedMe({ bloomH: 390, open: 1 }))).toBe(true);
+    expect(fullBloom(bedMe({ alive: false, bloomH: 390, open: 1 }))).toBe(false);
+  });
+
+  it("counts three hours from the bloom when the server does not say how open it is", () => {
+    expect(fullBloom(bedMe({ bloomH: 398, open: undefined }, 400))).toBe(false);
+    expect(fullBloom(bedMe({ bloomH: 397, open: undefined }, 400))).toBe(true);
+  });
+
+  it("is a lotus on its three flower days", () => {
+    const pondMe = (flowerDay: 0 | 1 | 2 | 3, alive = true) =>
+      ({ state: { alive, bloomH: 300, open: null }, visual: { ...toVisualPond(lotus()), flowerDay }, now: { h: 400 } }) as unknown as MeView;
+    expect(fullBloom(pondMe(0))).toBe(false);
+    expect(fullBloom(pondMe(1))).toBe(true);
+    expect(fullBloom(pondMe(3))).toBe(true);
+    expect(fullBloom(pondMe(2, false))).toBe(false);
+    // the third evening: once its petals begin to fall it is no longer offered
+    const falling = { ...pondMe(3), visual: { ...toVisualPond(lotus()), flowerDay: 3, petalDrop: 0.2 } } as unknown as MeView;
+    expect(fullBloom(falling)).toBe(false);
   });
 });

@@ -42,6 +42,7 @@ import { lerp, Rng, smoothstep } from "@/lib/plant/prng";
 import { ANTHER, FILAMENT_GIRTH, longStamens, STIGMA, STYLE_GIRTH } from "@/lib/plant/stamens";
 import { garden, useGarden, type Quality } from "@/lib/garden/store";
 import { env } from "@/lib/garden/env";
+import { CARD_BLOOM, CARD_DROOP, cardShot } from "@/lib/garden/cardShot";
 import {
   budMaterial,
   filamentMaterial,
@@ -681,7 +682,9 @@ export function Plant() {
     }
 
     const t = env.time;
-    const droop = v.droop;
+    // the bloom card's frames draw the flower fully open and standing (lib/garden/cardShot); the eased numbers go on
+    const card = cardShot.active;
+    const droop = card ? Math.min(v.droop, CARD_DROOP) : v.droop;
     const gust = 0.5 + 0.5 * Math.sin(t * 0.37) * Math.sin(t * 0.11 + 1.3);
     const windAmp = env.wind * (0.4 + 0.6 * gust);
     axis.set(Math.sin(bp.leanDir), 0, -Math.cos(bp.leanDir));
@@ -772,7 +775,7 @@ export function Plant() {
     // sepals alone, a small pointed green shoot, so the stem never ends in a
     // cut-off tube. The petals and bud core show once the bud starts to swell.
     const bud = heroBudGrowth(v.growth);
-    const eb = v.bloom * smoothstep(0.8, 0.92, v.growth);
+    const eb = (card ? Math.max(v.bloom, CARD_BLOOM) : v.bloom) * smoothstep(0.8, 0.92, v.growth);
     const head = R.head;
     const petalsShown = bud > 0.04;
     const headShown = heroStemFraction(v.growth) > 0.005;
@@ -848,6 +851,8 @@ export function Plant() {
     if (glow) glow.intensity = headShown ? ei * (quality === "lite" ? 1.1 : 3) * night * (sp.fx.glowNight ? 1 : 0.2) : 0;
 
     if (head) head.getWorldPosition(env.headPos);
+    cardShot.head = head;
+    cardShot.headBody = R.headBody;
   });
 
   return (

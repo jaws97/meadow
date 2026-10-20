@@ -10,6 +10,9 @@
 // koi are hungry, says "aphids" when there are some to rinse, and while the koi's last pinch is under four hours old
 // (the model counts one pinch every four hours) it says from when the next one is welcome, and a tap explains rather
 // than pretending to feed them.
+//
+// Once the flower is in full bloom (fullBloom) the card offers to send it (components/care/BloomSheet), and the tucked
+// tab says so.
 import type { ActionState } from "@/components/care/CareActions";
 import type { GroundChip } from "@/components/care/StatusChips";
 import { istWhen, koiLine, pondWord, type MeView, type RainHint, type ShownPondVisual } from "@/lib/client/plant";
@@ -177,6 +180,22 @@ export function lotusFeedQuestion(v: Pick<ShownPondVisual, "stage" | "feedAdvice
 /** The reply when a top-up on a full pond is left: the pond will say when it could use one. */
 export const POND_FULL_LEAVE = "The pond is at its line. It will ask when it could use a top-up.";
 
+/**
+ * The flower is in full bloom, and can be sent as a card (BloomSheet). A bed flower once it has fully opened (it never
+ * closes again: the server's `open`; a server from before it said so counts three hours from the bloom, when even a
+ * magnolia is open), however the hour, its thirst or a jasmine's daytime rest draw it just now. A lotus on its three
+ * flower days, through their afternoons' closing too, until its petals begin to fall. Never a plant that has gone to
+ * sleep.
+ */
+export function fullBloom(me: Pick<MeView, "state" | "visual" | "now">): boolean {
+  if (!me.state.alive) return false;
+  // a lotus's third day ends with its petals falling (from 17:00): no longer one to photograph in full bloom
+  if (isPondVisual(me.visual)) return me.visual.flowerDay >= 1 && !(me.visual.petalDrop > 0);
+  if (me.state.bloomH === null) return false;
+  const open = me.state.open ?? (me.now.h - me.state.bloomH >= 3 ? 1 : 0);
+  return open >= 0.99;
+}
+
 /** The tucked-away card's tab (CareLayer): a few words for how the plant is, its mood's dot, and whether it asks. */
 export interface TabWords {
   words: string;
@@ -187,9 +206,19 @@ export interface TabWords {
 /**
  * What the tab says, from the plant's own line (lib/client/plant plantLine): a seed settling in, the plant's mood in
  * two or three words, and, when the mood asks for something, the ask itself (said in gold by the tab). A plant that
- * has gone to sleep is resting; a lotus's thirst is its pond wanting a top-up.
+ * has gone to sleep is resting; a lotus's thirst is its pond wanting a top-up. A flower in full bloom (fullBloom) says
+ * so whenever it asks for nothing.
  */
-export function tabWords(line: { voice: "plant" | "narrator"; mood: PlantMood } | null, opts: { resting: boolean; pond: boolean }): TabWords {
+export function tabWords(
+  line: { voice: "plant" | "narrator"; mood: PlantMood } | null,
+  opts: { resting: boolean; pond: boolean; fullBloom?: boolean },
+): TabWords {
+  const words = moodWords(line, opts);
+  if (opts.fullBloom && !opts.resting && !words.asks && line?.voice === "plant") return { words: "In full bloom", mood: "blooming", asks: false };
+  return words;
+}
+
+function moodWords(line: { voice: "plant" | "narrator"; mood: PlantMood } | null, opts: { resting: boolean; pond: boolean }): TabWords {
   if (opts.resting) return { words: "Resting", mood: "resting", asks: false };
   if (!line) return { words: "Your garden", mood: "content", asks: false };
   if (line.voice === "narrator") return { words: "Settling in", mood: line.mood, asks: false };

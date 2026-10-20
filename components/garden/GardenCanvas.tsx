@@ -20,6 +20,7 @@
 import { Canvas, useThree, type CanvasProps } from "@react-three/fiber";
 import { Suspense, useEffect, useLayoutEffect } from "react";
 import * as THREE from "three";
+import { CardCamera } from "@/components/garden/CardCamera";
 import { useOpeningFocus } from "@/components/garden/OpeningMoment";
 import { Opening, RenderGovernor, TierPreparer } from "@/components/garden/RenderBudget";
 import { Scene } from "@/components/garden/Scene";
@@ -92,6 +93,7 @@ export default function GardenCanvas({ deer = false }: { deer?: boolean }) {
       }}
     >
       <RenderGovernor />
+      <CardCamera />
       <PictureGuard />
       <Suspense fallback={null}>
         <Scene deer={deer} />

@@ -9,9 +9,10 @@
 // mistake must still send colleagues to the real garden, where their seeds
 // count. The party code itself is never written into the code base: it rides
 // in the screen's own address (/party?code=...).
-import * as SunCalc from "suncalc";
 import { SPECIES, type SpeciesId } from "@/lib/plant/species";
-import { BANGALORE } from "@/lib/sky/sun";
+import { goldenHour } from "@/lib/sky/sun";
+
+export { goldenHour };
 
 export const PUBLIC_ORIGIN = "https://meadow-phi.vercel.app";
 
@@ -54,20 +55,6 @@ export function readSwitch(search: string, name: string): boolean | null {
 }
 
 // ---- the light ------------------------------------------------------------------------------------------------------
-
-/**
- * The garden's best light: golden hour, a little under half an hour before
- * sunset in Bangalore on the given day (the garden's lights and layout are
- * composed for this low, warm backlight; the development panel's "Golden
- * hour" preset, 17:36 in mid October, is the same moment). As a fractional
- * IST hour.
- */
-export function goldenHour(day: Date = new Date()): number {
-  const sunset = SunCalc.getTimes(day, BANGALORE.lat, BANGALORE.lon).sunset?.getTime();
-  if (sunset === undefined || !Number.isFinite(sunset)) return 17.5;
-  const ist = (((sunset / 3_600_000 + BANGALORE.tz) % 24) + 24) % 24;
-  return ist - 0.4;
-}
 
 /** The hour the showcase is lit at: `?hour=` (0-24, for a rehearsal or a night look) or golden hour. */
 export function showcaseHour(search: string, day: Date = new Date()): number {

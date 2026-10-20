@@ -50,6 +50,7 @@ import { addAfterEffect, useFrame, useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef } from "react";
 import * as THREE from "three";
 import { sidePanel } from "@/lib/client/dock";
+import { cardShot } from "@/lib/garden/cardShot";
 import { HERO_GROUND_Y } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { framingFor, LAYOUT, type Framing } from "@/lib/garden/layout";
@@ -314,6 +315,21 @@ function shiftLens(camera: THREE.Camera, L: { x: number; y: number }, width: num
 }
 
 /** The lens for the framing (the flower garden's for the screen's shape, or the courtyard's), changed only when it differs. */
+/**
+ * The bloom card's camera (lib/garden/cardShot), once its shot is solved: placed and aimed, at the card's shape, with no
+ * lens shift. The rig's own state (the drift, the zoom, the push, the lens) is left as it was, and the capture puts the
+ * camera back exactly where it found it.
+ */
+function placeCard(camera: THREE.Camera) {
+  camera.position.copy(cardShot.position);
+  camera.lookAt(cardShot.target);
+  if (!(camera instanceof THREE.PerspectiveCamera)) return;
+  camera.fov = cardShot.fov;
+  camera.aspect = cardShot.aspect;
+  camera.clearViewOffset();
+  camera.updateProjectionMatrix();
+}
+
 function setFov(camera: THREE.Camera, fov: number) {
   if (!(camera instanceof THREE.PerspectiveCamera) || Math.abs(camera.fov - fov) <= 0.01) return;
   camera.fov = fov;
@@ -524,6 +540,13 @@ export function CameraRig() {
   useFrame((_, delta) => {
     const c = controls.current;
     if (!c) return;
+    if (cardShot.active) {
+      // the bloom card's few frames (components/garden/CardCamera): the controls rest, the camera is the card's
+      c.enabled = false;
+      if (cardShot.aimed) placeCard(camera);
+      return;
+    }
+    if (!c.enabled) c.enabled = true;
     const dt = Math.min(delta, 0.1);
     const k = 1 - Math.exp(-dt * EASE_RATE);
     const f = live.current;

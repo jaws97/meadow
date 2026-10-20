@@ -268,6 +268,39 @@
   padding-right: 34px;
 }
 
+/* while the bloom card's sheet is open the card steps out of sight (still laid out, so the camera keeps its framing) */
+.care-root[data-sending] .care-panel,
+.care-root[data-sending] .care-tab {
+  visibility: hidden;
+}
+
+/* in full bloom: the bloom's own coral mark (gold here means the plant asks for something), and the offer to send it */
+.care-bloom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.care-bloom-words {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14.5px;
+  letter-spacing: 0.01em;
+  color: #ffd9cb;
+}
+
+.care-bloom-mark {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffc6b3;
+  box-shadow: 0 0 12px #ffc6b3;
+}
+
 /* a seed not yet up: a quiet narrator's line, not the plant's words */
 .care-says[data-voice="narrator"] {
   font-size: 16px;

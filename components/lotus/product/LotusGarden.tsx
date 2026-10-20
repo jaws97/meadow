@@ -36,6 +36,7 @@ import { canSwitchSets, lightSet, withSet } from "@/components/garden/lightSets"
 import { useLayerFrame, useLayerLive, useTier } from "@/components/garden/TierLayers";
 import { compileSliced, predraw, unchecked, withStandIn } from "@/components/garden/warmup";
 import { stepWeather } from "@/components/garden/garden/weather";
+import { CARD_BLOOM, cardShot } from "@/lib/garden/cardShot";
 import { Pond, type PondLive } from "@/components/lotus/KoiPond";
 import type { PlantLive } from "@/components/lotus/LotusPlant";
 import { lotusDefaultLook, type LotusLookInput } from "@/components/lotus/live/pondLook";
@@ -266,8 +267,9 @@ export default function LotusGarden() {
     I.pond.algae = E.algae;
     I.pond.jarClarity = E.clarity;
     I.pond.warmth = E.warmth;
-    I.pond.petalDrop = E.drop;
-    I.bloom = E.bloom;
+    // the bloom card's frames draw the flower fully open, every petal on (lib/garden/cardShot)
+    I.pond.petalDrop = cardShot.active ? 0 : E.drop;
+    I.bloom = cardShot.active ? Math.max(E.bloom, CARD_BLOOM) : E.bloom;
     applyLive(look, I);
     P.levelMM = level;
     P.algae = E.algae;

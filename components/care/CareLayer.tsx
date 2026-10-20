@@ -38,13 +38,19 @@
 // tucked away opens that way. While tucked, the tab is what covers the screen: it is what the camera keeps the plant
 // clear of (useDock), so on a phone the plant settles back toward the middle.
 //
+// Once the flower is in full bloom (careStates fullBloom: a bed flower fully open, a lotus on its flower days) a row
+// under the plant's line says so and offers "Send your bloom": a picture card of the flower at golden hour with the
+// colleague's own words, sent from the device (components/care/BloomSheet, loaded only when asked for). The row stays
+// put while the plant asks for something, so the card (and the camera that frames round it) never jumps.
+//
 // Calm by design: no red, no countdowns, soft motion that stops for reduced motion, 44 px targets and more, every
 // action a real button, a polite live region for the replies, and Escape anywhere in the panel to put a question away.
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Component, Suspense, createElement, lazy, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { CareActions, type ActionFace, type ActionKey, type ActionState } from "@/components/care/CareActions";
 import { CarePrompt, type PromptSpec } from "@/components/care/CarePrompt";
 import {
   POND_FULL_LEAVE,
+  fullBloom,
   koiChip,
   koiWaitText,
   lotusFeedQuestion,
@@ -98,6 +104,33 @@ import { useQuality } from "@/lib/garden/quality";
 import { garden } from "@/lib/garden/store";
 import { IST_OFFSET_MIN, hourIndexOf } from "@/lib/sim";
 import "@/components/care/CareLayer.css";
+
+/**
+ * The bloom card's sheet, loaded only when a flower is in full bloom (fetched ahead then, so the tap opens it at once),
+ * and a fresh lazy component for each try after a failed load (React.lazy keeps a rejection for good).
+ */
+const loadSheet = () => import("@/components/care/BloomSheet").then((m) => ({ default: m.BloomSheet }));
+const sheets = [lazy(loadSheet)];
+const sheetAt = (attempt: number) => (sheets[attempt] ??= lazy(loadSheet));
+
+/** Catches the sheet's chunk failing to load (a deploy since the page opened, a dropped connection): the garden goes on. */
+class SheetBoundary extends Component<{ onFail: () => void; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch() {
+    this.props.onFail();
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+/** The sheet's chunk for this load try. */
+function SheetChunk({ which, ...props }: { which: number } & Parameters<typeof import("@/components/care/BloomSheet").BloomSheet>[0]) {
+  return createElement(sheetAt(which), props);
+}
 
 /** The side-panel layouts' media queries, as CareLayer.css has them: wide landscape, and a phone held sideways. */
 const SIDE_PANEL = "(min-width: 1024px) and (orientation: landscape)";
@@ -273,6 +306,21 @@ function CarePanel({ me }: { me: MeView }) {
   const tab = useRef<HTMLButtonElement>(null);
   const tuckButton = useRef<HTMLButtonElement>(null);
   const panelId = useId();
+  // the bloom card's sheet, and the button that opened it (focus goes back there)
+  const [sending, setSending] = useState(false);
+  // the sheet is up (the card steps out of sight only then, not while its chunk is still on the way), and its load tries
+  const [sheetShown, setSheetShown] = useState(false);
+  const [sheetTry, setSheetTry] = useState(0);
+  const bloomButton = useRef<HTMLButtonElement>(null);
+  // whether the card is tucked away, for the sheet closing later (focus goes to what is on screen then)
+  const awayNow = useRef(away);
+  useEffect(() => {
+    awayNow.current = away;
+  });
+  const closeSheet = () => {
+    setSending(false);
+    setSheetShown(false);
+  };
   useDock(away ? tab : panel);
 
   useEffect(() => {
@@ -563,10 +611,16 @@ function CarePanel({ me }: { me: MeView }) {
     }
   };
 
-  const tabSays = tabWords(line, { resting: resting !== null, pond: pond !== null });
+  const full = resting === null && fullBloom(me);
+  useEffect(() => {
+    if (full) void loadSheet().catch(() => {});
+  }, [full]);
+  // said once: the plant's own line may already be about its bloom
+  const lineSaysBloom = line !== null && line.voice === "plant" && /\bbloom|\bpetals?\b/i.test(line.text);
+  const tabSays = tabWords(line, { resting: resting !== null, pond: pond !== null, fullBloom: full });
 
   return (
-    <section className="care-root" aria-label={`Caring for ${me.person.firstName}'s garden`} inert={covered}>
+    <section className="care-root" aria-label={`Caring for ${me.person.firstName}'s garden`} inert={covered} data-sending={(sending && sheetShown) || undefined}>
       {/* tabIndex -1: the panel scrolls on a short screen, and a browser would otherwise make the scroller a tab stop of its own */}
       <div
         id={panelId}
@@ -606,6 +660,19 @@ function CarePanel({ me }: { me: MeView }) {
             )}
           </p>
         )}
+        {full && (
+          <div className="care-bloom">
+            {!lineSaysBloom && (
+              <span className="care-bloom-words">
+                <span className="care-bloom-mark" aria-hidden="true" />
+                In full bloom
+              </span>
+            )}
+            <button ref={bloomButton} type="button" className="care-btn care-btn-small care-btn-primary" onClick={() => setSending(true)}>
+              Send your bloom
+            </button>
+          </div>
+        )}
         <StatusChips model={chips} />
         {slot && <div className="care-slot">{slot}</div>}
         {resting ? (
@@ -639,6 +706,27 @@ function CarePanel({ me }: { me: MeView }) {
             <ChevronIcon />
           </span>
         </button>
+      )}
+      {sending && (
+        <SheetBoundary
+          key={sheetTry}
+          onFail={() => {
+            closeSheet();
+            setSheetTry((n) => n + 1);
+            say("The card could not open just now. Try again in a moment.", "gentle");
+          }}
+        >
+          <Suspense fallback={null}>
+            <SheetChunk
+              which={sheetTry}
+              me={me}
+              noun={noun}
+              onShown={() => setSheetShown(true)}
+              onClose={closeSheet}
+              returnFocus={() => (awayNow.current ? tab.current : (bloomButton.current ?? tuckButton.current))}
+            />
+          </Suspense>
+        </SheetBoundary>
       )}
       {/* outside the card, so a reply is still heard while it is tucked away */}
       <p className="care-sr" role="status" aria-live="polite">
