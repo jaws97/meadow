@@ -1,7 +1,13 @@
-// The visitor's own choice of picture: the quality tier the garden is drawn at. Auto, the default, leaves it to the
-// device and the governor, as before (lib/garden/device, lib/garden/quality). Cinematic, Balanced or Light is a choice
-// made by hand in the name pill's menu (components/gift/PicturePicker). Light is the "lite" tier; only the words
-// differ.
+// The visitor's own choice of picture: the quality tier the garden is drawn at. Auto leaves it to the device and the
+// governor (lib/garden/device, lib/garden/quality). Cinematic, Balanced or Light is a choice made in the name pill's
+// menu (components/gift/PicturePicker). Light is the "lite" tier; only the words differ.
+//
+// Until a visitor chooses, a computer opens on Cinematic (the store passes it as the default): the garden is meant to
+// be seen at its richest, and a laptop's browser often runs on its power-saving graphics, where Auto would settle on
+// Light; nobody is asked to change a system setting. The visitor changes it in the menu, and the first time the garden
+// opens this way a note under the pill says where (introNote); if Cinematic then runs slowly, a second note says that
+// Balanced or Light will be smoother (slowNote). Nothing steps it down by itself. Phones and tablets, and a computer
+// without a real GPU, open on Auto.
 //
 // A choice belongs to the device (browser storage), so every garden this device opens is drawn at it: its own, and a
 // friend's from the Meadow. The Meadow keeps its own tier per device class (components/meadow/MeadowCanvas), and the
@@ -12,15 +18,16 @@
 // A tier above what Auto picks can be too much for a device: a phone's browser may kill the page, or the graphics
 // may be lost. So while such a choice is on screen, and the page is in front, a guard mark sits in storage; it is
 // lifted when the page goes to the background or away. A visit that finds the mark still there (the last page died
-// in front) opens on Auto, with a note under the pill saying so. Auto itself is watched the same way when it opened
-// above the device's own plan, on a tier an earlier visit found room for (a phone on balanced: lib/garden/device):
-// a visit that finds that mark opens on the plan's tier again, quietly, and the climb is not tried for a week. A WebGL context lost in front on such a choice falls
-// back the same way, and the page reloads at once, since the garden it was drawing is gone; lost in the background
-// (a browser freeing memory), the choice stays and the page reloads once it is in front.
+// in front) opens on Auto, chosen and stored so the default does not bring it back, with a note under the pill saying
+// so. Auto itself is watched the same way when it opened above the device's own plan, on a tier an earlier visit found
+// room for (a phone on balanced: lib/garden/device): a visit that finds that mark opens on the plan's tier again,
+// quietly, and the climb is not tried for a week. A WebGL context lost in front on such a choice falls back the same
+// way, and the page reloads at once, since the garden it was drawing is gone; lost in the background (a browser
+// freeing memory), the choice stays and the page reloads once it is in front.
 //
 // This module holds no reference to the garden store: the store calls startPicture as it picks the opening tier, and
-// the picker applies a choice to the garden itself. Browser storage is a convenience; without it the garden is
-// simply on Auto.
+// the picker applies a choice to the garden itself. Browser storage is a convenience; without it the garden opens on
+// its default each time.
 import { useSyncExternalStore } from "react";
 import { TIERS, type DeviceKind } from "@/lib/garden/device";
 import type { Quality } from "@/lib/garden/store";
@@ -41,6 +48,10 @@ export const PICTURE_LINE: Record<Quality, string> = {
 
 export interface PictureState {
   choice: PictureChoice;
+  /** The choice is the device's default (nothing chosen yet), not one the visitor made. */
+  byDefault: boolean;
+  /** The note that the garden opened on Cinematic, and where to change it, has been shown on this device. */
+  introduced: boolean;
   /** The tier Auto picks on this device: the opening's own (remembered or planned), then the last one Auto drew. */
   auto: Quality;
   /** The device's own plan (lib/garden/device planFor): Auto above it climbed there on an earlier visit. */
@@ -57,6 +68,7 @@ export type PictureStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">
 const CHOICE_KEY = "garden-picture:v1";
 const GUARD_KEY = "garden-picture-guard:v1";
 const FELL_BACK_KEY = "garden-picture-fell-back:v1";
+const INTRO_KEY = "garden-picture-intro:v1";
 /** A fall-back note not yet seen is dropped after a week. */
 const FELL_BACK_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
 
@@ -98,7 +110,13 @@ const readTier = (s: PictureStorage | null, key: string): Quality | null => {
   return isTier(t) ? t : null;
 };
 
-let state: PictureState = { choice: "auto", auto: "balanced", plan: "balanced", applies: false, fellBack: null };
+/** The choice stored on this device ("auto" included), or null when none has been made. */
+const readChoice = (s: PictureStorage | null): PictureChoice | null => {
+  const t = read(s, CHOICE_KEY)?.tier;
+  return t === "auto" || isTier(t) ? t : null;
+};
+
+let state: PictureState = { choice: "auto", byDefault: true, introduced: false, auto: "balanced", plan: "balanced", applies: false, fellBack: null };
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<PictureState>) {
@@ -125,39 +143,45 @@ export function usePicture<T>(selector: (s: PictureState) => T): T {
 }
 
 /**
- * Called once as the page picks its opening tier (lib/garden/store), with the tier Auto would open on and the
- * device's own plan. Returns the tier chosen by hand to open on instead (null for Auto), and Auto's tier. A guard mark
- * left by the last page means that page died in front: on a choice above Auto, the choice is dropped and the pill will
- * say so; on Auto opened above the plan, Auto goes back to the plan's tier (the store remembers that for next time).
+ * Called once as the page picks its opening tier (lib/garden/store), with the tier Auto would open on, the device's
+ * own plan, and the device's default choice (Cinematic on a computer). Returns the tier to open on instead of Auto's
+ * (the choice made, or the default; null for Auto), and Auto's tier. A guard mark left by the last page means that
+ * page died in front: on a choice above Auto, Auto is chosen in its place (and stored, so the default does not bring
+ * it back) and the pill will say so; on Auto opened above the plan, Auto goes back to the plan's tier (the store
+ * remembers that for next time).
  */
 export function startPicture(
   auto: Quality,
-  opts: { party: boolean; pinnedByUrl: boolean; plan?: Quality },
+  opts: { party: boolean; pinnedByUrl: boolean; plan?: Quality; defaultChoice?: PictureChoice },
   s: PictureStorage | null = local(),
 ): { chosen: Quality | null; auto: Quality } {
   const plan = opts.plan ?? auto;
   if (opts.party) {
-    set({ choice: "auto", auto, plan, applies: false, fellBack: null });
+    set({ choice: "auto", byDefault: true, introduced: true, auto, plan, applies: false, fellBack: null });
     return { chosen: null, auto };
   }
-  let chosen = readTier(s, CHOICE_KEY);
+  const stored = readChoice(s);
+  let choice: PictureChoice = stored ?? opts.defaultChoice ?? "auto";
+  let byDefault = stored === null;
   const mark = read(s, GUARD_KEY);
   const guardedTier = readTier(s, GUARD_KEY);
   if (guardedTier !== null) {
     write(s, GUARD_KEY, null);
     if (mark?.by === "auto") {
-      if (chosen === null && guardedTier === auto && above(auto, plan)) auto = plan;
-    } else if (chosen !== null && guardedTier === chosen && above(chosen, auto)) {
-      write(s, CHOICE_KEY, null);
-      write(s, FELL_BACK_KEY, { tier: chosen, at: Date.now() });
-      chosen = null;
+      if (choice === "auto" && guardedTier === auto && above(auto, plan)) auto = plan;
+    } else if (choice !== "auto" && guardedTier === choice && above(choice, auto)) {
+      write(s, CHOICE_KEY, { tier: "auto", at: Date.now() });
+      write(s, FELL_BACK_KEY, { tier: choice, at: Date.now() });
+      choice = "auto";
+      byDefault = false;
     }
   }
   const note = read(s, FELL_BACK_KEY);
   const fresh = note !== null && typeof note.at === "number" && Date.now() - note.at < FELL_BACK_MAX_AGE_MS;
   if (note !== null && !fresh) write(s, FELL_BACK_KEY, null);
-  set({ choice: chosen ?? "auto", auto, plan, applies: !opts.pinnedByUrl, fellBack: fresh && isTier(note.tier) ? note.tier : null });
-  return { chosen: opts.pinnedByUrl ? null : chosen, auto };
+  const introduced = read(s, INTRO_KEY) !== null;
+  set({ choice, byDefault, introduced, auto, plan, applies: !opts.pinnedByUrl, fellBack: fresh && isTier(note.tier) ? note.tier : null });
+  return { chosen: opts.pinnedByUrl || choice === "auto" ? null : choice, auto };
 }
 
 /**
@@ -166,8 +190,15 @@ export function startPicture(
  */
 export function setPictureChoice(choice: PictureChoice, shown: Quality, s: PictureStorage | null = local()) {
   const auto = state.choice === "auto" ? shown : state.auto;
-  write(s, CHOICE_KEY, choice === "auto" ? null : { tier: choice, at: Date.now() });
-  set({ choice, auto, applies: true });
+  // Auto is stored too: with nothing stored, a computer opens on its default
+  write(s, CHOICE_KEY, { tier: choice, at: Date.now() });
+  set({ choice, byDefault: false, auto, applies: true });
+}
+
+/** The note that the garden opened on Cinematic has been shown: it is not shown again on this device. */
+export function markIntroduced(s: PictureStorage | null = local()) {
+  write(s, INTRO_KEY, { at: Date.now() });
+  if (!state.introduced) set({ introduced: true });
 }
 
 /** The pill has said the choice fell back to Auto. */
@@ -193,10 +224,10 @@ function guardMark(): { tier: Quality; by: "hand" | "auto" } | null {
 export function fallBack(s: PictureStorage | null = local()) {
   if (state.choice === "auto") return;
   const tier = state.choice;
-  write(s, CHOICE_KEY, null);
+  write(s, CHOICE_KEY, { tier: "auto", at: Date.now() });
   write(s, GUARD_KEY, null);
   write(s, FELL_BACK_KEY, { tier, at: Date.now() });
-  set({ choice: "auto", fellBack: tier });
+  set({ choice: "auto", byDefault: false, fellBack: tier });
 }
 
 /**
@@ -256,6 +287,16 @@ export function deviceWord(kind: DeviceKind | undefined): string {
 export function pictureWarning(kind: DeviceKind | undefined): string {
   const word = deviceWord(kind);
   return kind === "phone" || kind === "tablet" ? `May run warm on this ${word}` : `May be less smooth on this ${word}`;
+}
+
+/** The pill's note the first time the garden opens on Cinematic by default: what it is, and where to change it. */
+export function introNote(): string {
+  return "Your garden is in Cinematic, its richest picture. If it feels slow, choose a lighter one under Picture in this menu.";
+}
+
+/** The pill's note when Cinematic, opened by default, runs slowly on this device. */
+export function slowNote(kind: DeviceKind | undefined): string {
+  return `Cinematic is running slowly on this ${deviceWord(kind)}. Balanced or Light, under Picture in this menu, will be smoother.`;
 }
 
 /** The pill's note after a choice fell back to Auto. */

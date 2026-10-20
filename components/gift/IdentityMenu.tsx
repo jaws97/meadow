@@ -4,9 +4,10 @@
 // working), after this device switched gardens the way back to the one it showed before (POST /api/session/back),
 // and, under a hairline, the picture the garden is drawn at (components/gift/PicturePicker). The fresh link opens in
 // a dialog with the same panel the planting ended with. A short note ("Now showing Ravi's Marigold garden on this
-// device") can hang under the pill for a few seconds after a switch, and once, after the opening's quiet, when a
-// picture chosen above Auto was too much for the device last time and the garden is back on Auto
-// (lib/garden/picture).
+// device") can hang under the pill for a few seconds after a switch. The picture has its own notes there, each once
+// the opening's quiet has passed (lib/garden/picture): that a choice above Auto was too much for the device last time
+// and the garden is back on Auto; that Cinematic, the computer's default, is running slowly and Balanced or Light
+// would be smoother (once a visit); and, the first time the garden opens on Cinematic by default, where to change it.
 // Two colleagues can share a first name, so the menu opens on the garden's flower and day ("Night Jasmine · Day 3")
 // and the way back names the other garden's flower too (lib/client/gardens).
 //
@@ -24,12 +25,54 @@ import { PicturePicker } from "@/components/gift/PicturePicker";
 import { factsLine, gardenNames, useGardenFacts } from "@/lib/client/gardens";
 import { ApiProblem, OFFLINE_MESSAGE, newGardenLink, switchBack, type PersonSummary } from "@/lib/client/session";
 import { uiHeld, useOpening } from "@/lib/garden/opening";
-import { clearFellBack, fellBackNote, usePicture } from "@/lib/garden/picture";
-import { useQuality } from "@/lib/garden/quality";
+import { clearFellBack, fellBackNote, introNote, markIntroduced, slowNote, usePicture } from "@/lib/garden/picture";
+import { quality, useQuality } from "@/lib/garden/quality";
 
 const possessive = (name: string) => `${name}'s`;
 /** How long the note that a picture fell back to Auto stays under the pill. */
 const FELL_BACK_NOTE_MS = 7000;
+/** How long the notes about the default Cinematic stay: the first time it opens, and when it runs slowly. */
+const INTRO_NOTE_MS = 9000;
+const SLOW_NOTE_MS = 9000;
+/** Cinematic by default is running slowly: the live garden under this many frames a second for this long. */
+const SLOW_FPS = 40;
+const SLOW_FOR_MS = 12000;
+
+/**
+ * Whether the note that Cinematic is running slowly is due: while `watch` holds (Cinematic is the default, and the
+ * pill is in sight), once a visit, the live garden's frame rate (RenderBudget's stats) has stayed under SLOW_FPS for
+ * SLOW_FOR_MS with the page in front. True for SLOW_NOTE_MS, then false for the rest of the visit.
+ */
+function useSlowNote(watch: boolean): boolean {
+  const [due, setDue] = useState(false);
+  const said = useRef(false);
+  useEffect(() => {
+    if (!watch || said.current) return;
+    let since = -1;
+    const off = quality.subscribe(() => {
+      if (said.current) return;
+      const q = quality.get();
+      const fps = q.stats.fps;
+      if (q.phase !== "live" || document.hidden || !(fps > 0) || fps >= SLOW_FPS) {
+        since = -1;
+        return;
+      }
+      const now = performance.now();
+      if (since < 0) since = now;
+      else if (now - since >= SLOW_FOR_MS) {
+        said.current = true;
+        setDue(true);
+      }
+    });
+    return off;
+  }, [watch]);
+  useEffect(() => {
+    if (!due) return;
+    const t = setTimeout(() => setDue(false), SLOW_NOTE_MS);
+    return () => clearTimeout(t);
+  }, [due]);
+  return due && watch;
+}
 const underVeil = (s: { veiled: boolean; phase: string }) => s.veiled && s.phase !== "revealing" && s.phase !== "live";
 
 export function IdentityMenu({
@@ -58,9 +101,14 @@ export function IdentityMenu({
   const held = useOpening(uiHeld);
   const kind = useQuality((s) => s.device?.kind);
   const fellBack = usePicture((s) => s.fellBack);
-  // said once the pill is in sight, then forgotten (a note about a switch comes first)
-  const sayFellBack = fellBack !== null && !covered && !held && !note;
-  const shownNote = note ?? (sayFellBack ? fellBackNote(fellBack, kind) : null);
+  const cinematicByDefault = usePicture((s) => s.applies && s.byDefault && s.choice === "cinematic");
+  const introduced = usePicture((s) => s.introduced);
+  const inSight = !covered && !held;
+  // each said once the pill is in sight; a note about a switch comes first, then the fall-back, then the slow frames
+  const sayFellBack = fellBack !== null && inSight && !note;
+  const saySlow = useSlowNote(cinematicByDefault && inSight) && !note && !sayFellBack;
+  const sayIntro = cinematicByDefault && !introduced && inSight && !note && !sayFellBack && !saySlow;
+  const shownNote = note ?? (sayFellBack ? fellBackNote(fellBack, kind) : saySlow ? slowNote(kind) : sayIntro ? introNote() : null);
   const facts = useGardenFacts(person);
   const previousFacts = useGardenFacts(previous);
   const backTo = previous ? gardenNames(previous, previousFacts, person, facts)[0] : null;
@@ -75,6 +123,12 @@ export function IdentityMenu({
     const t = setTimeout(() => clearFellBack(), FELL_BACK_NOTE_MS);
     return () => clearTimeout(t);
   }, [sayFellBack]);
+
+  useEffect(() => {
+    if (!sayIntro) return;
+    const t = setTimeout(() => markIntroduced(), INTRO_NOTE_MS);
+    return () => clearTimeout(t);
+  }, [sayIntro]);
 
   // the menu closes on a tap outside it or Escape, and gives focus back to the pill (when Tab moves on past it, it
   // closes too, and focus stays where the person took it: onBlur below)

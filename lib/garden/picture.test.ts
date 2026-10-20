@@ -9,10 +9,13 @@ import {
   fallBack,
   fellBackNote,
   guarded,
+  introNote,
+  markIntroduced,
   picture,
   pictureSummary,
   pictureWarning,
   setPictureChoice,
+  slowNote,
   startPicture,
   type PictureStorage,
 } from "./picture";
@@ -80,7 +83,7 @@ describe("the guard", () => {
     const s = storage({ [CHOICE]: { tier: "cinematic", at: 1 }, [GUARD]: { tier: "cinematic", at: 2 } });
     expect(startPicture("lite", garden, s).chosen).toBeNull();
     expect(picture.get()).toMatchObject({ choice: "auto", fellBack: "cinematic" });
-    expect(s.data.has(CHOICE)).toBe(false);
+    expect(JSON.parse(s.data.get(CHOICE) ?? "{}").tier).toBe("auto");
     expect(s.data.has(GUARD)).toBe(false);
     // the note outlives the visit until the pill has said it
     expect(startPicture("lite", garden, s).chosen).toBeNull();
@@ -109,7 +112,7 @@ describe("the guard", () => {
     startPicture("lite", garden, s);
     fallBack(s);
     expect(picture.get()).toMatchObject({ choice: "auto", fellBack: "balanced" });
-    expect(s.data.has(CHOICE)).toBe(false);
+    expect(JSON.parse(s.data.get(CHOICE) ?? "{}").tier).toBe("auto");
     expect(JSON.parse(s.data.get(FELL_BACK) ?? "{}").tier).toBe("balanced");
   });
 });
@@ -153,8 +156,48 @@ describe("a choice made in the menu", () => {
     setPictureChoice("balanced", "cinematic", s);
     expect(picture.get().auto).toBe("lite");
     setPictureChoice("auto", "balanced", s);
-    expect(picture.get()).toMatchObject({ choice: "auto", auto: "lite" });
+    expect(picture.get()).toMatchObject({ choice: "auto", auto: "lite", byDefault: false });
+    // Auto is stored too, so a computer's default does not come back over it
+    expect(JSON.parse(s.data.get(CHOICE) ?? "{}").tier).toBe("auto");
+  });
+});
+
+describe("a computer's default of Cinematic", () => {
+  const computer = { party: false, pinnedByUrl: false, defaultChoice: "cinematic" as const };
+
+  it("opens on Cinematic until the visitor chooses, watched by the guard", () => {
+    const s = storage();
+    expect(startPicture("lite", computer, s).chosen).toBe("cinematic");
+    expect(picture.get()).toMatchObject({ choice: "cinematic", byDefault: true, introduced: false });
+    expect(guarded()).toBe(true);
+    // nothing is stored for a default
     expect(s.data.has(CHOICE)).toBe(false);
+  });
+
+  it("gives way to any choice the visitor made, Auto included", () => {
+    expect(startPicture("lite", computer, storage({ [CHOICE]: { tier: "auto", at: 1 } })).chosen).toBeNull();
+    expect(picture.get()).toMatchObject({ choice: "auto", byDefault: false });
+    expect(startPicture("lite", computer, storage({ [CHOICE]: { tier: "balanced", at: 1 } })).chosen).toBe("balanced");
+  });
+
+  it("after a page died on it, opens on Auto from then on, and says so once", () => {
+    const s = storage({ [GUARD]: { tier: "cinematic", at: 2 } });
+    expect(startPicture("lite", computer, s).chosen).toBeNull();
+    expect(picture.get()).toMatchObject({ choice: "auto", byDefault: false, fellBack: "cinematic" });
+    expect(startPicture("lite", computer, s).chosen).toBeNull();
+  });
+
+  it("is introduced once on a device", () => {
+    const s = storage();
+    startPicture("lite", computer, s);
+    markIntroduced(s);
+    expect(picture.get().introduced).toBe(true);
+    startPicture("lite", computer, s);
+    expect(picture.get().introduced).toBe(true);
+  });
+
+  it("is never the party screen's", () => {
+    expect(startPicture("lite", { ...computer, party: true }, storage()).chosen).toBeNull();
   });
 });
 
@@ -177,5 +220,7 @@ describe("the menu's words", () => {
     expect(pictureSummary("auto", "lite")).toBe("Auto · Light");
     expect(pictureSummary("cinematic", "lite")).toBe("Cinematic");
     expect(fellBackNote("cinematic", "phone")).toBe("Back on Auto. Cinematic was too much for this phone last time.");
+    expect(slowNote("laptop")).toBe("Cinematic is running slowly on this laptop. Balanced or Light, under Picture in this menu, will be smoother.");
+    expect(introNote()).toContain("Picture in this menu");
   });
 });

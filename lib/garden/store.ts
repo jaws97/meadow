@@ -134,8 +134,9 @@ const QUALITIES: readonly Quality[] = ["cinematic", "balanced", "lite"];
 /**
  * The tier this device starts on, from its class and GPU (lib/garden/device),
  * and the pixel budget the runtime governor starts from (lib/garden/quality).
- * A picture chosen by hand in the name pill's menu (lib/garden/picture) comes
- * first, except on the party screen; `?quality=` pins a tier for testing, as
+ * A picture chosen in the name pill's menu (lib/garden/picture), or until one
+ * is, a computer's default of Cinematic, comes first, except on the party
+ * screen; `?quality=` pins a tier for testing, as
  * the development panel does when a tier is picked there, over both;
  * `?governor=off` freezes the budget as well.
  */
@@ -149,7 +150,15 @@ export function detectQuality(): Quality {
   // A device that settled on another tier last time opens on it (device.recallTier).
   const recalled = recallTier(device, plan.maxTier);
   const party = window.location.pathname.startsWith("/party");
-  const { chosen, auto } = startPicture(recalled ?? plan.tier, { party, pinnedByUrl: pinnedTier !== null, plan: plan.tier });
+  // until the visitor chooses, a computer opens on Cinematic (lib/garden/picture); one without a real GPU, and phones
+  // and tablets, on Auto
+  const computer = (device.kind === "laptop" || device.kind === "bigscreen") && device.gpuClass !== "low";
+  const { chosen, auto } = startPicture(recalled ?? plan.tier, {
+    party,
+    pinnedByUrl: pinnedTier !== null,
+    plan: plan.tier,
+    defaultChoice: computer ? "cinematic" : "auto",
+  });
   // the last visit died on a tier it had climbed to: the plan's tier is remembered instead, and the climb waits a week
   if (recalled !== null && auto !== recalled) rememberTier(device, auto);
   const tier = pinnedTier ?? chosen ?? auto;
