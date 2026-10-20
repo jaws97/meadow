@@ -9,6 +9,9 @@
  * card publishes its height as --care-dock on the root element, so other bottom-edge overlays (the gesture hint,
  * toasts) can sit above it, and to the garden camera, which shifts its lens to keep the plant in the open part.
  *
+ * The card can be tucked away (its round button at the top right): it slips toward its edge and a slim tab takes its
+ * place there, saying in a few words how the plant is (gold, its dot breathing, when the plant asks for something).
+ *
  * Calm: no red anywhere (thirst is honey, a sick plant lavender, rest moonlight), motion is transform and opacity only
  * and stops for reduced motion, every target is at least 44 px. Backdrop blur re-blurs the canvas every frame, so it is
  * kept to wide screens; phones get a more opaque glass instead.
@@ -117,7 +120,8 @@
     --care-glass-b: rgba(10, 13, 21, 0.82);
   }
   /* backdrop-filter alone: the build adds Safari's -webkit- copy, and a hand-written one after it left only that */
-  .care-panel {
+  .care-panel,
+  .care-tab {
     backdrop-filter: blur(20px) saturate(1.15);
   }
 }
@@ -145,7 +149,8 @@
  * (so it still tells the camera how much it covers, and the plant is framed for it from the first instant) but out of
  * sight and out of reach. When the quiet lifts its entrance plays then, rising (or sliding) in over the garden.
  */
-:root[data-opening="quiet"] .care-panel {
+:root[data-opening="quiet"] .care-panel,
+:root[data-opening="quiet"] .care-tab {
   animation: none;
   opacity: 0;
   visibility: hidden;
@@ -204,11 +209,19 @@
 @media (min-width: 1024px) and (orientation: landscape) {
   .care-head {
     display: flex;
+    padding-right: 38px;
+  }
+  .care-panel > .care-says {
+    padding-right: 0;
   }
 }
 
-.care-says {
+.care-says,
+.care-tab {
   --mood: #b9de9a;
+}
+
+.care-says {
   display: flex;
   align-items: flex-start;
   gap: 11px;
@@ -218,19 +231,24 @@
   color: var(--care-ink);
 }
 
-.care-says[data-mood="blooming"] {
+.care-says[data-mood="blooming"],
+.care-tab[data-mood="blooming"] {
   --mood: #ffc6b3;
 }
-.care-says[data-mood="thirsty"] {
+.care-says[data-mood="thirsty"],
+.care-tab[data-mood="thirsty"] {
   --mood: #f2cd8e;
 }
-.care-says[data-mood="soggy"] {
+.care-says[data-mood="soggy"],
+.care-tab[data-mood="soggy"] {
   --mood: #a9c9e8;
 }
-.care-says[data-mood="unwell"] {
+.care-says[data-mood="unwell"],
+.care-tab[data-mood="unwell"] {
   --mood: #c9b8f0;
 }
-.care-says[data-mood="resting"] {
+.care-says[data-mood="resting"],
+.care-tab[data-mood="resting"] {
   --mood: #cfd8f4;
 }
 
@@ -243,6 +261,11 @@
   background: var(--mood);
   box-shadow: 0 0 12px var(--mood);
   transition: background 1.2s ease, box-shadow 1.2s ease;
+}
+
+/* the shrink button sits at the card's top right, beside the plant's line on a phone (the name pill names the garden) */
+.care-panel > .care-says {
+  padding-right: 34px;
 }
 
 /* a seed not yet up: a quiet narrator's line, not the plant's words */
@@ -852,6 +875,287 @@
   }
 }
 
+/* ---- the card tucked away: the shrink button, the card slipping out, and the tab --------------------------------------- */
+
+/* a 44 px target round a quiet 32 px glass circle, at the card's top right; its chevron points the way the card goes */
+.care-tuck-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--care-ink-3);
+  cursor: pointer;
+}
+
+.care-tuck-btn > span {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(246, 234, 214, 0.14);
+  background: rgba(246, 234, 214, 0.05);
+  transition:
+    color 0.3s ease,
+    border-color 0.3s ease,
+    background 0.3s ease;
+}
+
+.care-tuck-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.care-tuck-btn:focus-visible {
+  outline: none;
+}
+
+.care-tuck-btn:focus-visible > span {
+  box-shadow:
+    0 0 0 2px rgba(10, 13, 21, 0.9),
+    0 0 0 4px #ffd99a;
+}
+
+@media (hover: hover) {
+  .care-tuck-btn:hover {
+    color: var(--care-ink);
+  }
+  .care-tuck-btn:hover > span {
+    border-color: rgba(246, 234, 214, 0.28);
+    background: rgba(246, 234, 214, 0.1);
+  }
+}
+
+/* tucked away: hidden (the panel's own display would otherwise keep it), and shown again with its entrance */
+.care-panel[hidden] {
+  display: none;
+}
+
+/* the card slipping away toward its edge, before it is hidden (CareLayer TUCK_MS) */
+.care-panel.is-tucking {
+  pointer-events: none;
+  animation: care-sink 0.42s var(--care-ease) both;
+}
+
+@keyframes care-sink {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(0, 28px, 0);
+  }
+}
+
+/* the tab: a slim glass pill where the card was, at the bottom of a phone */
+.care-tab {
+  position: absolute;
+  left: 50%;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  min-height: 48px;
+  padding: 0 8px 0 16px;
+  border: 1px solid var(--care-line);
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--care-glass-a), var(--care-glass-b));
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 240, 215, 0.07);
+  font: inherit;
+  font-size: 14.5px;
+  white-space: nowrap;
+  color: var(--care-ink);
+  pointer-events: auto;
+  cursor: pointer;
+  transform: translateX(-50%);
+  animation: care-tab-in 0.5s var(--care-ease) 0.15s both;
+}
+
+.care-tab .care-mood {
+  margin-top: 0;
+}
+
+.care-tab-words {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.care-tab-chev {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(246, 234, 214, 0.06);
+  color: var(--care-ink-3);
+}
+
+.care-tab-chev svg {
+  width: 18px;
+  height: 18px;
+  transform: rotate(180deg);
+}
+
+/* the plant asks for something: the words in gold and the dot breathing, as the can does */
+.care-tab[data-asks] {
+  border-color: rgba(242, 205, 142, 0.32);
+  color: var(--care-gold-hi);
+}
+
+.care-tab[data-asks] .care-mood {
+  animation: care-tab-breathe 3.2s ease-in-out infinite;
+}
+
+.care-tab:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px rgba(10, 13, 21, 0.9),
+    0 0 0 4px #ffd99a;
+}
+
+@media (hover: hover) {
+  .care-tab:hover {
+    border-color: rgba(246, 234, 214, 0.26);
+  }
+  .care-tab:hover .care-tab-chev {
+    color: var(--care-ink);
+  }
+}
+
+@keyframes care-tab-in {
+  from {
+    opacity: 0;
+    transform: translate3d(-50%, 12px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@keyframes care-tab-breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.5);
+  }
+}
+
+/* a laptop or a landscape iPad: the card slips right, and the tab waits at the right edge where it was */
+@media (min-width: 1024px) and (orientation: landscape) {
+  .care-tuck-btn {
+    top: 14px;
+    right: 12px;
+  }
+  .care-tuck-btn svg {
+    transform: rotate(-90deg);
+  }
+  .care-panel.is-tucking {
+    animation-name: care-slide-away;
+  }
+  .care-tab {
+    left: auto;
+    right: max(40px, 3.2vw);
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+    animation-name: care-tab-in-side;
+  }
+  .care-tab-chev svg {
+    transform: rotate(90deg);
+  }
+}
+
+@keyframes care-slide-away {
+  from {
+    opacity: 1;
+    transform: translate3d(0, -50%, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(22px, -50%, 0);
+  }
+}
+
+@keyframes care-tab-in-side {
+  from {
+    opacity: 0;
+    transform: translate3d(12px, -50%, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, -50%, 0);
+  }
+}
+
+/* a phone held sideways: the same at the narrow panel's corner, bottom right */
+@media (orientation: landscape) and (max-height: 540px) {
+  .care-tuck-btn {
+    top: 2px;
+    right: 2px;
+  }
+  /* no name here either, so the plant's line keeps its room beside the button */
+  .care-panel > .care-says {
+    padding-right: 34px;
+  }
+  .care-tuck-btn svg {
+    transform: rotate(-90deg);
+  }
+  .care-panel.is-tucking {
+    animation-name: care-slide-short-away;
+  }
+  .care-tab {
+    left: auto;
+    right: max(10px, env(safe-area-inset-right));
+    top: auto;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    transform: none;
+    animation-name: care-tab-in-short;
+  }
+  .care-tab-chev svg {
+    transform: rotate(90deg);
+  }
+}
+
+@keyframes care-slide-short-away {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(16px, 0, 0);
+  }
+}
+
+@keyframes care-tab-in-short {
+  from {
+    opacity: 0;
+    transform: translate3d(12px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* ---- the weather credit ------------------------------------------------------------------------------------------------- */
 
 .care-credit {
@@ -1078,6 +1382,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .care-panel,
+  .care-panel.is-tucking,
+  .care-tab,
   .care-slot,
   .care-notice,
   .care-hint,
@@ -1090,7 +1396,8 @@
     opacity: 0.7;
   }
   .care-act[data-busy] .care-act-token,
-  .care-rest-glyph {
+  .care-rest-glyph,
+  .care-tab[data-asks] .care-mood {
     animation: none;
   }
   .care-swap[data-state="in"] {

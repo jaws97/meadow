@@ -13,7 +13,7 @@
 import type { ActionState } from "@/components/care/CareActions";
 import type { GroundChip } from "@/components/care/StatusChips";
 import { istWhen, koiLine, pondWord, type MeView, type RainHint, type ShownPondVisual } from "@/lib/client/plant";
-import { isPondVisual } from "@/lib/sim";
+import { isPondVisual, type PlantMood } from "@/lib/sim";
 
 /** "15:00" today, "tomorrow", or "12 Nov": short enough to sit under a care button. */
 export function shortWhen(iso: string | null, now: number): string | null {
@@ -176,3 +176,35 @@ export function lotusFeedQuestion(v: Pick<ShownPondVisual, "stage" | "feedAdvice
 
 /** The reply when a top-up on a full pond is left: the pond will say when it could use one. */
 export const POND_FULL_LEAVE = "The pond is at its line. It will ask when it could use a top-up.";
+
+/** The tucked-away card's tab (CareLayer): a few words for how the plant is, its mood's dot, and whether it asks. */
+export interface TabWords {
+  words: string;
+  mood: PlantMood;
+  asks: boolean;
+}
+
+/**
+ * What the tab says, from the plant's own line (lib/client/plant plantLine): a seed settling in, the plant's mood in
+ * two or three words, and, when the mood asks for something, the ask itself (said in gold by the tab). A plant that
+ * has gone to sleep is resting; a lotus's thirst is its pond wanting a top-up.
+ */
+export function tabWords(line: { voice: "plant" | "narrator"; mood: PlantMood } | null, opts: { resting: boolean; pond: boolean }): TabWords {
+  if (opts.resting) return { words: "Resting", mood: "resting", asks: false };
+  if (!line) return { words: "Your garden", mood: "content", asks: false };
+  if (line.voice === "narrator") return { words: "Settling in", mood: line.mood, asks: false };
+  switch (line.mood) {
+    case "thirsty":
+      return { words: opts.pond ? "Ready for a top-up" : "Ready for a drink", mood: "thirsty", asks: true };
+    case "soggy":
+      return { words: "Roots too wet", mood: "soggy", asks: true };
+    case "unwell":
+      return { words: "Needs some care", mood: "unwell", asks: true };
+    case "blooming":
+      return { words: "In bloom", mood: "blooming", asks: false };
+    case "resting":
+      return { words: "Resting", mood: "resting", asks: false };
+    default:
+      return { words: "Growing well", mood: "content", asks: false };
+  }
+}

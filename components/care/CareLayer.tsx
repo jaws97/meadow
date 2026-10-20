@@ -31,9 +31,16 @@
 // planting the seedling in its pot go through without a question. Tend is the koi's pinch: while the last pinch is under
 // four hours old (and there are no aphids to rinse) a tap says from when the next is welcome instead of feeding nobody.
 //
+// The card can be tucked away: its round button at the top right slips it toward its edge (down on a phone, to the
+// side on wide screens), and a slim tab takes its place there, saying in a few words how the plant is ("Growing
+// well"), in gold with its dot breathing when the plant asks for something ("Ready for a drink": careStates tabWords).
+// A tap on the tab brings the card back. Tucked or not is remembered on this device, so a garden left with the card
+// tucked away opens that way. While tucked, the tab is what covers the screen: it is what the camera keeps the plant
+// clear of (useDock), so on a phone the plant settles back toward the middle.
+//
 // Calm by design: no red, no countdowns, soft motion that stops for reduced motion, 44 px targets and more, every
 // action a real button, a polite live region for the replies, and Escape anywhere in the panel to put a question away.
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { CareActions, type ActionFace, type ActionKey, type ActionState } from "@/components/care/CareActions";
 import { CarePrompt, type PromptSpec } from "@/components/care/CarePrompt";
 import {
@@ -46,9 +53,10 @@ import {
   lotusWaterState,
   pondChip,
   shortWhen,
+  tabWords,
   tendWouldWait,
 } from "@/components/care/careStates";
-import { BucketIcon, CloseIcon, CoverIcon, JarIcon, KoiIcon, LeafIcon, PlantPondIcon, RainIcon } from "@/components/care/icons";
+import { BucketIcon, ChevronIcon, CloseIcon, CoverIcon, JarIcon, KoiIcon, LeafIcon, PlantPondIcon, RainIcon } from "@/components/care/icons";
 import { RestingCard } from "@/components/care/RestingCard";
 import { StatusChips, type ChipsModel } from "@/components/care/StatusChips";
 import { sidePanel } from "@/lib/client/dock";
@@ -102,6 +110,27 @@ const RAIN_ASKED_MS = 12 * 3_600_000;
 /** A cover put on this recently is not yet pointed out in dry weather. */
 const COVER_SETTLE_MS = 45 * 60_000;
 const SPRINKLE_KEY = "garden-sprinkle-thanks:v1";
+/** The card was tucked away on this device ("1"), so it opens tucked away. */
+const TUCKED_KEY = "garden-care-tucked:v1";
+/** How long the card takes to slip away before it is hidden (CareLayer.css care-sink, care-slide-away). */
+const TUCK_MS = 420;
+
+function readTucked(): boolean {
+  try {
+    return window.localStorage.getItem(TUCKED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeTucked(on: boolean) {
+  try {
+    if (on) window.localStorage.setItem(TUCKED_KEY, "1");
+    else window.localStorage.removeItem(TUCKED_KEY);
+  } catch {
+    // storage blocked: the card opens up next time
+  }
+}
 
 /**
  * While the loading veil still covers the garden (a garden link opening on a fresh device, say), the card under it
@@ -118,7 +147,8 @@ function istHourOf(ms: number): number {
  * Publishes how much of the screen the panel covers: the bottom card's height as --care-dock (for other bottom-edge
  * overlays) and, with the narrow sideways panel's width, to the garden store, so the camera keeps the plant in the
  * open part of the view. The wide side panel stays out of the store (the garden there is composed round it already)
- * and only tells the camera's bed shot it is there (lib/client/dock).
+ * and only tells the camera's bed shot it is there (lib/client/dock). With the card tucked away, the tab is measured
+ * in its place.
  */
 function useDock(panel: RefObject<HTMLElement | null>) {
   useEffect(() => {
@@ -237,7 +267,32 @@ function CarePanel({ me }: { me: MeView }) {
   const rainWaterAnyway = useRef(-Infinity);
   const panel = useRef<HTMLDivElement>(null);
   const covered = useQuality(underVeil);
-  useDock(panel);
+  // tucked away: asked for at once; `away` once the card has slipped out and is hidden, the tab covering the screen then
+  const [tucked, setTucked] = useState(readTucked);
+  const [away, setAway] = useState(tucked);
+  const tab = useRef<HTMLButtonElement>(null);
+  const tuckButton = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
+  useDock(away ? tab : panel);
+
+  useEffect(() => {
+    if (!tucked || away) return;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const t = window.setTimeout(() => setAway(true), still ? 0 : TUCK_MS);
+    return () => window.clearTimeout(t);
+  }, [tucked, away]);
+
+  const tuck = () => {
+    setTucked(true);
+    writeTucked(true);
+    requestAnimationFrame(() => tab.current?.focus({ preventScroll: true }));
+  };
+  const untuck = () => {
+    setTucked(false);
+    setAway(false);
+    writeTucked(false);
+    requestAnimationFrame(() => tuckButton.current?.focus({ preventScroll: true }));
+  };
 
   const shown = useMemo(() => shownVisual(me, local, now), [me, local, now]);
   const busy = useMemo(() => new Set(local.filter((a) => a.status === "sending").map((a) => a.kind as ActionKey)), [local]);
@@ -508,10 +563,32 @@ function CarePanel({ me }: { me: MeView }) {
     }
   };
 
+  const tabSays = tabWords(line, { resting: resting !== null, pond: pond !== null });
+
   return (
     <section className="care-root" aria-label={`Caring for ${me.person.firstName}'s garden`} inert={covered}>
       {/* tabIndex -1: the panel scrolls on a short screen, and a browser would otherwise make the scroller a tab stop of its own */}
-      <div className="care-panel" ref={panel} onKeyDown={onKeyDown} tabIndex={-1}>
+      <div
+        id={panelId}
+        className={tucked ? "care-panel is-tucking" : "care-panel"}
+        ref={panel}
+        onKeyDown={onKeyDown}
+        tabIndex={-1}
+        hidden={away}
+      >
+        <button
+          ref={tuckButton}
+          type="button"
+          className="care-tuck-btn"
+          aria-label="Shrink the care card"
+          aria-expanded={!tucked}
+          aria-controls={panelId}
+          onClick={tuck}
+        >
+          <span aria-hidden="true">
+            <ChevronIcon />
+          </span>
+        </button>
         <header className="care-head">
           <p className="care-name">{me.person.firstName}&rsquo;s garden</p>
           {me.plant.rehearsal && <span className="care-tag">Practice garden</span>}
@@ -543,10 +620,30 @@ function CarePanel({ me }: { me: MeView }) {
           <CareActions keys={keys} faces={faces} states={states} busy={busy} onAction={onAction} />
         )}
         {weather && <p className="care-credit">{weather.credit}</p>}
-        <p className="care-sr" role="status" aria-live="polite">
-          {notice?.text ?? ""}
-        </p>
       </div>
+      {tucked && (
+        <button
+          ref={tab}
+          type="button"
+          className="care-tab"
+          data-mood={tabSays.mood}
+          data-asks={tabSays.asks || undefined}
+          aria-expanded={false}
+          aria-controls={panelId}
+          onClick={untuck}
+        >
+          <span className="care-mood" aria-hidden="true" />
+          <span className="care-tab-words">{tabSays.words}</span>
+          <span className="care-sr">, show the care card</span>
+          <span className="care-tab-chev" aria-hidden="true">
+            <ChevronIcon />
+          </span>
+        </button>
+      )}
+      {/* outside the card, so a reply is still heard while it is tucked away */}
+      <p className="care-sr" role="status" aria-live="polite">
+        {notice?.text ?? ""}
+      </p>
     </section>
   );
 }

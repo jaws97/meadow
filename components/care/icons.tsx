@@ -279,6 +279,15 @@ export function LeafIcon() {
   );
 }
 
+/** Points down; the shrink button and the tab turn it toward the card's edge, or back (CareLayer.css). */
+export function ChevronIcon() {
+  return (
+    <Icon>
+      <path d="m7 10 5 5 5-5" />
+    </Icon>
+  );
+}
+
 export function CloseIcon() {
   return (
     <Icon>

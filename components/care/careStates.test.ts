@@ -14,6 +14,7 @@ import {
   pondChip,
   saysKoiHungry,
   shortWhen,
+  tabWords,
   tendWouldWait,
 } from "@/components/care/careStates";
 import type { MeView, RainHint, ShownPondVisual } from "@/lib/client/plant";
@@ -159,5 +160,29 @@ describe("the resting card's words", () => {
       expect(copyFor({ mode }, "lotus", "pond").title.length).toBeGreaterThan(0);
       expect(copyFor({ mode }, "lotus", "pond").body).not.toMatch(/\bbed\b|sprout\b/);
     }
+  });
+});
+
+describe("the tucked-away card's tab", () => {
+  const bed = { resting: false, pond: false };
+  const plant = (mood: "content" | "blooming" | "thirsty" | "soggy" | "unwell" | "resting") => ({ voice: "plant" as const, mood });
+
+  it("says how the plant is in a few words", () => {
+    expect(tabWords({ voice: "narrator", mood: "content" }, bed)).toEqual({ words: "Settling in", mood: "content", asks: false });
+    expect(tabWords(plant("content"), bed)).toEqual({ words: "Growing well", mood: "content", asks: false });
+    expect(tabWords(plant("blooming"), bed)).toEqual({ words: "In bloom", mood: "blooming", asks: false });
+    expect(tabWords(plant("resting"), bed).words).toBe("Resting");
+    expect(tabWords(null, bed).words).toBe("Your garden");
+  });
+
+  it("asks, in the plant's own terms, when its mood asks for something", () => {
+    expect(tabWords(plant("thirsty"), bed)).toEqual({ words: "Ready for a drink", mood: "thirsty", asks: true });
+    expect(tabWords(plant("thirsty"), { resting: false, pond: true }).words).toBe("Ready for a top-up");
+    expect(tabWords(plant("soggy"), bed)).toMatchObject({ words: "Roots too wet", asks: true });
+    expect(tabWords(plant("unwell"), bed)).toMatchObject({ words: "Needs some care", asks: true });
+  });
+
+  it("calls a plant that has gone to sleep resting, whatever its line", () => {
+    expect(tabWords(plant("unwell"), { resting: true, pond: false })).toEqual({ words: "Resting", mood: "resting", asks: false });
   });
 });
