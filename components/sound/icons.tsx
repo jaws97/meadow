@@ -7,7 +7,8 @@
 // compositor (WebKit repaints a transform on an SVG child every frame). Each group of tiles in the sound panel has a
 // glyph of its own (GroupGlyph):
 // rain from a cloud, three ripples of water, a little bird on a branch, the moon and a star, a singing bowl with its
-// resonance rising, and two beamed notes for music. The live garden's card has a sprout under a small sun.
+// resonance rising, and two beamed notes for music. The live garden's card has a sprout under a small sun, and a round
+// play button that shows a pause while the live garden plays.
 import type { ReactNode, SVGProps } from "react";
 import type { GroupKey } from "@/lib/sound/types";
 
@@ -123,6 +124,25 @@ export function MusicGlyph({ size = 24 }: { size?: number }) {
       <path d="m9.2 9.8 9.2-2.2" />
       <circle cx="7.1" cy="17.2" r="2.1" />
       <circle cx="16.3" cy="15" r="2.1" />
+    </Icon>
+  );
+}
+
+/** Play: a soft rounded triangle, a touch right of centre so it sits optically in its circle. */
+export function PlayGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <Icon size={size} fill="currentColor">
+      <path d="M9 6.9v10.2c0 .8.9 1.3 1.6.9l7.8-5.1c.6-.4.6-1.3 0-1.7l-7.8-5.1c-.7-.5-1.6 0-1.6.8Z" />
+    </Icon>
+  );
+}
+
+/** Pause: two soft bars. */
+export function PauseGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <Icon size={size} fill="currentColor">
+      <rect x="7.2" y="6.2" width="3.4" height="11.6" rx="1.2" />
+      <rect x="13.4" y="6.2" width="3.4" height="11.6" rx="1.2" />
     </Icon>
   );
 }

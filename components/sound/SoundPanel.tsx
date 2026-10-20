@@ -3,7 +3,8 @@
 // in their own garden, from top to bottom:
 // - the header: "Sounds", a "Sound on" switch and a way to close;
 // - the live garden, the default: it follows the real Bangalore sky and weather (lib/sound/live), and says what it is
-//   playing now ("dawn birds and a light breeze");
+//   playing now ("dawn birds and a light breeze"). Its card works like a tile: a round play button, gold only while the
+//   live garden is actually playing, and a second tap stops it;
 // - the ready-made mixes (lib/sound/catalog MIXES), a row of chips;
 // - the person's own mix: thirty tiles in six groups, up to five at once (music one piece at a time), each picked tile
 //   with a slim level slider under it and a soft pulsing dot while its file loads;
@@ -25,7 +26,7 @@
 import { memo, useEffect, useId, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { display } from "@/components/gift/fonts";
-import { ChevronGlyph, CloseGlyph, GroupGlyph, LiveGlyph } from "@/components/sound/icons";
+import { ChevronGlyph, CloseGlyph, GroupGlyph, LiveGlyph, PauseGlyph, PlayGlyph } from "@/components/sound/icons";
 import { BIRD_CALLS, GROUPS, MAX_LAYERS, MIXES, TILES, tilesIn } from "@/lib/sound/catalog";
 import { CHANGES, soundFile } from "@/lib/sound/library";
 import { LIVE_TITLE, soundActions, useSound } from "@/lib/sound/store";
@@ -332,7 +333,9 @@ export function SoundPanel({
 
   const on = status !== "idle";
   const live = mode === "live";
-  const liveWords = live && (status === "playing" || status === "starting") && nowPlaying.startsWith(LIVE_PREFIX) ? nowPlaying.slice(LIVE_PREFIX.length) : null;
+  // the card lights up only while the live garden is really playing, as a tile does, so a silent garden invites a tap
+  const livePlaying = live && (status === "playing" || status === "starting");
+  const liveWords = livePlaying && nowPlaying.startsWith(LIVE_PREFIX) ? nowPlaying.slice(LIVE_PREFIX.length) : null;
 
   return createPortal(
     <div className={`sound-root ${display.variable}`}>
@@ -387,7 +390,12 @@ export function SoundPanel({
               </div>
             )}
 
-            <button type="button" className="sound-live" aria-pressed={live} onClick={() => soundActions.chooseLive()}>
+            <button
+              type="button"
+              className="sound-live"
+              aria-pressed={livePlaying}
+              onClick={() => (livePlaying ? soundActions.stop() : soundActions.chooseLive())}
+            >
               <span className="sound-live-icon">
                 <LiveGlyph />
               </span>
@@ -395,6 +403,9 @@ export function SoundPanel({
                 <span className="sound-live-title">Live garden</span>
                 <span className="sound-live-line">Follows your garden: birds at dawn, rain when it really rains, crickets at night.</span>
                 {liveWords && <span className="sound-live-now">Now: {liveWords}</span>}
+              </span>
+              <span className="sound-live-play" aria-hidden="true">
+                {livePlaying ? <PauseGlyph /> : <PlayGlyph />}
               </span>
             </button>
 

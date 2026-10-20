@@ -634,7 +634,7 @@
 
 .sound-live {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   width: 100%;
   padding: 14px 14px 14px 12px;
@@ -705,6 +705,32 @@
   font-size: 13px;
   line-height: 1.45;
   color: var(--sound-gold);
+}
+
+/* the card's play button: a gold disc, the one thing on the card that says "tap me"; a pause while it plays */
+.sound-live-play {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--sound-gold);
+  color: #2b2112;
+  transition:
+    background-color 0.4s ease,
+    transform 0.2s var(--sound-ease);
+}
+
+.sound-live[aria-pressed="true"] .sound-live-play {
+  background: var(--sound-gold-hi);
+}
+
+@media (hover: hover) {
+  .sound-live:hover .sound-live-play {
+    transform: scale(1.06);
+  }
 }
 
 /* ---- chips: the mixes and the fade-out timer ------------------------------------------------------------------------- */
