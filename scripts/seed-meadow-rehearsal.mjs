@@ -4,7 +4,7 @@
 // second round through the list adds a number: "Asha 2 (delete me)"); and it only ever changes or deletes the people it
 // created itself, recorded in a state file.
 //
-//   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs plant 60     plant 60 seeds (seven species in turn)
+//   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs plant 60     plant 60 seeds (eight species in turn)
 //   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs arrange      move them to the inner rings and the
 //                                                                               river, as the party fills them
 //   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs clear        delete every person this script made
@@ -28,7 +28,7 @@ import { ensureTypeScript, importProject, importSim } from "./lib/load-sim.mjs";
 ensureTypeScript();
 
 const BASE = "http://localhost:3000";
-const SPECIES = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"];
+const SPECIES = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lily", "lotus"];
 const NAMES = [
   "Asha", "Rahul", "Priya", "Arjun", "Meera", "Kiran", "Divya", "Vikram", "Ananya", "Rohan", "Sneha", "Aditya", "Kavya",
   "Nikhil", "Pooja", "Siddharth", "Lakshmi", "Varun", "Isha", "Karthik", "Neha", "Manoj", "Riya", "Suresh", "Tara",

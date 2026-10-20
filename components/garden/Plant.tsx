@@ -39,10 +39,12 @@ import {
 } from "@/lib/plant/geometry";
 import { droopOf, fadeOf, leafDropped, leafHealth, petalOpen, quantize, type PlantVisual } from "@/lib/plant/growth";
 import { lerp, Rng, smoothstep } from "@/lib/plant/prng";
+import { ANTHER, FILAMENT_GIRTH, longStamens, STIGMA, STYLE_GIRTH } from "@/lib/plant/stamens";
 import { garden, useGarden, type Quality } from "@/lib/garden/store";
 import { env } from "@/lib/garden/env";
 import {
   budMaterial,
+  filamentMaterial,
   leafMaterial,
   petalMaterial,
   petioleGeometry,
@@ -368,7 +370,10 @@ function FlowerHead() {
     refs.petalMats = petalMats;
   }, [refs, petalMats]);
 
+  // a lily's long stamens round its style (lib/plant/stamens), or every other flower's short tuft
+  const long = useMemo(() => longStamens(bp.seed, c), [bp.seed, c]);
   const stamens = useMemo<Stamen[]>(() => {
+    if (c.long) return [];
     const rng = new Rng(bp.seed + "|stamens");
     const out: Stamen[] = [];
     for (let k = 0; k < c.stamens; k++) {
@@ -447,8 +452,8 @@ function FlowerHead() {
           ref={setBud}
           geometry={sphereGeometry()}
           material={budMaterial(sp)}
-          scale={f.budRadius}
-          position-y={f.budRadius * 0.6}
+          scale={[f.budRadius, f.budRadius * (f.budAspect ?? 1), f.budRadius]}
+          position-y={f.budRadius * 0.6 * (f.budAspect ?? 1)}
           castShadow
         />
         {/* sepals */}
@@ -497,6 +502,24 @@ function FlowerHead() {
                 position={[s.x, s.h, s.z]}
                 scale={s.headSize}
               />
+            </group>
+          ))}
+          {long.map((s, k) => (
+            <group key={`long${k}`} rotation-y={s.yaw}>
+              {/* leaning out of the throat toward +z; the anther lies across the tip, along x */}
+              <group position-z={s.foot} rotation-x={s.lean}>
+                <mesh
+                  geometry={petioleGeometry()}
+                  material={filamentMaterial(sp, "filament")}
+                  scale={[s.style ? STYLE_GIRTH : FILAMENT_GIRTH, s.length, s.style ? STYLE_GIRTH : FILAMENT_GIRTH]}
+                />
+                <mesh
+                  geometry={sphereGeometry()}
+                  material={s.style ? filamentMaterial(sp, "stigma") : stamenMaterial(sp)}
+                  position-y={s.length}
+                  scale={(s.style ? STIGMA : ANTHER).map((a) => a * s.length) as [number, number, number]}
+                />
+              </group>
             </group>
           ))}
         </group>
@@ -781,7 +804,8 @@ export function Plant() {
 
     const budMesh = R.bud;
     if (budMesh) {
-      budMesh.scale.setScalar(Math.max(0.0001, f.budRadius * (1 - eb) * (0.6 + 0.4 * bud)));
+      const br = Math.max(0.0001, f.budRadius * (1 - eb) * (0.6 + 0.4 * bud));
+      budMesh.scale.set(br, br * (f.budAspect ?? 1), br);
       budMesh.visible = petalsShown && eb < 0.9;
     }
 

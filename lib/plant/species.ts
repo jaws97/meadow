@@ -1,14 +1,14 @@
-// The seven seed packets. Every number here is in metres and radians.
-// Five are inspired by a film; the Island Bloom and the Lotus are our own; all art is original.
-// The six soil flowers grow in the garden bed (lib/sim/model.ts); the Lotus grows in its own koi pond (lib/sim/pond.ts)
+// The eight seed packets. Every number here is in metres and radians.
+// Five are inspired by a film; the Island Bloom, the Pink Lily and the Lotus are our own; all art is original.
+// The seven soil flowers grow in the garden bed (lib/sim/model.ts); the Lotus grows in its own koi pond (lib/sim/pond.ts)
 // and is drawn by components/lotus, so its record below only stands in for code that reads every species.
 
-/** The six flowers of the garden bed, which the soil model (SIM_VERSION 7) grows. */
-export type SoilSpeciesId = "rose" | "sundrop" | "magnolia" | "marigold" | "island" | "jasmine";
+/** The seven flowers of the garden bed, which the soil model (SIM_VERSION 7) grows. */
+export type SoilSpeciesId = "rose" | "sundrop" | "magnolia" | "marigold" | "island" | "jasmine" | "lily";
 export type SpeciesId = SoilSpeciesId | "lotus";
 
 /** Every species in the seed picker's order, the lotus last. */
-export const ALL_SPECIES: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"];
+export const ALL_SPECIES: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lily", "lotus"];
 
 /** The lotus grows in a pond, not the bed: its model, care, scene and words differ. */
 export function isLotus(id: SpeciesId): id is "lotus" {
@@ -38,6 +38,11 @@ export interface PetalLayer {
   lean?: number;
   /** the reflexed lip: how sharply the top third curls backwards (0..1) */
   lip?: number;
+  /**
+   * The whorl's turn against the innermost one, radians, for a flower whose whorls interleave exactly (a lily's outer
+   * three sit between its inner three); left out, each whorl turns on by half a golden angle and a little chance.
+   */
+  turn?: number;
 }
 
 export interface LeafSpec {
@@ -74,10 +79,30 @@ export interface FlowerSpec {
   emissive: string;
   emissiveDay: number;
   emissiveNight: number;
-  center: { color: string; radius: number; stamens: number; stamenColor: string };
+  center: {
+    color: string;
+    radius: number;
+    stamens: number;
+    stamenColor: string;
+    /**
+     * A lily's long stamens instead of the short tuft every other flower has: `stamens` of them on a ring round a
+     * central style, leaning out of the throat, each filament `length` long in its own colour with a slim anther laid
+     * across its tip, and the style a touch longer with a small stigma.
+     */
+    long?: { length: number; filament: string; stigma: string };
+  };
+  /**
+   * Marks painted on every petal, for a lily: a green-yellow `throat` at the base, a deeper `streak` down the middle of
+   * the lower blade and `spots` (freckles) scattered about it. Leave out for a clean blade.
+   */
+  marks?: { throat: string; streak: string; spots: string };
   sepals: { count: number; length: number; width: number; color: string };
   /** bud radius before the petals open */
   budRadius: number;
+  /** how much longer than wide the bud's core is (a lily's is a long club); a round bud when left out */
+  budAspect?: number;
+  /** the bud core's own colour; the petals' base and mid colours mixed when left out */
+  budColor?: string;
 }
 
 export interface Species {
@@ -261,6 +286,38 @@ export const SPECIES: Record<SpeciesId, Species> = {
       budRadius: 0.03,
     },
     fx: { glowNight: true, pulse: false, sparks: false, scent: true, glowColor: "#fff1c9" },
+  },
+  lily: {
+    // A pink Oriental lily, like a florist's 'Sorbonne': six tepals in two whorls of three, the inner ones broader,
+    // recurving from a green-yellow throat freckled with deep pink, six long stamens with rust anthers round the style,
+    // on one tall unbranched stem with narrow leaves all the way up.
+    id: "lily",
+    name: "Pink Lily",
+    film: "Original",
+    tagline: "Blush-pink petals curl back from a freckled heart, sweetly scented by evening.",
+    stem: { height: 1.05, radius: 0.013, segments: 4, lean: 0.06, wobble: 0.25, color: "#557f43", tipColor: "#6f9a52", thorns: false },
+    leaves: {
+      count: [11, 14], length: 0.19, width: 0.04, serration: 0, fold: 0.38, gloss: 0.65, compound: 1, petiole: 0.012,
+      petioleColor: "#5e8a4a", color: "#2c6a3c", tipColor: "#46904f", veinColor: "#a6d69a",
+    },
+    flower: {
+      layers: [
+        { count: 3, length: 0.27, width: 0.14, open: 1.05, bend: 0.5, cup: 0.45, ruffle: 0.32, tip: 0.85, lip: 0.72 },
+        { count: 3, length: 0.28, width: 0.105, open: 1.15, bend: 0.55, cup: 0.38, ruffle: 0.24, tip: 0.92, lip: 0.8, turn: Math.PI / 3 },
+      ],
+      colorBase: "#cf4e87", colorMid: "#f2a2c4", colorTip: "#fce6ee", veinColor: "#ffd3e4", veins: 5,
+      // little transmission: the long tepals curl away from the eye, and through them the dark garden would show
+      sheenColor: "#ffe8f1", sheen: 0.6, roughness: 0.45, transmission: 0.12, thickness: 0.1, attenuationColor: "#f6b3cf",
+      emissive: "#ff9ccc", emissiveDay: 0.03, emissiveNight: 0.2,
+      center: { color: "#2e1006", radius: 0.016, stamens: 6, stamenColor: "#86391d", long: { length: 0.15, filament: "#dfe6b4", stigma: "#b98aa4" } },
+      marks: { throat: "#d7e39a", streak: "#b3275e", spots: "#a3204f" },
+      sepals: { count: 0, length: 0, width: 0, color: "#557f43" },
+      budRadius: 0.03,
+      budAspect: 2.6,
+      budColor: "#d9a7b9",
+    },
+    // a lily has no light of its own: a soft night glow in the petals, the small light at its heart kept low
+    fx: { glowNight: false, pulse: false, sparks: false, scent: true, glowColor: "#f36fc8" },
   },
   lotus: {
     // A stand-in for everything that reads every species (names, the party feed's dot, the glow colour, the developer

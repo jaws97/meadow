@@ -11,7 +11,7 @@ const timed = (r: Run): TimedEvent[] => r.rec.flatMap((x) => x.ev.map((e) => ({ 
 describe("catchUp", () => {
   it("in random chunks, with a JSON checkpoint between them, equals stepping hour by hour", () => {
     for (let k = 0; k < 24; k++) {
-      const rnd = mulberry32(2026 + 101 * k), id = IDS[k % 6], y = YEARS[k % 3], plantH = PARTY + Math.floor(rnd() * 200);
+      const rnd = mulberry32(2026 + 101 * k), id = IDS[k % IDS.length], y = YEARS[k % 3], plantH = PARTY + Math.floor(rnd() * 200);
       const r = simulate({ spId: id, year: y, plantH, policy: randomPolicy(rnd), endH: 983 });
       const events = timed(r), rows = rowsFor(y), wx = (h: number) => rows[h];
       let s: PlantState = createPlant(id, plantH, OWNER);
@@ -57,11 +57,11 @@ describe("replayFromPlanting", () => {
   it("rebuilds a plant from its planting and its events, including a revive and a replant", () => {
     let found = false;
     for (let k = 0; k < 40 && !found; k++) {
-      const rnd = mulberry32(77 + k), r = simulate({ spId: IDS[k % 6], year: YEARS[k % 3], policy: randomPolicy(rnd), endH: 983 });
+      const rnd = mulberry32(77 + k), r = simulate({ spId: IDS[k % IDS.length], year: YEARS[k % 3], policy: randomPolicy(rnd), endH: 983 });
       if (r.s.gen < 2) continue;
       found = true;
       const rows = rowsFor(YEARS[k % 3]);
-      expect(replayFromPlanting({ speciesId: IDS[k % 6], plantedH: PARTY, owner: OWNER }, timed(r), (h) => rows[h], r.s.h)).toEqual(r.s);
+      expect(replayFromPlanting({ speciesId: IDS[k % IDS.length], plantedH: PARTY, owner: OWNER }, timed(r), (h) => rows[h], r.s.h)).toEqual(r.s);
     }
     expect(found).toBe(true);
   });

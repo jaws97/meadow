@@ -1,4 +1,4 @@
-// The plant simulation's public API: the locked soil model (SIM_VERSION 7) for the six flowers of the bed, the Lotus's
+// The plant simulation's public API: the locked soil model (SIM_VERSION 7) for the seven flowers of the bed, the Lotus's
 // pond model (POND_VERSION 1), the one door to both (plant.ts: createPlant, step, toVisual and expectBloom dispatch by
 // species and by state), game time, Bangalore weather from Open-Meteo, the climate normal behind the bloom forecast, the
 // heavy-rain hint read from the forecast (rainSoon), and the replay the server runs to bring a stored plant up to date.

@@ -1,6 +1,6 @@
 "use client";
 // The gift itself, in one glass sheet over the live garden: the owner's seed offered ("A gift", unnamed), a first name
-// for the little sign by the flower (or "A friend"), one of seven seeds, and the planting moment, which ends with the
+// for the little sign by the flower (or "A friend"), one of eight seeds, and the planting moment, which ends with the
 // personal garden link for a laptop or an iPad and a way into the new garden. A lotus seed goes into a glass of water
 // by its pond rather than into a bed (PlantingMoment's jar), and the words say so.
 //
@@ -367,7 +367,7 @@ export function GiftFlow({
         <h2 ref={heading} tabIndex={-1} className="gift-title gift-title-sm">
           Choose your seed
         </h2>
-        <p className="gift-text">Seven seeds, each with its own nature. Pick the one that feels like yours.</p>
+        <p className="gift-text">Eight seeds, each with its own nature. Pick the one that feels like yours.</p>
         <SeedPicker
           value={species}
           onChange={(id) => {
@@ -383,7 +383,7 @@ export function GiftFlow({
       <>
         {seedHint && (
           <p className="gift-note" role="alert" style={{ textAlign: "center" }}>
-            Choose one of the seven seeds first.
+            Choose one of the eight seeds first.
           </p>
         )}
         <div className="gift-sheet-foot-row">

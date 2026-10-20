@@ -24,6 +24,7 @@ import {
 } from "@/lib/plant/geometry";
 import { droopOf, leafDropped, leafHealth, petalOpen } from "@/lib/plant/growth";
 import { lerp, Rng, smoothstep } from "@/lib/plant/prng";
+import { ANTHER, FILAMENT_GIRTH, longStamens, STIGMA, STYLE_GIRTH } from "@/lib/plant/stamens";
 import { SPECIES, type PetalLayer, type SpeciesId } from "@/lib/plant/species";
 
 /** What a plant looks like right now: its seed and species, and the model's numbers (lib/sim Visual). */
@@ -78,6 +79,9 @@ export interface PartMaterials<M> {
   bud(): M;
   petal(variant: number): M;
   stamen(): M;
+  /** a lily's pale filaments and style, and its stigma (lib/plant/stamens); the stamens' own when left out */
+  filament?(): M;
+  stigma?(): M;
 }
 
 export interface PosedPart<M> {
@@ -264,8 +268,9 @@ export function posePlant<M>(look: PlantLook, detail: PoseDetail, mats: PartMate
     part(head, receptacle, mats.sepal()).position.y = -c.radius * 2.0;
     if (petalsShown && eb < 0.9) {
       const core = part(head, detail.sphere, mats.bud());
-      core.scale.setScalar(Math.max(0.0001, f.budRadius * (1 - eb) * (0.6 + 0.4 * bud)));
-      core.position.y = f.budRadius * 0.6;
+      const br = Math.max(0.0001, f.budRadius * (1 - eb) * (0.6 + 0.4 * bud));
+      core.scale.set(br, br * (f.budAspect ?? 1), br);
+      core.position.y = f.budRadius * 0.6 * (f.budAspect ?? 1);
     }
     if (sepalGeo) {
       const sepalRot = 0.06 + 0.32 * heroSepalPart(bud) + 1.4 * smoothstep(0, 0.6, eb) + droop * 0.2;
@@ -297,7 +302,29 @@ export function posePlant<M>(look: PlantLook, detail: PoseDetail, mats: PartMate
         part(pg, petalGeo[p.layer][p.variant], mats.petal(p.variant), smoothstep(0.05, 0.95, o)).scale.setScalar(p.scale);
       });
     }
-    if (eb > 0.6 && c.stamens > 0) {
+    if (eb > 0.6 && c.long) {
+      // a lily's long stamens round its style, as Plant.tsx draws them; the anthers alone where filaments are left off
+      const st = new THREE.Group();
+      st.scale.setScalar(Math.max(0.001, eb));
+      head.add(st);
+      for (const s of longStamens(bp.seed, c)) {
+        const around = new THREE.Group();
+        around.rotation.y = s.yaw;
+        st.add(around);
+        const lean = new THREE.Group();
+        lean.position.z = s.foot;
+        lean.rotation.x = s.lean;
+        around.add(lean);
+        if (detail.filament) {
+          const girth = s.style ? STYLE_GIRTH : FILAMENT_GIRTH;
+          part(lean, detail.filament, mats.filament?.() ?? mats.stamen()).scale.set(girth, s.length, girth);
+        }
+        const [ax, ay, az] = s.style ? STIGMA : ANTHER;
+        const tip = part(lean, detail.sphere, s.style ? (mats.stigma?.() ?? mats.stamen()) : mats.stamen());
+        tip.position.y = s.length;
+        tip.scale.set(ax * s.length, ay * s.length, az * s.length);
+      }
+    } else if (eb > 0.6 && c.stamens > 0) {
       const st = new THREE.Group();
       st.scale.setScalar(Math.max(0.001, eb));
       head.add(st);

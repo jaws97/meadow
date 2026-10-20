@@ -10,7 +10,18 @@
 // seed mass BED.B0, made non-decreasing); B_pot is its mass when the bud matures (D = 1).
 // The numbers are copied verbatim from the locked model.js (fitted for SIM_VERSION 5 and unchanged in 6 and 7, whose changes do
 // not touch development) and are checked against golden-v7.json, so the port reproduces the prototype exactly. Refitting means a new SIM_VERSION and a regenerated golden file.
-// The six soil species only; the lotus's twin is pond.ts's POND_TWIN.
+//
+// The Pink Lily's entry (lily) was not copied: the prototype never had a lily. It was fitted in this repo under
+// SIM_VERSION 7, together with the lily's TT, the same way (__fixtures__/calib.ts holds the two readings): the twin as
+// above, and TT solved so that good care (the target harness's goodCare, visits at 08:00 and 18:00 with a can when the
+// plant asks) in the same mean weather from the same hour brings the bud to maturity (D crossing 1, interpolated within
+// the hour) 13.25 days after planting, rounded to 0.1 degC.d. That TT rule is read back from the six: solved this way,
+// each of their recorded TTs comes out exactly, and the same iteration started from a TT 20% off and a flat table
+// settles on their recorded tables to within 0.1 mg. From a flat table the lily settled in four passes on TT 152.8
+// (152.759 before rounding) and the table below. climate.test.ts checks that every species' TT and table are the fit's
+// fixed point; the lily's numbers are also held by its fingerprint (lib/server/sim-version.test.ts), so refitting them
+// means a new SIM_VERSION and a new fingerprint (the golden file does not know the lily).
+// The seven soil species only; the lotus's twin is pond.ts's POND_TWIN.
 import type { SoilSpeciesId } from "@/lib/plant/species";
 
 export interface TwinEntry {
@@ -44,5 +55,9 @@ export const TWIN: Readonly<Record<SoilSpeciesId, TwinEntry>> = Object.freeze({
   jasmine: Object.freeze({
     Bpot: 0.1861,
     tab: Object.freeze([0.03, 0.03, 0.0357, 0.0408, 0.0416, 0.0486, 0.0539, 0.0548, 0.0637, 0.0721, 0.0733, 0.0847, 0.0946, 0.0981, 0.1144, 0.1277, 0.1323, 0.1497, 0.163, 0.1686, 0.1861]),
+  }),
+  lily: Object.freeze({
+    Bpot: 0.1563,
+    tab: Object.freeze([0.03, 0.03, 0.035, 0.0398, 0.0401, 0.0462, 0.0509, 0.0517, 0.0593, 0.066, 0.0675, 0.0768, 0.0842, 0.088, 0.1009, 0.1113, 0.1149, 0.1284, 0.1392, 0.1428, 0.1563]),
   }),
 });

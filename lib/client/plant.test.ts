@@ -177,6 +177,7 @@ describe("words", () => {
     expect(friendsLine(["Asha"], "jasmine")).toBe("Asha left a sprinkle for your jasmine today.");
     expect(friendsLine(["A friend"], "rose")).toBe("A friend left a sprinkle for your rose today.");
     expect(friendsLine(["Asha", "Ravi"], "rose")).toBe("Asha and Ravi left sprinkles for your rose today.");
+    expect(friendsLine(["Meera"], "lily")).toBe("Meera left a sprinkle for your lily today.");
   });
 
   it("puts the plant's day and its bloom outlook in one chip", () => {
@@ -355,6 +356,9 @@ describe("the lotus", () => {
     expect(careLabels(pondV({ stage: "pond" }))).toEqual({ water: "Top up the pond", tend: "Tend the pond" });
     expect(careLabels(visual())).toEqual({ water: "Water", tend: "Tend" });
     expect(plantNoun("lotus")).toBe("lotus");
+    // the Pink Lily is a soil flower: the bed's six buttons, called by its own name
+    expect(careKeysFor("lily")).toEqual(careKeysFor("rose"));
+    expect(plantNoun("lily")).toBe("lily");
   });
 
   it("names the water in the Pond chip: the jar's clearness, then the pond's level against its line", () => {

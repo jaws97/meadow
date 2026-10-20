@@ -31,10 +31,10 @@ async function decode(file: string, channels: 3 | 4) {
 }
 
 describe("the pictures against their light plants", () => {
-  it("are packed eight kinds deep (the river's lotus the eighth row) in one 1152 x 1024 atlas", () => {
+  it("are packed nine kinds deep (the river's lotus the ninth row) in one 1152 x 1152 atlas", () => {
     expect(ATLAS.width).toBe(1152);
-    expect(ATLAS.height).toBe(1024);
-    expect(CELLS.length).toBe(96);
+    expect(ATLAS.height).toBe(1152);
+    expect(CELLS.length).toBe(108);
   });
 
   it("are as bright as the light plants they stand for (2% apart on average, every cell within 10%)", async () => {
@@ -93,6 +93,7 @@ describe("the pictures against their light plants", () => {
     // a thin sprout seen edge-on is where lighting a pixel's average normal strays most from lighting each sample
     expect(off).toEqual([]);
     expect(all.reduce((a, r) => a + Math.abs(r - 1), 0) / all.length).toBeLessThan(0.03);
-    expect(all.filter((r) => Math.abs(r - 1) > 0.05).length).toBeLessThanOrEqual(3);
+    // past 5% today: the sundrop's sprout, the marigold's leafy plant and bud, and the lily's slim bud, each at one angle
+    expect(all.filter((r) => Math.abs(r - 1) > 0.05).length).toBeLessThanOrEqual(4);
   }, 60_000);
 });

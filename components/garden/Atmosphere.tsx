@@ -1206,11 +1206,11 @@ const ROAM_Z_MAX = 1.7;
 const AWAY = 5.5;
 const ENTRY = 3.6;
 
-/** How high the open bloom reaches above the head origin, per species. */
+/** How high the open bloom reaches above the head origin, per species: its petals, or a lily's style above them. */
 const BLOOM_TOP = Object.fromEntries(
   SPECIES_LIST.map((s) => [
     s.id,
-    Math.max(...s.flower.layers.map((l) => l.length * Math.cos(Math.min(l.open, 1.45)))),
+    Math.max(...s.flower.layers.map((l) => l.length * Math.cos(Math.min(l.open, 1.45))), (s.flower.center.long?.length ?? 0) * 1.12),
   ]),
 ) as Record<SpeciesId, number>;
 
@@ -1530,7 +1530,8 @@ function Butterflies({ count, seed, shadows }: { count: number; seed: string; sh
     const t = env.time;
     const active = dayAir(env);
     // The hero perch rides the top of the bloom; the hedges' crowns are fixed.
-    const top = lerp(SPECIES[s.speciesId].flower.budRadius * 1.6, BLOOM_TOP[s.speciesId], s.bloom);
+    const bud = SPECIES[s.speciesId].flower;
+    const top = lerp(bud.budRadius * 1.6 * (bud.budAspect ?? 1), BLOOM_TOP[s.speciesId], s.bloom);
     PERCHES[0].copy(env.headPos);
     PERCHES[0].y += top + 0.004;
     PERCHES[0].z += 0.03;

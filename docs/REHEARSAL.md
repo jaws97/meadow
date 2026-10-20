@@ -224,7 +224,7 @@ Write the final address, with any `&quality=` ending, in your private note.
 - Anyone who scans sees "A seed, just for you" and can plant straight away; planting has been open since 20 October.
 - They tap **Receive your seed** and type their first name, or choose "A friend" to keep it off the sign.
   Names are unique in the Meadow: if a colleague already has theirs, the name step asks them to add an initial or a
-  nickname, like "Asha K". Then they choose one of seven flowers and tap **Plant the** and the flower's name. The seed
+  nickname, like "Asha K". Then they choose one of eight flowers and tap **Plant the** and the flower's name. The seed
   settles into its bed (a lotus into a glass of water by its pond), the
   link sheet offers a personal link for a laptop or iPad, and their own garden opens.
 - On the big screen the count goes up and names glide into the feed, like "Priya planted a Night Jasmine". Their

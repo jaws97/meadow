@@ -20,6 +20,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   budMaterial,
+  filamentMaterial,
   leafMaterial,
   petalMaterial,
   petioleGeometry,
@@ -117,6 +118,8 @@ export function buildFlowerPlant(look: PlantLook, quality: { petals: Quality; le
     bud: () => budMat,
     petal: (v) => petalMats[v],
     stamen: () => stamenMaterial(sp),
+    filament: () => filamentMaterial(sp, "filament"),
+    stigma: () => filamentMaterial(sp, "stigma"),
   };
   const posed = posePlant(look, fullDetail(quality.petals), mats);
 

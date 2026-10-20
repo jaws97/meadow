@@ -7,7 +7,8 @@
 // planting and after the last step. One scenario (rose-weather-gaps-2025) has null weather fields in six hours, as a
 // broken live row would: they go into step() as recorded, and its cleanWx must replace them exactly as the prototype does.
 // Another (sundrop-evening-can-before-drizzle-2024) gives a can 6 h before a long drizzle, so the cap on the care share of
-// the flush (wCx) is exercised hour by hour.
+// the flush (wCx) is exercised hour by hour. The golden file knows the prototype's six species only; the Pink Lily, added
+// after the prototype was locked, is checked elsewhere (GOLDEN_SPECIES below says where).
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { SoilSpeciesId as SpeciesId } from "@/lib/plant/species";
@@ -89,21 +90,35 @@ function compareSnapshot(sc: GoldenScenario, want: GoldenScenario["snapshots"][n
   return n;
 }
 
+/**
+ * The species the golden file knows: the prototype's six. The Pink Lily joined SIM_SPECIES and TWIN after the prototype
+ * was locked (one more row of each; not one equation or shared constant changed), so the golden file has no scenario or
+ * constants for it. The lily is held instead by its own fingerprint (lib/server/sim-version.test.ts) and by the target
+ * sweeps (targets-*.test.ts), which run over every species. The species checks below cover exactly the golden file's own
+ * species, so the six stay fully checked: their scenarios, and their SPECIES and TWIN entries key for key.
+ */
+const GOLDEN_SPECIES = Object.keys(G.constants.SPECIES as Record<string, unknown>) as SpeciesId[];
+/** the golden file's species' entries of a per-species table */
+const goldenOnly = <T,>(table: Readonly<Record<SpeciesId, T>>) => Object.fromEntries(GOLDEN_SPECIES.map((id) => [id, table[id]]));
+
 describe("golden-v7 parity with the prototype", () => {
   it("is the file this port targets", () => {
     expect(G.simVersion).toBe(SIM_VERSION);
     expect(G.gameStart).toBe(GAME_START);
     expect(G.scenarios).toHaveLength(20);
-    expect(new Set(G.scenarios.map((s) => s.sp))).toEqual(new Set(Object.keys(SIM_SPECIES)));
+    expect(new Set(G.scenarios.map((s) => s.sp))).toEqual(new Set(GOLDEN_SPECIES));
+    // every soil species but the lily is the prototype's, and the golden file knows them all
+    expect(Object.keys(SIM_SPECIES).filter((id) => !GOLDEN_SPECIES.includes(id as SpeciesId))).toEqual(["lily"]);
+    expect(GOLDEN_SPECIES.filter((id) => !(id in SIM_SPECIES))).toEqual([]);
   });
 
   it("carries exactly the prototype's constants", () => {
-    const species = Object.fromEntries(Object.entries(SIM_SPECIES).map(([id, sp]) => {
+    const species = Object.fromEntries(Object.entries(goldenOnly(SIM_SPECIES)).map(([id, sp]) => {
       const { truth, name, ...k } = sp; // the golden file leaves out the copy
       void truth; void name;
       return [id, k];
     }));
-    const consts: Record<string, unknown> = { BED, SPECIES: species, TWIN, PLANT_OPEN_H, PLANT_CLOSE_H, GAME_START };
+    const consts: Record<string, unknown> = { BED, SPECIES: species, TWIN: goldenOnly(TWIN), PLANT_OPEN_H, PLANT_CLOSE_H, GAME_START };
     expect(Object.keys(consts).sort()).toEqual(Object.keys(G.constants).sort());
     for (const key of Object.keys(G.constants)) expect(same(consts[key], G.constants[key], true), `constants.${key}`).toBe(true);
     expect(same(CLIM_T, G.climT, true), "climT").toBe(true);

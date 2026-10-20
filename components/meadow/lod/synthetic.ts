@@ -3,7 +3,7 @@
 // that many plants, in a mix of species, stages and health, or every one at one stage with &stage=bloom (or seed,
 // sprout, leafy, bud, resting), each sown in turn into the plot the server would give it (plots.ts assignPlot): the
 // first bed plots, inner rings first, and for a lotus the river's next pocket, or once all 56 are taken a bed plot's
-// urli (?synthetic=300 sows 39 lotus, all in the river; 400 fills all 56 pockets; 420 puts the next lotus in an urli). A visit to a made-up plant is answered here as well, from
+// urli (?synthetic=300 sows 33 lotus, all in the river; 471 fills all 56 pockets; 486 puts the next lotus in an urli). A visit to a made-up plant is answered here as well, from
 // numbers that match its stage, and its sprinkle is never sent. With &same=1 a visited plant grows from its detail
 // levels' own seed (bands.ts LOD_SEEDS), so its full plant and its light plant are the same plant, for checking the
 // visit's handover.

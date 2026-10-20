@@ -85,16 +85,21 @@ describe("parseSeedBody", () => {
     }
   });
 
-  it("takes every species the models know: the six of the bed and the lotus of the pond", () => {
+  it("takes every species the models know: the seven of the bed and the lotus of the pond", () => {
     expect([...SPECIES_IDS].sort()).toEqual([...Object.keys(SIM_SPECIES), ...Object.keys(POND_SPECIES)].sort());
     for (const species of SPECIES_IDS) expect(parseSeedBody({ firstName: "Ravi", species, clientEventId: ID }).ok, species).toBe(true);
-    expect(SPECIES_IDS.at(-1)).toBe("lotus");
+    // the Pink Lily joins the bed after the jasmine; the lotus stays last
+    expect(SPECIES_IDS.slice(-2)).toEqual(["lily", "lotus"]);
+    expect(parseSeedBody({ firstName: "Meera", species: "lily", clientEventId: ID })).toEqual({
+      ok: true,
+      value: { firstName: "Meera", species: "lily", showName: true, requestId: ID, partyCode: null },
+    });
   });
 
-  it("names all seven seeds when the species is unknown", () => {
+  it("names all eight seeds when the species is unknown", () => {
     const r = parseSeedBody({ firstName: "Asha", species: "tulip", clientEventId: ID });
-    expect(!r.ok && r.message).toContain("seven seeds");
-    expect(!r.ok && r.message).toContain("lotus");
+    expect(!r.ok && r.message).toContain("eight seeds");
+    for (const species of SPECIES_IDS) expect(!r.ok && r.message, species).toContain(species);
   });
 
   it("names the field that is wrong", () => {

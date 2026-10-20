@@ -6,6 +6,7 @@
 // last number while the polls back off to a minute and recover by themselves.
 // Browser only: started from an effect.
 import { nextPollDelay, parseSnapshot, type FeedSnapshot } from "@/components/party/logic";
+import { ALL_SPECIES } from "@/lib/plant/species";
 
 /** A poll that has not answered in this long is given up and tried again later. */
 const TIMEOUT_MS = 15_000;
@@ -23,7 +24,7 @@ export function pollMeadow(onSnapshot: (snapshot: FeedSnapshot) => void): () => 
     inFlight = controller;
     const timeout = window.setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      const res = await fetch("/api/meadow", {
+      const res = await fetch(`/api/meadow?seeds=${ALL_SPECIES.length}`, {
         cache: "no-store",
         headers: etag ? { "If-None-Match": etag } : undefined,
         signal: controller.signal,

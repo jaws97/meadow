@@ -61,7 +61,7 @@ import { LOTUS_FOOT, makeLotusPlot, pocketPadGeometry, type LotusPlotKind } from
 import { lerp } from "@/lib/plant/prng";
 import { isLotus, SPECIES, type SpeciesId } from "@/lib/plant/species";
 
-const SPECIES_IDS: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"];
+const SPECIES_IDS: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lily", "lotus"];
 type Foliage = "sprout" | "leafy" | "tall" | "resting";
 const FOLIAGE: readonly Foliage[] = ["sprout", "leafy", "tall", "resting"];
 /** The species drawn as a stem and a head here (the lotus is drawn in its urli instead). */

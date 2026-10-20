@@ -127,8 +127,13 @@ export function buildBlueprint(seed: string, species: Species): Blueprint {
 
   const petals: PetalNode[] = [];
   const L = species.flower.layers.length;
+  let first = 0;
   species.flower.layers.forEach((layer, l) => {
-    const offset = l * GOLDEN * 0.5 + rng.range(0, 0.3);
+    // the same draw either way, so a whorl with its own turn leaves every later draw where it was; that turn is taken
+    // from the innermost whorl's own offset, so the whorls interleave exactly
+    const jitter = rng.range(0, 0.3);
+    const offset = layer.turn === undefined ? l * GOLDEN * 0.5 + jitter : first + layer.turn + jitter * 0.1;
+    if (l === 0) first = offset;
     for (let i = 0; i < layer.count; i++) {
       petals.push({
         layer: l,

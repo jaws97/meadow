@@ -28,7 +28,7 @@
 // pond numbers reach the garden store as PondShown (pondShownOf), eased like the rest, with the moments this device's
 // own top-up, pinch and planting began, so the scene can play each once; a refused top-up is said outright
 // (topUpRefused), so the brass pot pouring for it goes home rather than stopping dead. Everything lotus-only is keyed
-// on isLotus() or isPondVisual(); the six soil flowers read exactly as before.
+// on isLotus() or isPondVisual(); the soil flowers read exactly as before.
 import { useSyncExternalStore } from "react";
 import { getJson, newEventId, postJson, type ApiFail } from "@/lib/client/api";
 import { rememberGarden } from "@/lib/client/gardens";
@@ -194,6 +194,7 @@ const NOUNS: Record<SpeciesId, string> = {
   marigold: "marigold",
   island: "flower",
   jasmine: "jasmine",
+  lily: "lily",
   lotus: "lotus",
 };
 

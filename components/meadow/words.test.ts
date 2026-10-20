@@ -34,7 +34,7 @@ describe("stageWord", () => {
     expect(stageWord({ species: "lotus", stage: "bloom", bloom: 0 }, { ...v, flowerDay: 2, pod: 0 })).toBe("in bloom");
   });
 
-  it("leaves the six flowers' words as they were", () => {
+  it("leaves the soil flowers' words as they were", () => {
     expect(stageWord({ species: "rose", stage: "sprout", bloom: 0 })).toBe("a sprout");
     expect(stageWord({ species: "jasmine", stage: "leafy", bloom: 0 })).toBe("growing");
     expect(stageWord({ species: "marigold", stage: "bloom", bloom: 0 })).toBe("in bloom");

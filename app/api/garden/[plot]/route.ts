@@ -3,7 +3,8 @@
 // Meadow's coarse bands. It is what "See their garden" draws and what the Meadow's visit card says; it carries nothing
 // private, so it is the same for every viewer and the CDN may cache it briefly. The ETag lets a client send
 // If-None-Match and get a bodiless 304 when nothing changed. An empty plot (or a practice plant this deployment hides)
-// is 404 plot_empty; a plot number outside the Meadow is 404 plot_unknown. Reading the request headers keeps this handler
+// is 404 plot_empty, as is a plant newer than the page that asks (?seeds=, species-guard.ts seenBy); a plot number
+// outside the Meadow is 404 plot_unknown. Reading the request headers keeps this handler
 // out of build-time prerendering; unstable_rethrow lets that signal through the catch instead of turning it into an
 // error response.
 import { createHash } from "node:crypto";
@@ -12,6 +13,7 @@ import type { NextRequest } from "next/server";
 import { ApiError, errorResponse } from "@/lib/server/http";
 import { gardenOfPlot } from "@/lib/server/meadow";
 import { isPlotIndex } from "@/lib/server/plots";
+import { seedsOf, seenBy } from "@/lib/server/species-guard";
 
 // The plant changes once an hour, and its flower opens and closes with the clock, so a minute is fresh enough.
 const CACHE = "public, max-age=0, s-maxage=60, stale-while-revalidate=300";
@@ -37,7 +39,11 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ plot: s
   try {
     const ifNoneMatch = request.headers.get("if-none-match");
     const { plot: raw } = await ctx.params;
-    const body = JSON.stringify(await gardenOfPlot(parsePlot(raw)));
+    const garden = await gardenOfPlot(parsePlot(raw));
+    if (!seenBy(garden.species, seedsOf(request.nextUrl.searchParams.get("seeds")))) {
+      throw new ApiError(404, "plot_empty", "Nobody has planted in that plot yet.");
+    }
+    const body = JSON.stringify(garden);
     const etag = `"${createHash("sha256").update(body).digest("base64url").slice(0, 27)}"`;
     const headers = { ETag: etag, "Cache-Control": CACHE };
     if (matches(ifNoneMatch, etag)) return new Response(null, { status: 304, headers });

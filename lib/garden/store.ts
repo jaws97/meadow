@@ -7,7 +7,7 @@
 // The care layer also says how much of the screen its card covers (dock), so
 // the camera can keep the plant in the open part of the view. A lotus brings
 // its pond as well (pond: the model's pond numbers, eased the same way, and the
-// moments this device's own care started); it is null for the six soil flowers, whose own can (canMoment) the
+// moments this device's own care started); it is null for the seven soil flowers, whose own can (canMoment) the
 // garden plays once instead.
 import { useSyncExternalStore } from "react";
 import { planFor, readDevice, recallTier, rememberTier } from "@/lib/garden/device";

@@ -17,7 +17,7 @@
 // from that bearing at a typical elevation is how the camera sees it.
 //
 // A lotus is drawn as one of two kinds: in its brass urli on a bed plot (the "lotus" row), or standing in a river pocket
-// ("lotusRiver", the eighth row: the pond view's plant on its pocket-length stalks, no urli and no floating leaves, which
+// ("lotusRiver", the ninth row: the pond view's plant on its pocket-length stalks, no urli and no floating leaves, which
 // lie on the water as Plants.tsx's pads at every distance). A pocket's plant has no light plant or picture as a sprout
 // (a floating-leaf plant is all pads), and stands turned to whichever of the three angles is nearest to facing its open
 // channel (pocketSpin), so its light plant, its picture and its visit all stand the same way, its back to the wall.
@@ -28,11 +28,14 @@ import type { SpeciesId } from "@/lib/plant/species";
 
 export type Band = "sprout" | "leafy" | "bud" | "bloom";
 export const BANDS: readonly Band[] = ["sprout", "leafy", "bud", "bloom"];
-/** The species with detail levels, in the atlas's row order. */
-export const LOD_SPECIES: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"];
+/** The species with detail levels, in the atlas's row order: the seed picker's (components/gift/species.ts SEED_ORDER). */
+export const LOD_SPECIES: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lily", "lotus"];
 /** What a detail plant is drawn as: a species (the lotus in its urli), or the lotus standing in a river pocket. */
 export type LodKind = SpeciesId | "lotusRiver";
-/** The atlas rows, in order; a new kind is appended last so the existing cells keep their places. */
+/**
+ * The atlas rows, in order: the species, then the lotus in a river pocket. A new seed takes its place in the picker's
+ * order (the Pink Lily before the lotus) and moves the rows after it down, so the atlas is re-baked whole with it.
+ */
 export const LOD_KINDS: readonly LodKind[] = [...LOD_SPECIES, "lotusRiver"];
 
 /** The kind a plant of `species` is drawn as (a lotus in a river pocket stands in the water, not in its urli). */
@@ -69,6 +72,9 @@ export const LOD_SEEDS: Record<SpeciesId, string> = {
   marigold: "typical-79",
   island: "typical-20",
   jasmine: "typical-2",
+  // picked the same way from the lily's first look (its long stamens count toward its height): a reshaped lily may
+  // move its medians, so pick again before baking the atlas
+  lily: "typical-199",
   // the lotus in its urli is posed from fixed leaf places (components/lotus/lod.ts), not from a seed: this names the
   // visit's plant in a made-up Meadow's &same=1 (lod/synthetic.ts), whose urli look is the same for every seed
   lotus: "typical-0",

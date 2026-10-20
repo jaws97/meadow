@@ -49,12 +49,14 @@ describe("bands", () => {
     const seen = new Set<number>();
     for (const kind of LOD_KINDS) for (const band of BANDS) SPINS.forEach((_, s) => seen.add(cellIndex(kind, band, s)));
     expect(seen.size).toBe(CELL_COUNT);
-    expect(CELL_COUNT).toBe(96);
+    expect(CELL_COUNT).toBe(108);
     expect(CELLS.length).toBe(CELL_COUNT);
     expect(Math.max(...seen)).toBe(CELL_COUNT - 1);
-    // the seven species keep their cells (the first 84, as before the river)
-    for (const species of LOD_SPECIES) for (const band of BANDS) expect(cellIndex(species, band, 0)).toBeLessThan(84);
-    expect(cellIndex("lotusRiver", "sprout", 0)).toBe(84);
+    // the eight species fill the first 96 cells, a row of twelve each in the picker's order, and the river's lotus the last
+    for (const species of LOD_SPECIES) for (const band of BANDS) expect(cellIndex(species, band, 0)).toBeLessThan(96);
+    expect(cellIndex("lily", "sprout", 0)).toBe(72);
+    expect(cellIndex("lotus", "sprout", 0)).toBe(84);
+    expect(cellIndex("lotusRiver", "sprout", 0)).toBe(96);
     // a kind with no light plant in a band has an empty cell, never drawn
     expect(CELLS[cellIndex("lotusRiver", "sprout", 1)].every((v) => v === 0)).toBe(true);
   });

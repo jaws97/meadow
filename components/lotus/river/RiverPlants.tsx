@@ -4,7 +4,7 @@
    written in layout effects and the frame loop; the React Compiler lint reads those writes as mutating a hook's value. */
 // The ordinary plants in the ring beds beside the river, as the party would leave them about two weeks on: the 246
 // soil seeds of the party's 300 (18% went to the river) in the lowest bed plots (beds 0 and 1 full, bed 2's inner ring
-// sown evenly), each grown to a sprout, a leafy plant, a bud or a bloom of one of the six species. They are the Meadow's
+// sown evenly), each grown to a sprout, a leafy plant, a bud or a bloom of one of the seven species. They are the Meadow's
 // own near light plants (components/meadow/lod: bake.ts's plant for each species and band, drawn with its own near
 // material and shadow, standing as LodPlants.tsx stands them: leaning a touch toward their path, turned to one of three
 // angles, at the Meadow's plant scale), with a name stake in front of each, and soft wildflowers in the plots nobody

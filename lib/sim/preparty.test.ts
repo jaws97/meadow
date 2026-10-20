@@ -18,7 +18,7 @@ const LATE = EARLY + SHIFT;
 /** the fixture's November weather, relabelled so that hour EARLY reads the row LATE does */
 const shifted = (h: number): HourWeather | undefined => MEAN[h + SHIFT];
 
-const SPECIES: readonly SoilSpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine"];
+const SPECIES: readonly SoilSpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lily"];
 const HOURS = Math.min(24 * 30, NH - LATE);
 
 function pair(id: SoilSpeciesId): { early: Run; late: Run } {

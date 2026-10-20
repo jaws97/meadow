@@ -693,9 +693,12 @@
 }
 
 /*
- * The seventh seed, the lotus, grows in its own koi pond, so it closes the set as one wide card the width of a row: its
+ * The last seed, the lotus, grows in its own koi pond, so it closes the set as one wide card the width of a row: its
  * picture exactly one column wide, lined up with the cards above (a subgrid of the cards' grid; the fallback works the
- * column out), and beside it its name, where it lives and its character, centred down the picture's height.
+ * column out), and beside it its name, where it lives and its character, centred down the picture's height. A bed card
+ * left alone in the last row (SeedPicker.tsx LONE_BED: the seventh, as seven cards leave one over in rows of two and of
+ * three) takes the same shape just above it, with no line for where it lives (its empty row has no height). Two to a
+ * row on a phone and in the laptop's panel, three between: the fallback columns below follow the grid and its gap.
  */
 .gift-seed-wide {
   grid-column: 1 / -1;

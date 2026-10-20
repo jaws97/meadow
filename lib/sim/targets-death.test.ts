@@ -4,6 +4,7 @@
 // keeps a plant healthy. Measured on recorded weather exactly as the prototype's run.mjs measures it (targets-v6.json).
 // Rows marked "awaiting sign-off" are the model engineer's restated wording that the user has not yet accepted; each has
 // an it.fails twin holding the original wording, so a fix (or the sign-off) is noticed.
+// Every sweep runs over every soil species (the harness's IDS), the Pink Lily included; run counts scale with IDS.length.
 import { beforeAll, describe, expect, it } from "vitest";
 import { IDS, PARTY, YEARS, abandonAge, bloomOf, dryAll, goodCare, range, simulate, weekendStats, type DryKey } from "./__fixtures__/harness";
 
@@ -37,8 +38,8 @@ describe("targets: abandonment of a young plant (last can on day 2, then nobody;
     expect(y1).toBeLessThanOrEqual(3.6);
   });
 
-  // KNOWN FAILURE (awaiting sign-off): on the hottest stitched days 16 of 144 young plants die at 5.4-5.5 d. Real
-  // 2023-25 dry windows never fall below 5.6 d.
+  // KNOWN FAILURE (awaiting sign-off): on the hottest stitched days 16 of 168 young plants die at 5.4-5.5 d (none of them
+  // a lily). Real 2023-25 dry windows never fall below 5.6 d.
   it.fails("original wording: the hottest days also die no sooner than 5.5 days", () => {
     expect(Math.min(...res.hot.death)).toBeGreaterThanOrEqual(5.5);
   });
@@ -75,7 +76,7 @@ describe("targets: a weekend away (Fri 18:00 to Mon 09:00, every weekend of the 
   beforeAll(() => { wk = weekendStats(); }, 60_000);
 
   it("survives", () => {
-    expect(wk.n).toBe(360);
+    expect(wk.n).toBe(YEARS.length * IDS.length * 20);   // every weekend starting on days 1-20, each year and species
     expect(wk.deaths).toBe(0);
   });
 

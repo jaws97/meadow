@@ -185,10 +185,61 @@ export interface PetalTexOpts {
   fade: number;
   /** 0 none .. 1 scorched tip */
   burn: number;
+  /** a lily's marks (lib/plant/species FlowerSpec marks): its throat, the streak up the middle and the freckles */
+  marks?: { throat: string; streak: string; spots: string };
 }
 
 const PW = 384;
 const PH = 768;
+
+/**
+ * A lily's marks on the blade: a green-yellow throat where the petal leaves the flower's heart, a deeper streak up the
+ * middle of the lower blade fading out before the middle, and freckles scattered over the lower half, thickest near the
+ * midline and the base, each a little longer than wide as on a real tepal. Drawn in the colour map alone, so the light
+ * tier (which has no normal map) shows them too.
+ */
+function paintMarks(ctx: CanvasRenderingContext2D, W: number, H: number, m: { throat: string; streak: string; spots: string }, rng: Rng) {
+  // the streak: soft layered bands up the midline, widest and strongest at the base
+  for (let k = 0; k < 4; k++) {
+    const w = W * (0.16 - 0.03 * k);
+    const top = H * (0.38 + 0.06 * k);
+    const g = ctx.createLinearGradient(0, H, 0, top);
+    g.addColorStop(0, rgba(m.streak, 0.2));
+    g.addColorStop(0.55, rgba(m.streak, 0.16));
+    g.addColorStop(1, rgba(m.streak, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(W / 2 - w / 2, H);
+    ctx.quadraticCurveTo(W / 2 - w * 0.45, H * 0.7, W / 2, top);
+    ctx.quadraticCurveTo(W / 2 + w * 0.45, H * 0.7, W / 2 + w / 2, H);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // the throat: green-yellow, a narrow star up the midline from the base
+  const tg = ctx.createRadialGradient(W / 2, H, 0, W / 2, H, H * 0.34);
+  tg.addColorStop(0, rgba(m.throat, 1));
+  tg.addColorStop(0.4, rgba(m.throat, 0.75));
+  tg.addColorStop(1, rgba(m.throat, 0));
+  ctx.save();
+  ctx.translate(W / 2, H);
+  ctx.scale(0.42, 1);
+  ctx.translate(-W / 2, -H);
+  ctx.fillStyle = tg;
+  ctx.fillRect(W / 2 - H * 0.34, H * 0.66, H * 0.68, H * 0.34);
+  ctx.restore();
+  // the freckles, deep pink, darker and denser toward the heart
+  for (let i = 0; i < 90; i++) {
+    const v = Math.pow(rng.next(), 1.6) * 0.5;
+    const spread = 0.08 + 0.3 * (v / 0.5);
+    const x = W * (0.5 + (rng.next() * 2 - 1) * spread);
+    const y = H * (1 - 0.06 - v);
+    const r = W * (0.006 + rng.next() * 0.01) * (1.2 - v);
+    ctx.fillStyle = rgba(m.spots, 0.45 + 0.4 * rng.next() * (1 - v));
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * (1.3 + rng.next() * 0.6), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
 
 export function petalTexture(o: PetalTexOpts): THREE.CanvasTexture {
   const key = "petal:" + JSON.stringify(o);
@@ -262,6 +313,9 @@ export function petalTexture(o: PetalTexOpts): THREE.CanvasTexture {
 
   // faint lighter veins fanning from the base
   strokeVeins(ctx, W, H, veins, rgba(o.vein, 0.16), 2, rgba(o.vein, 0.09), 1);
+
+  // a lily's throat, streak and freckles, from their own draws so a clean blade's grain is unchanged
+  if (o.marks) paintMarks(ctx, W, H, o.marks, new Rng(o.seed * 7727 + 3));
 
   // grain
   for (let i = 0; i < 2600; i++) {

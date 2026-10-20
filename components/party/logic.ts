@@ -144,7 +144,7 @@ export function seedPhrase(species: SpeciesId): string {
 /**
  * The colour of a planting's dot in the feed: the flower's own glow (lib/plant/species fx.glowColor). The lotus glows
  * amber only while its flower is warm, and that amber is the marigold's; its dot is its petals' soft pink instead, so
- * the seven read apart on the big screen.
+ * the eight read apart on the big screen (the Pink Lily's glow is a deeper magenta-pink than the lotus's petals).
  */
 export function seedColour(species: SpeciesId): string {
   return species === "lotus" ? SPECIES.lotus.flower.colorTip : SPECIES[species].fx.glowColor;

@@ -356,7 +356,7 @@ describe("the lotus", () => {
     const s = careStatus(lotus({ lastKoiH: 97 }), [ev("tend", 99)], 100);
     expect(s.koi).toEqual({ ready: false, nextH: 101, lastH: 97 });
     expect(careStatus(lotus(), [], 100).koi).toEqual({ ready: true, nextH: null, lastH: null });
-    // the six soil flowers have no koi
+    // the soil flowers have no koi
     expect(careStatus(fresh(), [], 100).koi).toBeNull();
   });
 

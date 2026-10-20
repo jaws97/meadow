@@ -11,11 +11,16 @@
 // Retry-After with a little jitter and resending the same body with the same clientEventId, so a retry can never
 // count twice. Every other refusal is shown as the server's own message.
 //
+// A page can be older than the server it polls (a tab left open across the deploy that offers a new seed), so a plant
+// of a species this build does not know is left out of the snapshot, and a friend's plant of one is answered with a
+// calm word instead of being drawn: neither has a species record here, and drawing one would take the Meadow down.
+//
 // Development only: ?demo=N tops the real snapshot up with made-up plants, and ?synthetic=N[&stage=bloom] replaces it
 // with a made-up Meadow of N plants (lod/synthetic.ts) whose visits are answered locally and whose sprinkles are
 // never sent, so nothing reaches the server or the database. Neither does anything in a production build.
 import { useSyncExternalStore } from "react";
 import { readSynthetic, syntheticFriend, syntheticSnapshot, type SyntheticOptions } from "@/components/meadow/lod/synthetic";
+import { ALL_SPECIES, SPECIES, type SpeciesId } from "@/lib/plant/species";
 import type { FriendGarden, MeadowPlot, MeadowSnapshot } from "@/lib/server/meadow";
 import { assignPlot, isBedIndex } from "@/lib/server/plots";
 
@@ -62,6 +67,29 @@ export function useMeadowData<T>(selector: (d: MeadowData) => T): T {
   );
 }
 
+/** Whether this build can draw a species: one planted from a newer build has no record here (lib/plant/species). */
+const isKnownSpecies = (v: unknown): v is SpeciesId => typeof v === "string" && Object.hasOwn(SPECIES, v);
+
+const unknownLogged = new Set<string>();
+
+/**
+ * The snapshot without the plants of a species this build does not know, each such species logged once per page
+ * (the snapshot is polled every few seconds), as the server leaves out what it cannot step (lib/server/species-guard.ts)
+ * and the party screen what it cannot name (components/party/logic.ts parseSnapshot). The count is the server's: those
+ * seeds were planted all the same.
+ */
+export function knownPlots(snapshot: MeadowSnapshot, log: (msg: string) => void = console.warn): MeadowSnapshot {
+  const plots = snapshot.plots.filter((p) => isKnownSpecies(p.species));
+  if (plots.length === snapshot.plots.length) return snapshot;
+  for (const p of snapshot.plots) {
+    const sp = String(p.species);
+    if (isKnownSpecies(sp) || unknownLogged.has(sp)) continue;
+    unknownLogged.add(sp);
+    log(`[meadow] left out the plants of a species this page does not know yet: ${sp} (a reload shows them)`);
+  }
+  return { ...snapshot, plots };
+}
+
 /** Two plants are the same on screen when nothing the Meadow draws or says about them has changed. */
 const samePlot = (a: MeadowPlot, b: MeadowPlot) =>
   a.species === b.species && a.name === b.name && a.stage === b.stage && a.health === b.health && a.bloom === b.bloom && a.generation === b.generation;
@@ -88,7 +116,7 @@ function withDemoPlants(snapshot: MeadowSnapshot): MeadowSnapshot {
   if (process.env.NODE_ENV === "production") return snapshot;
   const want = Number(new URLSearchParams(window.location.search).get("demo"));
   if (!Number.isInteger(want) || want <= snapshot.plots.length) return snapshot;
-  const species = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"] as const;
+  const species = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lily", "lotus"] as const;
   const stages = ["seed", "seed", "seed", "sprout", "sprout", "leafy", "leafy", "bud", "bloom"] as const;
   const taken = new Set(snapshot.plots.map((p) => p.plot));
   const plots = [...snapshot.plots];
@@ -104,7 +132,7 @@ function withDemoPlants(snapshot: MeadowSnapshot): MeadowSnapshot {
 }
 
 function absorb(fresh: MeadowSnapshot) {
-  const snapshot = withDemoPlants(fresh);
+  const snapshot = withDemoPlants(knownPlots(fresh));
   const first = data.snapshot === null;
   const byPlot = new Map<number, MeadowPlot>();
   let highest = -1;
@@ -144,7 +172,7 @@ async function poll(): Promise<void> {
   inFlight = (async () => {
     lastPoll = Date.now();
     try {
-      const res = await fetch("/api/meadow", {
+      const res = await fetch(`/api/meadow?seeds=${ALL_SPECIES.length}`, {
         cache: "no-store",
         headers: etag ? { "If-None-Match": etag } : {},
       });
@@ -272,7 +300,7 @@ export function loadFriend(plot: number): Promise<Loaded<FriendGarden>> {
   if (pending) return pending;
   const run = (async (): Promise<Loaded<FriendGarden>> => {
     try {
-      const res = await fetch(`/api/garden/${plot}`, {
+      const res = await fetch(`/api/garden/${plot}?seeds=${ALL_SPECIES.length}`, {
         cache: "no-store",
         headers: cached?.etag ? { "If-None-Match": cached.etag } : {},
       });
@@ -282,6 +310,8 @@ export function loadFriend(plot: number): Promise<Loaded<FriendGarden>> {
       }
       const body = (await res.json()) as FriendGarden & { error?: string; message?: string };
       if (!res.ok) return { ok: false, code: body.error ?? "unavailable", message: body.message ?? "This flower is resting for a moment." };
+      // a flower newer than this page (its snapshot leaves it out too): never cached, so a reload shows it
+      if (!isKnownSpecies(body.species)) return { ok: false, code: "species_unknown", message: "This flower is newer than this page. Reload the page to see it." };
       friends.set(plot, { at: Date.now(), etag: res.headers.get("ETag"), value: body });
       return { ok: true, value: body };
     } catch {

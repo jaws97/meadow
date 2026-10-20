@@ -43,7 +43,7 @@ const SPLASH: ReadonlyArray<[x: number, dx: string, delay: string]> = [
   [116, "8px", "0.54s"],
 ];
 
-/** Where a seed goes in: the garden bed (the six flowers) or a glass jar of water by the pond (the lotus). */
+/** Where a seed goes in: the garden bed (the seven flowers) or a glass jar of water by the pond (the lotus). */
 export type PlantingVessel = "bed" | "jar";
 
 export function PlantingMoment({ planted, small = false, vessel = "bed" }: { planted: boolean; small?: boolean; vessel?: PlantingVessel }) {

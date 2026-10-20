@@ -21,7 +21,7 @@ describe("the water book", () => {
   it("closes to 1e-9 mm every hour for random players (revives, replants, cover, sprinkles included)", () => {
     let worst = 0, hours = 0, revived = 0, replanted = 0;
     for (let k = 0; k < 120; k++) {
-      const rnd = mulberry32(12345 + 7919 * k), id = IDS[k % 6], y = YEARS[k % 3], plantH = PARTY + Math.floor(rnd() * 400);
+      const rnd = mulberry32(12345 + 7919 * k), id = IDS[k % IDS.length], y = YEARS[k % 3], plantH = PARTY + Math.floor(rnd() * 400);
       const r = simulate({ spId: id, year: y, plantH, policy: randomPolicy(rnd), endH: 983 });
       const s0 = createPlant(id, plantH), b0 = s0.W + s0.L;
       for (const x of r.rec) {
@@ -41,7 +41,7 @@ describe("the water book", () => {
   it("keeps the root zone above its air-dry floor, and evaporation never runs backwards", () => {
     let low = 0, back = 0;
     for (let k = 0; k < 30; k++) {
-      const rnd = mulberry32(99 + k), r = simulate({ spId: IDS[k % 6], year: YEARS[k % 3], policy: randomPolicy(rnd), endH: 983 });
+      const rnd = mulberry32(99 + k), r = simulate({ spId: IDS[k % IDS.length], year: YEARS[k % 3], policy: randomPolicy(rnd), endH: 983 });
       let prevET = 0;
       for (const x of r.rec) {
         if (x.s.W < 0.85 * 1000 * BED.twp * x.s.Zr - 1e-9 || x.s.L <= 0) low++;
@@ -58,7 +58,7 @@ describe("state and visual invariants", () => {
   it("stay finite and in range, health is 0 only at death, and nothing blooms when gone", () => {
     const bad: string[] = [];
     for (let k = 0; k < 60; k++) {
-      const rnd = mulberry32(4242 + 31 * k), r = simulate({ spId: IDS[k % 6], year: YEARS[k % 3], policy: randomPolicy(rnd), endH: 983 });
+      const rnd = mulberry32(4242 + 31 * k), r = simulate({ spId: IDS[k % IDS.length], year: YEARS[k % 3], policy: randomPolicy(rnd), endH: 983 });
       for (const x of r.rec) {
         for (const [key, val] of Object.entries(x.v)) {
           if (typeof val !== "number") continue;
@@ -171,7 +171,7 @@ describe("broken weather rows (cleanWx)", () => {
   it("keeps the state finite and the water book closed when 3% of hours carry broken fields", () => {
     let bad = 0, worst = 0, broken = 0;
     for (let k = 0; k < 40; k++) {
-      const rnd = mulberry32(555 + 31 * k), id = IDS[k % 6], y = YEARS[k % 3], rows = rowsFor(y);
+      const rnd = mulberry32(555 + 31 * k), id = IDS[k % IDS.length], y = YEARS[k % 3], rows = rowsFor(y);
       const wxAt = (h: number) => {
         const w: Record<string, unknown> = { ...rows[h] };
         if (rnd() < 0.03) { broken++; for (let j = 0, m = 1 + Math.floor(rnd() * 3); j < m; j++) w[KEYS[Math.floor(rnd() * KEYS.length)]] = BROKEN[Math.floor(rnd() * BROKEN.length)]; }
@@ -196,8 +196,10 @@ describe("broken weather rows (cleanWx)", () => {
 describe("opening in the flower's own part of the day", () => {
   it("morning flowers open from first light to 17:00, Night Jasmine from dusk to 06:00", () => {
     const hours = (id: keyof typeof SIM_SPECIES) => Array.from({ length: 24 }, (_, h) => h).filter((h) => openWindow(SIM_SPECIES[id], h));
-    for (const id of ["rose", "sundrop", "magnolia", "marigold", "island"] as const) expect(hours(id), id).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    const morning = ["rose", "sundrop", "magnolia", "marigold", "island", "lily"] as const;
+    for (const id of morning) expect(hours(id), id).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
     expect(hours("jasmine")).toEqual([0, 1, 2, 3, 4, 5, 17, 18, 19, 20, 21, 22, 23]);
+    expect([...morning, "jasmine"].sort(), "every species is checked").toEqual(Object.keys(SIM_SPECIES).sort());
   });
 
   it("a wilted bud still opening when its window closes pauses, says so, and finishes in the next window", () => {
@@ -223,7 +225,7 @@ describe("advice and mood", () => {
   it("the can asks for a drink well before thirst, and never while it warns that the soil is damp", () => {
     let ready = 0, readyAm = 0;
     for (let k = 0; k < 24; k++) {
-      const r = simulate({ spId: IDS[k % 6], year: YEARS[k % 3], policy: randomPolicy(mulberry32(31 + k)), endH: 983 });
+      const r = simulate({ spId: IDS[k % IDS.length], year: YEARS[k % 3], policy: randomPolicy(mulberry32(31 + k)), endH: 983 });
       for (const x of r.rec) {
         if (x.v.canAdvice !== "ready") continue;
         ready++;
@@ -243,7 +245,7 @@ describe("advice and mood", () => {
   it("thirst and a soaked bed outrank the blooming mood, and roots past the infection lag read unwell and never calm", () => {
     let blooming = 0, rotting = 0, early = 0;
     for (let k = 0; k < 60; k++) {
-      const r = simulate({ spId: IDS[k % 6], year: YEARS[k % 3], policy: randomPolicy(mulberry32(7000 + k)), endH: 983 });
+      const r = simulate({ spId: IDS[k % IDS.length], year: YEARS[k % 3], policy: randomPolicy(mulberry32(7000 + k)), endH: 983 });
       for (const x of r.rec) {
         if (!x.s.alive) continue;
         const f = fOf(x.s), thirsty = f > 0.4 || (x.s.turgor < 0.85 && f > 0.3), th = thetaOf(x.s);
@@ -308,7 +310,7 @@ describe("the flush that feeds the rot", () => {
 
   it("keeps the care water free to drain at or above zero and near the bed's water above field capacity", () => {
     for (let k = 0; k < 30; k++) {
-      const r = simulate({ spId: IDS[k % 6], year: YEARS[k % 3], policy: randomPolicy(mulberry32(300 + k)), endH: 983 });
+      const r = simulate({ spId: IDS[k % IDS.length], year: YEARS[k % 3], policy: randomPolicy(mulberry32(300 + k)), endH: 983 });
       for (const x of r.rec) {
         expect(x.s.wCx).toBeGreaterThanOrEqual(0);
         // clipped to the water above field capacity before the hour's root growth, which can move the line a little

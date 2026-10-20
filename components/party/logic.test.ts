@@ -98,7 +98,9 @@ describe("the counter and the feed", () => {
     expect(plantedLine({ name: "A friend", species: "marigold" })).toBe("A friend planted a Marigold");
     expect(plantedLine({ name: "Ravi", species: "island" })).toBe("Ravi planted an Island Bloom");
     expect(plantedLine({ name: "Test Seed", species: "lotus" })).toBe("Test Seed planted a Lotus");
+    expect(plantedLine({ name: "Meera", species: "lily" })).toBe("Meera planted a Pink Lily");
     expect(seedPhrase("lotus")).toBe("a Lotus");
+    expect(seedPhrase("lily")).toBe("a Pink Lily");
     expect(counterWords(1)).toBe("seed planted");
     expect(counterWords(2)).toBe("seeds planted");
     expect(counterWords(0)).toBe("seeds planted");
@@ -118,12 +120,13 @@ describe("the counter and the feed", () => {
     expect(parseSnapshot({ v: 2, plots: [] })).toBeNull();
     expect(parseSnapshot(null)).toBeNull();
     expect(parseSnapshot({ v: 1, plots: [plot(0, "A")] })?.count).toBe(1);
-    // the seventh seed is a planting like the others
+    // the lotus and the Pink Lily, the seeds that joined later, are plantings like the others
     expect(parseSnapshot({ v: 1, plots: [plot(4, "Asha", "lotus")] })?.plots).toEqual([plot(4, "Asha", "lotus")]);
+    expect(parseSnapshot({ v: 1, plots: [plot(5, "Meera", "lily")] })?.plots).toEqual([plot(5, "Meera", "lily")]);
   });
 
   it("gives every seed its own dot, the lotus its petals' pink rather than the marigold's amber", () => {
-    const ids = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"] as const;
+    const ids = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lily", "lotus"] as const;
     const colours = ids.map(seedColour);
     expect(new Set(colours).size).toBe(ids.length);
     for (const c of colours) expect(c).toMatch(/^#[0-9a-f]{6}$/i);
@@ -132,6 +135,20 @@ describe("the counter and the feed", () => {
     expect(r).toBeGreaterThan(g + 40);
     expect(b).toBeGreaterThan(g);
     expect(seedColour("marigold")).not.toBe(seedColour("lotus"));
+  });
+
+  it("gives the Pink Lily a dot of its own among the other pinks: the rose's red, the magnolia's blush, the lotus's petals", () => {
+    // CIELAB distance (CIE76): about 2 is the least two colours side by side can be told apart by; small dots on a
+    // dark screen, seen across a room, want far more
+    const lab = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+      const [x, y, z] = [(0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047, 0.2126 * r + 0.7152 * g + 0.0722 * b, (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883].map(f);
+      return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+    };
+    const apart = (a: string, b: string) => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i]));
+    expect(seedColour("lily")).toBe("#f36fc8");
+    for (const other of ["rose", "magnolia", "lotus"] as const) expect(apart(seedColour("lily"), seedColour(other)), other).toBeGreaterThan(30);
   });
 
   it("finds new plantings oldest first, and the latest ones newest first, in the snapshot's sowing order", () => {

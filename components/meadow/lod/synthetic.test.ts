@@ -56,7 +56,7 @@ describe("syntheticSnapshot", () => {
 
 describe("a made-up Meadow's lotus", () => {
   it("sows them into the river's pockets in order, and once all 56 are taken into bed plots' urlis", () => {
-    for (const count of [120, 300, 400, 720]) {
+    for (const count of [120, 300, 480, 720]) {
       const plots = syntheticSnapshot({ count }, 0).plots;
       const lotus = plots.filter((p) => p.species === "lotus");
       const inPockets = lotus.slice(0, POCKET_COUNT);
@@ -65,12 +65,13 @@ describe("a made-up Meadow's lotus", () => {
       // nothing but a lotus in a pocket
       expect(plots.filter((p) => isPocketIndex(p.plot)).every((p) => p.species === "lotus")).toBe(true);
     }
-    // ?synthetic=300 sows its lotus all into the river, 400 fills every pocket, and 420 puts the next lotus in an urli
+    // with eight species to sow, ?synthetic=300 sows its lotus all into the river, 480 fills every pocket, and 490 puts
+    // the next two lotus in urlis
     const lotusOf = (count: number) => syntheticSnapshot({ count }, 0).plots.filter((p) => p.species === "lotus");
     expect(lotusOf(300).every((p) => isPocketIndex(p.plot))).toBe(true);
-    expect(lotusOf(400).length).toBe(POCKET_COUNT);
-    expect(lotusOf(400).every((p) => isPocketIndex(p.plot))).toBe(true);
-    expect(lotusOf(420).filter((p) => !isPocketIndex(p.plot)).length).toBe(1);
+    expect(lotusOf(480).length).toBe(POCKET_COUNT);
+    expect(lotusOf(480).every((p) => isPocketIndex(p.plot))).toBe(true);
+    expect(lotusOf(490).filter((p) => !isPocketIndex(p.plot)).length).toBe(2);
   });
 });
 

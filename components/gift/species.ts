@@ -1,14 +1,14 @@
 // What the seed picker says about each flower, read from the plant model's own numbers (lib/sim SIM_SPECIES) and the
 // renderer's packet copy (lib/plant/species), so the cards stay honest if the model is retuned. Each trait is a plain
 // phrase a colleague can act on: how often it wants water, how it takes the afternoon sun, how it minds soggy soil,
-// and when its petals open. The seventh seed, the lotus, grows in its own koi pond under its own model
+// and when its petals open. The last seed, the lotus, grows in its own koi pond under its own model
 // (lib/sim/pond.ts), so its packet says what that model does: where it lives, the jar it starts in, its koi, its
 // three-day flower and its rain, with the honest line on whose care it needs most, and when.
 import { POND_SPECIES, SIM_SPECIES, type SimSpecies } from "@/lib/sim";
 import { SPECIES, type SpeciesId } from "@/lib/plant/species";
 
 /** The order the server lists the seed packets in (lib/server/validate.ts SPECIES_IDS). */
-export const SEED_ORDER: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lotus"];
+export const SEED_ORDER: readonly SpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine", "lily", "lotus"];
 
 /**
  * Packet lines that promise something the model (v5) does not do: no flower heals faster, and every flower keeps its

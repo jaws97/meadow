@@ -58,6 +58,11 @@ export const MEAN: HourWeather[] = Array.from({ length: NH }, (_, h) => {
   return { P: 0, T: avg("T"), RH: avg("RH"), SW, ET0: avg("ET0"), U: avg("U"), Ts: avg("Ts"), isDay: SW > 0 ? 1 : 0 };
 });
 
+/**
+ * Every soil species, in SIM_SPECIES order: the prototype's six, then the Pink Lily (added after the prototype was locked).
+ * Every sweep below runs over all of them and the target suites count their runs by IDS.length, so a species added to
+ * SIM_SPECIES is measured by every target without touching the tests.
+ */
 export const IDS = Object.keys(SIM_SPECIES) as SpeciesId[];
 export const OWNER = "me";
 /** 10 Nov 15:00 IST: the party starts and the seeds are handed out */
@@ -367,9 +372,9 @@ export function weekendStats() {
 }
 
 /**
- * Good care at every planting hour of days 0-22 (from the party at 15:00 on day 0), 2023-25, six species (9936 runs): the
- * bloom day, the bud day, the bloom's clock hour and the error of expectBloom() made at planting (days). Each run is
- * stepped to 17 days after planting.
+ * Good care at every planting hour of days 0-22 (from the party at 15:00 on day 0), 2023-25, every species (1656 runs a
+ * species: 9936 for the prototype's six): the bloom day, the bud day, the bloom's clock hour and the error of
+ * expectBloom() made at planting (days). Each run is stepped to 17 days after planting.
  */
 export interface HourRun { id: SpeciesId; y: Year; p: number; days: number | null; ripe: number | null; hod: number | null; flower: number | null; err: number | null }
 export function hourSweep(forecast: (s: PlantState, sp: SimSpecies, h: number) => number, plantHours?: (p: number) => boolean): HourRun[] {
@@ -388,17 +393,18 @@ export function hourSweep(forecast: (s: PlantState, sp: SimSpecies, h: number) =
 /**
  * Stressed players, for the bloom moment's part of the day: 600 random under-waterers (random cans, revive or replant when
  * gone), 300 casual players (1-3 visits a day at random hours, a can at 80% of visits) and a can every day at 21:00 through
- * the 2023 wet week grafted on day 1, 5 or 10. Returns every bloom moment as species and clock hour.
+ * the 2023 wet week grafted on day 1, 5 or 10 (9 runs a species). The random and casual players take the species in turn
+ * (k % IDS.length) and the year as k % 3. Returns every bloom moment as species and clock hour, and n, the runs made.
  */
 export function openingStressed() {
   const moments: { id: SpeciesId; hod: number; what: string }[] = [];
   const tally = (r: Run, id: SpeciesId, what: string) => { for (const x of r.rec) if (x.s.bloomH === x.h) moments.push({ id, hod: x.h % 24, what }); };
   for (let k = 0; k < 600; k++) {
-    const R = mulberry32(777 + 31 * k), id = IDS[k % 6], y = YEARS[k % 3], p = PARTY + Math.floor(R() * 400), pw = 0.01 + R() * 0.12;
+    const R = mulberry32(777 + 31 * k), id = IDS[k % IDS.length], y = YEARS[k % 3], p = PARTY + Math.floor(R() * 400), pw = 0.01 + R() * 0.12;
     tally(simulate({ spId: id, year: y, plantH: p, endH: NH, policy: (h, hh, s) => { const ev: SimEvent[] = []; if (R() < pw) ev.push({ kind: "water" }); if (!s.alive && R() < 0.1) ev.push({ kind: s.fairyUsed ? "replant" : "revive" }); return ev; } }), id, `random ${k}`);
   }
   for (let k = 0; k < 300; k++) {
-    const R = mulberry32(9100 + 17 * k), id = IDS[k % 6], y = YEARS[k % 3], p = PARTY + 24 * Math.floor(R() * 8);
+    const R = mulberry32(9100 + 17 * k), id = IDS[k % IDS.length], y = YEARS[k % 3], p = PARTY + 24 * Math.floor(R() * 8);
     const hrs = new Set(Array.from({ length: 1 + Math.floor(R() * 3) }, () => 7 + Math.floor(R() * 15)));
     tally(simulate({ spId: id, year: y, plantH: p, endH: Math.min(NH, p + 24 * 24), policy: (h, hh, s) => (s.alive && hrs.has(hh) && R() < 0.8 ? [{ kind: "water" }] : []) }), id, `casual ${k}`);
   }
@@ -406,7 +412,7 @@ export function openingStressed() {
     const g = graft(y, gd);
     tally(simulate({ spId: id, year: y, wxAt: g.wx, policy: at((h, hh) => hh === 21), endH: Math.min(NH, PARTY + 24 * 26) }), id, `21:00 can, wet week d${gd} ${y}`);
   }
-  return { moments, n: 600 + 300 + 54 };
+  return { moments, n: 600 + 300 + 9 * IDS.length };
 }
 
 /**

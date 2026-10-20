@@ -7,6 +7,7 @@
 // Measured on recorded weather exactly as the prototype's run.mjs measures it (targets-v6.json), with the 3-10 Nov 2023
 // wet week (85 mm) grafted onto the game window, which has no week as wet. Rows marked "awaiting sign-off" are restated
 // wording the user has not yet accepted; each has an it.fails twin holding the original wording.
+// Every sweep runs over every soil species (the harness's IDS), the Pink Lily included; run counts scale with IDS.length.
 import { beforeAll, describe, expect, it } from "vitest";
 import { BED } from "./model";
 import {
@@ -15,6 +16,12 @@ import {
 } from "./__fixtures__/harness";
 
 const inWindow = (a: number[], lo = 4.45, hi = 5.55) => a.length > 0 && Math.min(...a) >= lo && Math.max(...a) <= hi;
+/** one run for each recorded year and species: 18 for the prototype's six */
+const PER_YEAR = YEARS.length * IDS.length;
+/** good care, then the wet week grafted on days 1-12 with a can at each of the 24 clock hours: 5184 runs for the six */
+const WET_AFTER_CARE_RUNS = 12 * 24 * PER_YEAR;
+/** the drizzles (5 rates x 4 lengths x 3 start days x 3 years) and the two scaled real rains (x3), for each species */
+const DRIZZLE_RUNS = (5 * 4 * 3 * 3 + 2 * 3) * IDS.length;
 
 describe("targets: over-watering", () => {
   it("three cans a day: rot shows within 1.5 days, death 4.5-5.5 days after the first can (8 schedules)", () => {
@@ -22,7 +29,7 @@ describe("targets: over-watering", () => {
     for (const set of SETS3) {
       const t = YEARS.flatMap((y) => IDS.map((id) => soakTimes(simulate({ spId: id, year: y, policy: at((h, hod) => set.includes(hod)) }), firstCan(set))));
       const d = t.filter((x) => x !== null);
-      expect(d.length, `${set} rot deaths`).toBe(18);
+      expect(d.length, `${set} rot deaths`).toBe(PER_YEAR);
       expect(inWindow(d.map((x) => x.death)), `${set} death days ${range(d.map((x) => x.death))}`).toBe(true);
       expect(Math.max(...d.map((x) => x.rot ?? 9)), `${set} rot sign`).toBeLessThanOrEqual(1.5);
     }
@@ -37,7 +44,7 @@ describe("targets: over-watering", () => {
         const g = graft(y, 3);
         for (const id of IDS) { const t = soakTimes(simulate({ spId: id, year: y, wxAt: g.wx, policy: at((h, hod) => hod === hh) }), g.anchor); if (t) d.push(t.death); }
       }
-      if (d.length !== 18 || !inWindow(d)) bad.push(`${hh}:00 -> ${d.length} rot deaths, ${range(d).map((x) => x.toFixed(2)).join("-")} d`);
+      if (d.length !== PER_YEAR || !inWindow(d)) bad.push(`${hh}:00 -> ${d.length} rot deaths, ${range(d).map((x) => x.toFixed(2)).join("-")} d`);
     }
     expect(bad).toEqual([]);
   });
@@ -48,11 +55,11 @@ describe("targets: over-watering", () => {
       const g = graft(y, d0);
       for (const id of IDS) { const t = soakTimes(simulate({ spId: id, year: y, wxAt: g.wx, policy: at((h, hod) => hod === 9) }), g.anchor); if (t) d.push(t.death); }
     }
-    expect(d).toHaveLength(72);
+    expect(d).toHaveLength(4 * PER_YEAR);
     expect(inWindow(d)).toBe(true);
   });
 
-  describe("good care until the wet week (grafted on days 1-12), then one can a day at every hour (5184 runs)", () => {
+  describe(`good care until the wet week (grafted on days 1-12), then one can a day at every hour (${WET_AFTER_CARE_RUNS} runs)`, () => {
     const deaths: number[] = [];
     let other = 0;
     beforeAll(() => {
@@ -64,12 +71,12 @@ describe("targets: over-watering", () => {
 
     it("every plant dies of rot, 4.5-6.0 days after the first heavy shower (restated, awaiting sign-off)", () => {
       expect(other).toBe(0);
-      expect(deaths).toHaveLength(5184);
+      expect(deaths).toHaveLength(WET_AFTER_CARE_RUNS);
       expect(inWindow(deaths, 4.45, 6.05)).toBe(true);
     });
 
     // KNOWN FAILURE (awaiting sign-off): a well-kept plant starts from a drier bed with deeper roots and rots more slowly;
-    // 94 of 5184 die 5.5-6.0 days after the shower.
+    // 99 of 6048 die 5.5-6.0 days after the shower (94 of the six's 5184, and 5 lilies).
     it.fails("original wording: within 4.5-5.5 days", () => {
       expect(inWindow(deaths)).toBe(true);
     });
@@ -82,9 +89,9 @@ describe("targets: rain with nobody watering", () => {
 
   it("every real 7-day window with >= 15 mm (and the grafted 85 mm week): no rot death, and every window with rain on 3 or more days survives", () => {
     const r = rw();
-    expect(r.n).toBe(156);
+    expect(r.n).toBe(26 * IDS.length);                                    // 26 windows, each for every species
     expect(r.rot).toBe(0);
-    expect(r.spread.n).toBe(114);
+    expect(r.spread.n).toBe(19 * IDS.length);                             // 19 of them with rain on 3 or more days
     expect(r.spread.deaths).toBe(0);
   });
 
@@ -104,17 +111,17 @@ describe("targets: rain with nobody watering", () => {
       expect(rl.rot).toBe(0);
     });
 
-    // KNOWN FAILURE (awaiting sign-off): weeks of light showers dry a plant out as abandonment does (10-15 mm: 24 of 156
-    // die; under 10 mm: 64 of 384), all of drought.
+    // KNOWN FAILURE (awaiting sign-off): weeks of light showers dry a plant out as abandonment does (10-15 mm: 28 of 182
+    // die; under 10 mm: 69 of 448; the six alone 24 of 156 and 64 of 384), all of drought.
     it.fails("original wording: every rain-only week with rain on 3 or more days survives, however light", () => {
       expect(rl.dead["10-15 mm"] + rl.dead["under 10 mm"]).toBe(0);
     });
   });
 
-  describe("beyond the record: steady drizzles of 0.5-3 mm/h for 48-120 h, and Fengal / 13-16 Nov 2024 rain x1.5-x3 (1116 runs)", () => {
+  describe(`beyond the record: steady drizzles of 0.5-3 mm/h for 48-120 h, and Fengal / 13-16 Nov 2024 rain x1.5-x3 (${DRIZZLE_RUNS} runs)`, () => {
     it("with no can from the morning before the rain: no rot death, no death when it rained on 3+ days, roots stay sound", () => {
       const dz = drizzleSweep(12);
-      expect(dz.n).toBe(1116);
+      expect(dz.n).toBe(DRIZZLE_RUNS);
       expect(dz.rot).toBe(0);
       expect(dz.spread.deaths).toBe(0);
       expect(dz.maxR).toBeLessThan(0.01);
@@ -124,8 +131,8 @@ describe("targets: rain with nobody watering", () => {
     // rain's flush on the care side after an evening can. The care share is now capped by the can's own water.
     it("with the last visit at 18:00, 6 h before the rain (a can when the plant asks): no rot death, the dose stays below the infection lag", () => {
       const dz = drizzleSweep(0);
-      expect(dz.n).toBe(1116);
-      expect(dz.cans).toBeGreaterThan(300);                                 // the plant asked for that drink in a third of the runs
+      expect(dz.n).toBe(DRIZZLE_RUNS);
+      expect(dz.cans).toBeGreaterThan(50 * IDS.length);                     // the plant asked for that drink in a third of the runs
       expect(dz.rot).toBe(0);
       expect(dz.maxO).toBeLessThan(BED.Olag);
       expect(dz.maxR).toBeLessThan(0.01);

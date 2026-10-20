@@ -57,6 +57,7 @@ export function petalMaterial(
       seed: 1,
       fade,
       burn,
+      marks: f.marks,
     });
     const cinematic = quality === "cinematic";
     return new THREE.MeshPhysicalMaterial({
@@ -182,7 +183,7 @@ export function sepalMaterial(sp: Species): THREE.MeshPhysicalMaterial {
 
 export function budMaterial(sp: Species): THREE.MeshPhysicalMaterial {
   return get(`bud|${sp.id}`, () => {
-    const c = new THREE.Color(sp.flower.colorBase).lerp(new THREE.Color(sp.flower.colorMid), 0.5);
+    const c = sp.flower.budColor ? new THREE.Color(sp.flower.budColor) : new THREE.Color(sp.flower.colorBase).lerp(new THREE.Color(sp.flower.colorMid), 0.5);
     return new THREE.MeshPhysicalMaterial({
       color: c,
       roughness: 0.5,
@@ -202,6 +203,17 @@ export function stamenMaterial(sp: Species): THREE.MeshStandardMaterial {
       emissive: new THREE.Color(sp.flower.center.color),
       emissiveIntensity: 0.35,
       roughness: 0.6,
+    });
+  });
+}
+
+/** A lily's long stamens (FlowerSpec center.long): the pale filaments and the style, and the style's stigma. */
+export function filamentMaterial(sp: Species, part: "filament" | "stigma"): THREE.MeshStandardMaterial {
+  return get(`${part}|${sp.id}`, () => {
+    const long = sp.flower.center.long;
+    return new THREE.MeshStandardMaterial({
+      color: new THREE.Color(part === "stigma" ? (long?.stigma ?? sp.flower.center.stamenColor) : (long?.filament ?? sp.flower.center.stamenColor)),
+      roughness: part === "stigma" ? 0.7 : 0.5,
     });
   });
 }

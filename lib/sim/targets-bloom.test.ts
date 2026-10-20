@@ -4,6 +4,8 @@
 // planting hour; neglect blooms later and smaller, or never; a second-chance replant blooms smaller and says so. There is
 // no shared bloom. Measured on recorded Bangalore weather (2023-25, game window) exactly as the prototype's run.mjs
 // measures it (targets-v6.json), so future tuning cannot quietly break the agreed behaviour.
+// Every sweep runs over every soil species (the harness's IDS): the prototype's six and the Pink Lily, which joined after
+// the prototype was locked and was fitted to these same targets. Run counts and floors scale with IDS.length.
 import { beforeAll, describe, expect, it } from "vitest";
 import { CLIM_T } from "./climate";
 import { BED, expectBloom, hodOf } from "./model";
@@ -11,6 +13,11 @@ import {
   HOD_OK, IDS, MEAN, NH, PARTY, YEARS, asksCan, asksLine, bloomOf, cueLed, everyN, goodCare, hourSweep, idealCare, inOwnPart,
   openingStressed, range, replantSweep, simulate, type Bloom, type HourRun,
 } from "./__fixtures__/harness";
+
+/** hourSweep(): good care at every planting hour of days 0-22 in each of 2023-25, 1656 runs a species (9936 for the six) */
+const SWEEP_RUNS = YEARS.length * 24 * 23 * IDS.length;
+/** openingStressed(): 600 random under-waterers, 300 casual players and 9 wet-week runs a species (954 for the six) */
+const STRESSED_RUNS = 600 + 300 + 9 * IDS.length;
 
 describe("targets: bloom timing", () => {
   it("good care in mean 2023-25 weather blooms 13-15 days after planting, at the natural opening hour, every species", () => {
@@ -21,7 +28,7 @@ describe("targets: bloom timing", () => {
       expect((b as Bloom).days, id).toBeLessThanOrEqual(15);
       expect(hodOf((b as Bloom).at), id).toBe(HOD_OK(id));
     }
-    expect([HOD_OK("rose"), HOD_OK("magnolia"), HOD_OK("jasmine")]).toEqual([8, 9, 18]);
+    expect([HOD_OK("rose"), HOD_OK("magnolia"), HOD_OK("jasmine"), HOD_OK("lily")]).toEqual([8, 9, 18, 8]);
   });
 
   it("even ideal care cannot bloom before 13 days (the ideal twin, mean weather)", () => {
@@ -44,12 +51,12 @@ describe("targets: bloom timing", () => {
     expect(planted().filter((x) => !x.b || x.b.size < 0.9)).toEqual([]);
   });
 
-  describe("care decides: good care at every planting hour of days 0-22, 2023-25, six species (9936 runs)", () => {
+  describe(`care decides: good care at every planting hour of days 0-22, 2023-25, every species (${SWEEP_RUNS} runs)`, () => {
     let runs: HourRun[] = [];
     beforeAll(() => { runs = hourSweep((s, sp, h) => (expectBloom(s, sp, { h, climT: CLIM_T }) as { bloomH: number }).bloomH); }, 120_000);
 
     it("every run blooms 13.0-15.0 days after planting", () => {
-      expect(runs).toHaveLength(9936);
+      expect(runs).toHaveLength(SWEEP_RUNS);
       const bad = runs.filter((x) => x.days === null || x.days < 13 || x.days > 15);
       expect(bad.slice(0, 10)).toEqual([]);
     });
@@ -104,8 +111,9 @@ describe("targets: bloom timing", () => {
       if (b.flower < g.flower - 0.02) smaller++;
     }
     expect(bad).toEqual([]);
-    // the prototype's line, met exactly today (12 of 18): a rainy 2023 rescues the every-third-day flowers
-    expect(smaller).toBeGreaterThanOrEqual(12);
+    // the prototype's line, two of the three years for each species (12 of 18 for the six), met exactly today (the lily
+    // too, 2 of 3): a rainy 2023 rescues the every-third-day flowers
+    expect(smaller).toBeGreaterThanOrEqual(2 * IDS.length);
   });
 
   it("abandoned from planting dies before it can bloom", () => {
@@ -137,8 +145,9 @@ describe("targets: players who water only when the plant asks (every planting da
 });
 
 describe("targets: petals open only in the flower's own part of the day", () => {
-  it("954 stressed runs (random under-waterers, casual players, a 21:00 can through wet weeks): no bloom moment outside it", () => {
+  it(`${STRESSED_RUNS} stressed runs (random under-waterers, casual players, a 21:00 can through wet weeks): no bloom moment outside it`, () => {
     const os = openingStressed();
+    expect(os.n).toBe(STRESSED_RUNS);
     expect(os.moments.length).toBeGreaterThan(500);
     expect(os.moments.filter((m) => !inOwnPart(m.id, m.hod)).map((m) => `${m.what} ${m.id} ${m.hod}h`)).toEqual([]);
   });
@@ -152,7 +161,8 @@ describe("targets: the second chance (abandoned, Fairy Dust, abandoned again, re
     expect(rows.filter((x) => x.replantH === null)).toEqual([]);
     for (const x of rows) expect(x.D0 as number, `${x.id} ${x.y}`).toBeGreaterThanOrEqual(BED.sproutD);
     const bloomed = rows.filter((x) => x.days !== null);
-    expect(bloomed.length).toBeGreaterThanOrEqual(16);
+    expect(rows).toHaveLength(YEARS.length * IDS.length);
+    expect(bloomed.length).toBeGreaterThanOrEqual(rows.length - 2);   // the prototype's floor, 16 of 18 (today all bloom)
     for (const x of bloomed) if (x.firstDays !== null) expect(x.days as number, `${x.id} ${x.y}`).toBeLessThan(x.firstDays + 0.01);
   });
 

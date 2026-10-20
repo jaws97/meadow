@@ -14,13 +14,21 @@
 // its own care (top-ups, tending the pond, feeds, talk, friends' sprinkles, a death, Fairy Dust and a replant). The soil
 // fingerprint keeps hashing exactly the six soil species, by a literal list, so adding the lotus to the seed picker left
 // SIM_VERSION 7's recorded hash as it was. The same rule holds for both: never edit a recorded entry.
+//
+// The Pink Lily joined the soil model after SIM_VERSION 7 was recorded: one more row of SIM_SPECIES and TWIN, with not
+// one equation or shared constant changed, so the six's hash above still holds and SIM_VERSION stayed 7. The lily has a
+// fingerprint of its own (LILY_FINGERPRINTS), over the same season and the same three kinds of care, recorded under the
+// SIM_VERSION its numbers were fitted in. A later retune of the lily fails here until SIM_VERSION is bumped (its stored
+// checkpoints are then rebuilt) and both hashes are recorded under the new version.
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { SoilSpeciesId } from "@/lib/plant/species";
-import { POND_VERSION, SIM_VERSION, catchUp, createPlant, type HourWeather, type PlantState, type TimedEvent } from "@/lib/sim";
+import { POND_VERSION, SIM_SPECIES, SIM_VERSION, catchUp, createPlant, type HourWeather, type PlantState, type TimedEvent } from "@/lib/sim";
 
 /** The six soil species, as SIM_VERSION 7's fingerprint was recorded over them (the seed picker's order). */
 const SOIL_SPECIES: readonly SoilSpeciesId[] = ["rose", "sundrop", "magnolia", "marigold", "island", "jasmine"];
+/** The soil species with a fingerprint of their own, added after SIM_VERSION 7's was recorded. */
+const LILY_SPECIES: readonly SoilSpeciesId[] = ["lily"];
 
 const FINGERPRINTS: Record<number, string> = {
   4: "274d8b019681b13f00367613f6254d4565c44fba7646a399a2aff5ef549fb7ff",
@@ -28,6 +36,11 @@ const FINGERPRINTS: Record<number, string> = {
   6: "0ec8fe9b4900e8d449081d8ea104ff98430c3f77322fba29c8695a2e3e8bb001",
   // rename only: the "island" key in each state; with that key and v read back as 6's, the hash is 6's exactly
   7: "bc62cfb50ce85539441ed4448fae024d1d8eec6c5f9f59bb5e1c8cfb1582bc02",
+};
+
+/** The Pink Lily's season, by SIM_VERSION (fitted under 7; see the header). */
+const LILY_FINGERPRINTS: Record<number, string> = {
+  7: "ca90a22262b654c3ba577c8a8edbdb1d4c1817fe7119828d7515307bec9d73d9",
 };
 
 const POND_FINGERPRINTS: Record<number, string> = {
@@ -96,11 +109,12 @@ function events(care: Care): TimedEvent[] {
 
 const round = (_k: string, v: unknown) => (typeof v === "number" && Number.isFinite(v) && !Number.isInteger(v) ? Math.round(v * 1e6) / 1e6 : v);
 
-function fingerprint(): string {
+/** The soil season hashed over the given species (the six's by default, as SIM_VERSION 7 recorded it). */
+function fingerprint(species: readonly SoilSpeciesId[] = SOIL_SPECIES): string {
   const wx = season();
   const weather = (h: number) => wx.get(h);
   const hash = createHash("sha256");
-  for (const sp of SOIL_SPECIES) {
+  for (const sp of species) {
     for (const care of ["good", "neglect", "fussy"] as Care[]) {
       const evs = events(care);
       let s: PlantState = createPlant(sp, START, "owner-fingerprint");
@@ -165,6 +179,20 @@ describe("SIM_VERSION fingerprint", () => {
 
   it("is deterministic", () => {
     expect(fingerprint()).toBe(fingerprint());
+  });
+});
+
+describe("the Pink Lily's fingerprint", () => {
+  it("matches the lily's recorded behaviour under this SIM_VERSION", () => {
+    const fp = fingerprint(LILY_SPECIES);
+    const recorded = LILY_FINGERPRINTS[SIM_VERSION];
+    expect(recorded, `No lily fingerprint is recorded for SIM_VERSION ${SIM_VERSION}. Add ${SIM_VERSION}: "${fp}".`).toBeDefined();
+    expect(fp, `The lily behaves differently from its recorded fingerprint under SIM_VERSION ${SIM_VERSION}. Bump SIM_VERSION and record "${fp}" under it (see the header).`).toBe(recorded);
+  });
+
+  it("is deterministic, and with the six's covers every soil species", () => {
+    expect(fingerprint(LILY_SPECIES)).toBe(fingerprint(LILY_SPECIES));
+    expect([...SOIL_SPECIES, ...LILY_SPECIES].sort()).toEqual(Object.keys(SIM_SPECIES).sort());
   });
 });
 

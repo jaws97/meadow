@@ -23,8 +23,8 @@ Live at **https://meadow-phi.vercel.app**.
 | `/meadow/garden?plot=N` | A friend's garden, to look at only. |
 | `/party?code=...` | The big screen for the party: the rose, the QR code that carries the party link, and new seeds as they are planted. |
 
-There are seven flowers to choose from: Enchanted Rose, Sundrop, Magnolia, Marigold, Island Bloom, Night Jasmine and
-Lotus. The lotus grows in a small pond with koi, with its own water model.
+There are eight flowers to choose from: Enchanted Rose, Sundrop, Magnolia, Marigold, Island Bloom, Night Jasmine, Pink
+Lily and Lotus. The lotus grows in a small pond with koi, with its own water model.
 
 A garden is tied to the device it was planted on. Its personal link (`/garden#k=...`) opens it on another phone or a
 laptop; the key sits in the address's fragment, which browsers never send in a page request, and it is scrubbed from

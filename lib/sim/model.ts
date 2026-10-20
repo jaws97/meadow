@@ -10,10 +10,10 @@
 // plant keeps its own clock from its own planting hour, and a late planter has the same chance as one who planted at the
 // party.
 //
-// A mature bud opens at its natural hour: rose, sundrop, marigold and the Island Bloom with the morning light (half
-// open by 08:00), magnolia over the morning (half open by 09:00), Night Jasmine at dusk (18:00). Petals open only in
-// their own part of the day (openWindow), so a wilted bud that has not finished pauses and finishes the next morning
-// (or dusk). The plant asks for water ("ready for a drink") well before the drought signal can slow its bud, so a
+// A mature bud opens at its natural hour: rose, sundrop, marigold, the Island Bloom and the Pink Lily with the morning
+// light (half open by 08:00), magnolia over the morning (half open by 09:00), Night Jasmine at dusk (18:00). Petals open
+// only in their own part of the day (openWindow), so a wilted bud that has not finished pauses and finishes the next
+// morning (or dusk). The plant asks for water ("ready for a drink") well before the drought signal can slow its bud, so a
 // player who waters only when asked, twice a day at any hours, gets the 13-15 day bloom. After the one Fairy Dust
 // revival is used, a plant that dies again can be replanted as a sprout whose flower is capped at 0.7. Damping-off runs
 // on the water the bed has to shed each day; rain's share of that flush is capped just below the infection threshold,
@@ -31,15 +31,21 @@
 // or number changed, but a stored state carries its species key, so every SIM_VERSION 6 checkpoint is rebuilt from its
 // planting and events (lib/server/catchup.ts) under the new key.
 //
+// The Pink Lily ("lily") joined under SIM_VERSION 7, after the prototype was locked: one more row of SIM_SPECIES and of
+// TWIN (twin.ts), fitted in this repo. Not one equation, shared constant or code path changed, so the six species step
+// exactly as before (SIM_VERSION 7's fingerprint in lib/server/sim-version.test.ts still holds) and no stored state needs
+// rebuilding. The lily's numbers are held by a fingerprint of their own there and by the target sweeps.
+//
 // Pure and deterministic: no Date, no Math.random, no module state, and inputs are never mutated, so a state can be
-// stored as JSON and stepped on any server. The equations, their order and every constant match the prototype; the parity
-// test replays the prototype's golden file (golden-v7.json) to 1e-9. Change a number here only together with a new
-// SIM_VERSION and a regenerated golden file.
+// stored as JSON and stepped on any server. The equations, their order and every constant match the prototype (the
+// lily's row aside); the parity test replays the prototype's golden file (golden-v7.json) to 1e-9. Change a number here
+// only together with a new SIM_VERSION and a regenerated golden file (for the lily's row, a new SIM_VERSION and its
+// fingerprint recorded under it).
 //
 // Hour index h counts whole hours from GAME_START (10 Nov 2026 00:00 IST), so the IST clock hour is h % 24. step() for
 // hour h covers [h, h + 1) and takes the Open-Meteo row stamped at the END of that hour (weather.ts builds those rows).
 //
-// The six soil species only (SoilSpeciesId): the Lotus grows in a pond under its own model and version (pond.ts,
+// The seven soil species only (SoilSpeciesId): the Lotus grows in a pond under its own model and version (pond.ts,
 // POND_VERSION), and plant.ts sends each plant to its model. Since the lotus joined, the species ids here are typed
 // SoilSpeciesId; not one equation or number changed.
 import type { SoilSpeciesId } from "@/lib/plant/species";
@@ -154,6 +160,14 @@ export interface SimSpecies {
 // * game-tuned or estimated. Tb/Tlo/Topt/Tmax degC, TT degC.d (seed to a mature bud), RUE g/MJ PAR, SLA m2/g, dLeaf m.
 // Morning flowers start opening at 06:00 and are half open by 08:00 (magnolia, slower, by 09:00); Night Jasmine at 17:00,
 // half open by 18:00.
+// The Pink Lily's row is this repo's own (the prototype never had a lily), a bulb lily's: it likes it cool (Topt 25, Tmax
+// 35) and shaded in the afternoon (Tcrit 41), has narrow leaves (dLeaf, SLA), roots a little deeper than most from a bulb
+// planted deep (Zrmax), carries a missed day a little better (tolD) and rots a little sooner in soggy soil (tolW, with the
+// jasmine the lowest); its buds blast in very dry soil (budDrop), and it opens with the morning light. Two numbers moved
+// from the first bulb-lily guess to meet the agreed targets (targets-*.test.ts): Zrmax 0.10 to 0.088 (at 0.10 an
+// abandoned lily lived 6.7 days after its last can, past the agreed 6.5, and a dry weekend slowed its bud least of all
+// the flowers) and tolW 0.9 to 0.95 (at 0.9 a soaked lily died 4.4 days after the first heavy shower, before the agreed
+// 4.5). TT and its twin were fitted together as the prototype fitted the six's (twin.ts); TTreal is a planted bulb's.
 export const SIM_SPECIES: Readonly<Record<SoilSpeciesId, SimSpecies>> = Object.freeze({
   rose: Object.freeze<SimSpecies>({ id: "rose", name: "Enchanted Rose", p: 0.40, wilt: 0.30, Zrmax: 0.085, tolD: 1.1, tolW: 1.0, Tb: 5.2, Tlo: 17, Topt: 27, Tmax: 42.7, TT: 155.8, TTreal: 1000, RUE: 2.2, SLA: 0.020, Tcrit: 43, dLeaf: 0.088, openHod: 6, openDur: 4, mites: 0.5, blackSpot: true,
     truth: "A germinated seedling of a repeat-flowering rose usually shows its first small flower after about 6-10 weeks; here it takes 2." }),
@@ -167,6 +181,8 @@ export const SIM_SPECIES: Readonly<Record<SoilSpeciesId, SimSpecies>> = Object.f
     truth: "Hibiscus and tiare grown from seed take one to several years to flower. This one is magic." }),
   jasmine: Object.freeze<SimSpecies>({ id: "jasmine", name: "Night Jasmine", p: 0.50, wilt: 0.35, Zrmax: 0.085, tolD: 1.15, tolW: 0.95, Tb: 10, Tlo: 17, Topt: 28, Tmax: 38, TT: 92.6, TTreal: null, RUE: 2.0, SLA: 0.020, Tcrit: 42, dLeaf: 0.07, openHod: 17, openDur: 2, mites: 0.3, nightBloom: true,
     truth: "A parijat raised from seed or a cutting usually needs a year or more before it flowers. This one is magic." }),
+  lily: Object.freeze<SimSpecies>({ id: "lily", name: "Pink Lily", p: 0.45, wilt: 0.40, Zrmax: 0.088, tolD: 1.15, tolW: 0.95, Tb: 5, Tlo: 17, Topt: 25, Tmax: 35, TT: 152.8, TTreal: 1300, RUE: 2.0, SLA: 0.018, Tcrit: 41, dLeaf: 0.035, openHod: 6, openDur: 4, mites: 0.3, budDrop: true,
+    truth: "A lily grows from a bulb, not a seed: a planted bulb takes about three months to flower, and one raised from seed two years or more. Here it takes about two weeks." }),
 });
 
 // ---- state, inputs, outputs ------------------------------------------------------------------------------------------
@@ -465,7 +481,7 @@ export function nRich(s: PlantState): boolean { return s.NNI >= 0.9 && soilN(s) 
  * before its planting. parity.test.ts records this departure from the golden file's window.
  */
 export function canPlant(h: number): boolean { return h < PLANT_CLOSE_H; }
-/** Rose, sundrop, magnolia, marigold and the Island Bloom open with the morning light; Night Jasmine at dusk. */
+/** Rose, sundrop, magnolia, marigold, the Island Bloom and the Pink Lily open with the morning light; Night Jasmine at dusk. */
 export function opensInMorning(sp: SimSpecies): boolean { return sp.openHod < 12; }
 /**
  * The petals of a mature bud open only in their own part of the day: a morning flower from first light to duskH, Night

@@ -142,6 +142,31 @@ function petalColor(base: RGB, midC: RGB, tip: RGB, u: number, v: number): RGB {
   return c;
 }
 
+interface Marks {
+  throat: RGB;
+  streak: RGB;
+  spots: RGB;
+}
+
+/**
+ * A lily's marks (lib/plant/textures paintMarks) as a vertex can carry them: the streak up the middle of the lower blade,
+ * the green-yellow throat at the base, and the freckles as the faint average they make from the Meadow camera.
+ */
+function markColor(c: RGB, m: Marks, u: number, v: number): RGB {
+  const across = Math.abs(u - 0.5);
+  c = mix(c, m.streak, 0.35 * (1 - smoothstep(0.02, 0.1, across)) * (1 - smoothstep(0.15, 0.45, v)));
+  const r = Math.hypot(across / 0.286, v / 0.34);
+  c = mix(c, m.throat, ramp(THROAT, r));
+  return mix(c, m.spots, 0.12 * (1 - smoothstep(0, 0.5, v)) * (1 - smoothstep(0, 0.35, across)));
+}
+
+/** The throat's fall from the petal's base (the texture's radial gradient, in its own radii). */
+const THROAT: ReadonlyArray<readonly [number, number]> = [
+  [0, 1],
+  [0.4, 0.75],
+  [1, 0],
+];
+
 /**
  * The foliage is lifted a little over the garden's leaf colours, as the Meadow's plants have always been: from the
  * Meadow camera's height, without the garden's close light and sheen, the true greens read as dark gaps in the beds.
@@ -182,14 +207,16 @@ function painter(sp: Species): Painter {
   const sepalTip = shift(sepal, 0.01, 0.3);
   const petiole = srgb(l.petioleColor ?? sp.stem.tipColor);
   const thorn = srgb(sp.stem.thornColor ?? "#7a3a28");
-  const bud = mix(srgb(f.colorBase), srgb(f.colorMid), 0.5);
+  const bud = f.budColor ? srgb(f.budColor) : mix(srgb(f.colorBase), srgb(f.colorMid), 0.5);
   const stamen = srgb(f.center.stamenColor);
+  const marks: Marks | null = f.marks ? { throat: glaze(srgb(f.marks.throat)), streak: glaze(srgb(f.marks.streak)), spots: glaze(srgb(f.marks.spots)) } : null;
   return {
     color(tag, u, v) {
       switch (tag.kind) {
         case "petal": {
           const p = petals[tag.variant] ?? petals[0];
-          return petalColor(p.base, p.mid, p.tip, u, v);
+          const c = petalColor(p.base, p.mid, p.tip, u, v);
+          return marks ? markColor(c, marks, u, v) : c;
         }
         case "leaf":
           // darker toward the stalk, lighter at the tip, the veins' paler green over all of it

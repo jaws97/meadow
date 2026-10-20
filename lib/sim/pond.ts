@@ -2,7 +2,7 @@
 // model the owner signed off as pond.js with four changes, integration/plan.md F1). One step() is one real hour of a sacred
 // lotus (Nelumbo nucifera) raised from seed: first in a glass jar, then in a holeless lotus pot on the front shelf of a small
 // stepped koi pond in its own courtyard in Bangalore. It sits beside the soil model (model.ts, SIM_VERSION 7), which carries
-// the six soil flowers, and keeps its own version: a change here bumps POND_VERSION and never touches the six.
+// the seven soil flowers, and keeps its own version: a change here bumps POND_VERSION and never touches them.
 //
 // The plant machinery is the soil model's family (radiation-use growth, thermal time slowed by stress, the drought signal,
 // drought injury, nitrogen, aphids, the ideal twin, a dawn-opening flower), with the water of a pond:
@@ -125,7 +125,7 @@ export const POND_SPECIES: Readonly<{ lotus: PondSpecies }> = Object.freeze({
 });
 
 /**
- * The lotus's ideal twin (as twin.ts for the six): its biomass (g) at D = 0, 0.05 .. 1 under ideal care in the mean weather
+ * The lotus's ideal twin (as twin.ts for the soil flowers): its biomass (g) at D = 0, 0.05 .. 1 under ideal care in the mean weather
  * of 2023-25, fitted with TT by the prototype's calib.mjs. Copied verbatim from pond-v1.js.
  */
 export const POND_TWIN = Object.freeze({

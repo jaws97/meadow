@@ -1,9 +1,9 @@
-// One door to both models: the six soil flowers step in the garden bed (model.ts, SIM_VERSION 7) and the Lotus in its koi
+// One door to both models: the seven soil flowers step in the garden bed (model.ts, SIM_VERSION 7) and the Lotus in its koi
 // pond (pond.ts, POND_VERSION 1). createPlant() picks the model by species; step(), toVisual() and expectBloom() by the
 // state itself (a pond state carries medium: "pond"; a soil state never has that key), so a stored state always goes back
 // to the model that wrote it. Everything else reads the two through these types and helpers:
 //   * PlantState and Visual are the unions; isPondState() and isPondVisual() narrow them.
-//   * modelVersionOf(species) is what a checkpoint's sim_version column stores: SIM_VERSION (7) for the six, and
+//   * modelVersionOf(species) is what a checkpoint's sim_version column stores: SIM_VERSION (7) for the seven, and
 //     1000 + POND_VERSION (1001) for the lotus, so the two never collide in the one smallint column. isCurrentState()
 //     says whether a stored state came from the model running now.
 //   * bloomedAt(), ripeAt() and diedAt() read the "not yet" marks of either model (the soil model's marks below the

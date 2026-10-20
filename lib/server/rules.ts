@@ -176,7 +176,7 @@ export interface CareStatus {
   shadeSinceH: number | null;
   cover: boolean;
   /**
-   * a lotus's koi (null for the six soil flowers): whether a tend now would also be a pinch (4 h since the last one that
+   * a lotus's koi (null for the soil flowers): whether a tend now would also be a pinch (4 h since the last one that
    * counted, pending tends included), from when it would, and the hour of the last pinch
    */
   koi: { ready: boolean; nextH: number | null; lastH: number | null } | null;

@@ -6,7 +6,7 @@
 // The storage is injected (AdvanceDeps), so this runs in tests against in-memory fakes; lib/server/garden.ts wires it
 // to Postgres. A checkpoint written by another model version is not stepped on: the plant is rebuilt from its planting
 // (seedState() and catchUp() over every event, what replayFromPlanting() does), which is what makes the event log the
-// source of truth. The six soil flowers and the lotus have their own models and versions (lib/sim/plant.ts
+// source of truth. The seven soil flowers and the lotus have their own models and versions (lib/sim/plant.ts
 // modelVersionOf: SIM_VERSION 7, and 1000 + POND_VERSION for the lotus), so a checkpoint is trusted only when its
 // version, its state's own mark and its state's species all match what the planting is stepped by now. A deployment that must not write checkpoints (env.ts: anything but production, while the database is
 // shared) leaves saveCheckpoint out and gets the catch-up computed once, returned and dropped.
