@@ -31,6 +31,7 @@ import {
   makeLeafGeometry,
   makePetalGeometry,
   makeReceptacleGeometry,
+  receptacleShape,
   makeSepalGeometry,
   makeStemGeometry,
   makeThornGeometry,
@@ -417,10 +418,12 @@ function FlowerHead({ index }: { index: number }) {
   const L = f.layers.length;
   const node = raceme[index] ?? null;
   const lead = index === 0;
+  // where the receptacle (or a jasmine's tube) and the sepals sit
+  const base = receptacleShape(f);
 
   const petalFade = useGarden((s) => quantize(fadeOf(s.health) * 0.85, 4));
   const petalBurn = useGarden((s) => quantize(s.scorch, 3));
-  // the cached materials, so every head of a lily wears the same ones
+  // the cached materials, so every head of a lily or a jasmine wears the same ones
   const petalMats = useMemo(
     () => Array.from({ length: VARIANTS }, (_, v) => petalMaterial(sp, petalFade, petalBurn, quality, v)),
     [sp, petalFade, petalBurn, quality],
@@ -506,8 +509,8 @@ function FlowerHead({ index }: { index: number }) {
       {/* the head's parts in a group of their own: hiding them must never hide the glow light, since a light leaving
           the scene changes every lit material's program (see lightSets.ts) */}
       <group ref={setHeadBody}>
-        {/* receptacle: its rim sits just under the petal bases */}
-        <mesh geometry={geo.receptacle} material={sepalMaterial(sp)} position-y={-c.radius * 2.0} castShadow />
+        {/* receptacle: its rim sits just under the petal bases (a jasmine's: its slender tube) */}
+        <mesh geometry={geo.receptacle} material={sepalMaterial(sp)} position-y={base.y} castShadow />
         {/* bud core */}
         <mesh
           ref={setBud}
@@ -521,7 +524,7 @@ function FlowerHead({ index }: { index: number }) {
         {sepalGeo
           ? sepalSetters.map((setSepal, k) => (
               <group key={k} rotation-y={(k / sepalCount) * 2 * Math.PI + 0.3}>
-                <group ref={setSepal} position={[0, -c.radius * 0.25, c.radius * 0.95]} rotation-x={0.2}>
+                <group ref={setSepal} position={[0, base.sepalY, base.sepalR]} rotation-x={0.2}>
                   <mesh geometry={sepalGeo} material={sepalMaterial(sp)} castShadow />
                 </group>
               </group>
@@ -748,8 +751,8 @@ export function Plant() {
     );
     const sepals = species.flower.sepals;
     const sepal = sepals.count > 0 ? makeSepalGeometry(sepals.length, sepals.width, 99) : null;
-    const cr = species.flower.center.radius;
-    const receptacle = makeReceptacleGeometry(cr * 1.25, cr * 2.1, 3);
+    const shape = receptacleShape(species.flower);
+    const receptacle = makeReceptacleGeometry(shape.radius, shape.height, 3);
     const rachisLength = species.leaves.petiole ?? species.leaves.length * 0.32;
     const rachis = makeStemGeometry(
       rachisLength,
@@ -984,10 +987,10 @@ export function Plant() {
         // Closed petals lean a little inward so the bud closes to a teardrop.
         pe.group.rotation.x =
           o * p.openTarget -
-          (1 - o) * 0.18 +
+          (1 - o) * (f.budClose ?? 0.18) +
           droop * 0.3 * (p.layer / layerDen) +
           windAmp * 0.04 * Math.sin(t * 2.2 + p.phase) * (0.3 + 0.7 * o);
-        pe.group.scale.setScalar(lerp(0.55, 1, o) * p.scale);
+        pe.group.scale.setScalar(lerp(f.budLength ?? 0.55, 1, o) * p.scale);
         const inf = pe.mesh ? pe.mesh.morphTargetInfluences : undefined;
         if (inf) inf[0] = smoothstep(0.05, 0.95, o);
       }

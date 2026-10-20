@@ -394,8 +394,8 @@ export function petalNormalTexture(veinsCount: number, seed: number): THREE.Canv
 }
 
 /** Emissive mask: dark everywhere except the glowing base and the veins. */
-export function petalEmissiveTexture(emissive: string, veinsCount: number, seed: number): THREE.CanvasTexture {
-  const key = `petalE:${emissive}:${veinsCount}:${seed}`;
+export function petalEmissiveTexture(emissive: string, veinsCount: number, seed: number, even = 0): THREE.CanvasTexture {
+  const key = even > 0 ? `petalE:${emissive}:${veinsCount}:${seed}:${even}` : `petalE:${emissive}:${veinsCount}:${seed}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const W = PW / 2;
@@ -405,12 +405,13 @@ export function petalEmissiveTexture(emissive: string, veinsCount: number, seed:
   const veins = petalVeins(veinsCount, seed);
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, W, H);
-  // the base glows brightest and fades out two thirds of the way up
+  // the base glows brightest and fades out two thirds of the way up (a night bloomer's, `even`, all the way to the tip)
+  const lift = (a: number) => a + (1 - a) * even;
   const g = ctx.createLinearGradient(0, H, 0, 0);
   g.addColorStop(0, rgba(emissive, 1));
-  g.addColorStop(0.22, rgba(emissive, 0.7));
-  g.addColorStop(0.62, rgba(emissive, 0.14));
-  g.addColorStop(1, rgba(emissive, 0.1));
+  g.addColorStop(0.22, rgba(emissive, lift(0.7)));
+  g.addColorStop(0.62, rgba(emissive, lift(0.14)));
+  g.addColorStop(1, rgba(emissive, lift(0.1)));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
   // the thin margins let light through

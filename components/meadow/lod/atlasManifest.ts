@@ -2,9 +2,9 @@
 import type { Band, LodKind } from "@/components/meadow/lod/bands";
 
 export const ATLAS = {
-  version: "th7ec8",
-  albedo: "/meadow/plant-atlas.webp?v=th7ec8",
-  normal: "/meadow/plant-atlas-normal.webp?v=th7ec8",
+  version: "vy44nu",
+  albedo: "/meadow/plant-atlas.webp?v=vy44nu",
+  normal: "/meadow/plant-atlas-normal.webp?v=vy44nu",
   width: 1152,
   height: 1152,
   cellW: 96,
@@ -78,18 +78,18 @@ export const CELLS: ReadonlyArray<readonly [number, number, number, number, numb
   [0.7526, 0.4592, 0.0781, 0.0816, 0.7588, 0.7925, 0.4783, 0.1017, 0.3185],
   [0.8481, 0.447, 0.0538, 0.1059, 0.6125, 1.2052, 0.4789, 0.305, 0.662],
   [0.9193, 0.4557, 0.0781, 0.0885, 0.7912, 0.8967, 0.5231, 0.1913, 0.5133],
-  [0.0026, 0.3576, 0.0781, 0.0616, 0.2497, 0.197, 0.5161, 0.1615, 0.5807],
-  [0.105, 0.3359, 0.0399, 0.1059, 0.1173, 0.3111, 0.2436, 0.3532, 0.6766],
-  [0.1693, 0.3655, 0.0781, 0.0469, 0.3204, 0.1922, 0.5741, 0.0587, 0.5294],
-  [0.2552, 0.3359, 0.0729, 0.1059, 0.3006, 0.4366, 0.6305, 0.0418, 0.9044],
-  [0.3394, 0.3359, 0.0712, 0.1059, 0.3375, 0.5021, 0.5041, 0.2241, 0.828],
-  [0.4219, 0.3359, 0.0729, 0.1059, 0.3819, 0.5547, 0.4526, 0.027, 0.8839],
-  [0.5026, 0.3438, 0.0781, 0.0903, 0.5031, 0.5814, 0.782, 0.0401, 0.7967],
-  [0.5859, 0.3385, 0.0781, 0.1016, 0.45, 0.585, 0.3789, 0.1954, 0.7351],
-  [0.6832, 0.3359, 0.0503, 0.1059, 0.3948, 0.8305, 0.4479, 0.0257, 0.8706],
-  [0.7526, 0.3411, 0.0781, 0.0955, 0.5419, 0.6623, 0.7976, 0.0405, 0.5548],
-  [0.8359, 0.3411, 0.0781, 0.0955, 0.5057, 0.618, 0.3389, 0.1891, 0.5138],
-  [0.9306, 0.3359, 0.0556, 0.1059, 0.4428, 0.8441, 0.3952, 0.0261, 0.8388],
+  [0.0026, 0.3568, 0.0781, 0.0642, 0.252, 0.2072, 0.5116, 0.2181, 0.609],
+  [0.1007, 0.3359, 0.0486, 0.1059, 0.1375, 0.2996, 0.341, 0.3661, 0.6831],
+  [0.1693, 0.3672, 0.0781, 0.0434, 0.3231, 0.1795, 0.5776, 0.0591, 0.5296],
+  [0.2569, 0.3359, 0.0694, 0.1059, 0.3082, 0.47, 0.629, 0.0707, 0.8721],
+  [0.3403, 0.3359, 0.0694, 0.1059, 0.3349, 0.5107, 0.5099, 0.2206, 0.8052],
+  [0.4227, 0.3359, 0.0712, 0.1059, 0.3756, 0.5589, 0.4646, 0.0269, 0.9159],
+  [0.5026, 0.3446, 0.0781, 0.0885, 0.4828, 0.5471, 0.7687, 0.0665, 0.7989],
+  [0.5859, 0.3411, 0.0781, 0.0955, 0.4256, 0.5202, 0.4015, 0.2261, 0.8564],
+  [0.6832, 0.3359, 0.0503, 0.1059, 0.388, 0.8161, 0.4583, 0.0258, 0.6854],
+  [0.7526, 0.3411, 0.0781, 0.0955, 0.507, 0.6197, 0.7801, 0.0606, 0.608],
+  [0.8359, 0.3438, 0.0781, 0.0903, 0.4918, 0.5683, 0.3499, 0.2108, 0.7053],
+  [0.934, 0.3359, 0.0486, 0.1059, 0.3849, 0.8386, 0.4523, 0.0261, 0.7505],
   [0.0026, 0.2422, 0.0781, 0.0712, 0.3834, 0.3493, 0.4236, 0.3959, 0.698],
   [0.0868, 0.2248, 0.0764, 0.1059, 0.2511, 0.3482, 0.6472, 0.3997, 0.6999],
   [0.1693, 0.2448, 0.0781, 0.066, 0.3945, 0.3331, 0.5138, 0.3537, 0.6769],
@@ -129,7 +129,7 @@ export const CELLS: ReadonlyArray<readonly [number, number, number, number, numb
 ];
 
 /** Each light plant's height from its foot (the soil, or a river pocket's water), garden metres (before PLANT_SCALE); 0 for none. */
-export const HEIGHTS: Record<LodKind, Record<Band, number>> = {"rose":{"sprout":0.318,"leafy":0.806,"bud":1.143,"bloom":1.173},"sundrop":{"sprout":0.311,"leafy":0.946,"bud":1.329,"bloom":1.275},"magnolia":{"sprout":0.222,"leafy":0.761,"bud":1.044,"bloom":1.196},"marigold":{"sprout":0.154,"leafy":0.491,"bud":0.679,"bloom":0.707},"island":{"sprout":0.2,"leafy":0.621,"bud":0.85,"bloom":0.899},"jasmine":{"sprout":0.223,"leafy":0.589,"bud":0.778,"bloom":0.849},"lily":{"sprout":0.28,"leafy":0.848,"bud":1.127,"bloom":1.193},"lotus":{"sprout":0.142,"leafy":0.541,"bud":0.68,"bloom":0.661},"lotusRiver":{"sprout":0,"leafy":0.582,"bud":0.801,"bloom":0.817}};
+export const HEIGHTS: Record<LodKind, Record<Band, number>> = {"rose":{"sprout":0.318,"leafy":0.806,"bud":1.143,"bloom":1.173},"sundrop":{"sprout":0.311,"leafy":0.946,"bud":1.329,"bloom":1.275},"magnolia":{"sprout":0.222,"leafy":0.761,"bud":1.044,"bloom":1.196},"marigold":{"sprout":0.154,"leafy":0.491,"bud":0.679,"bloom":0.707},"island":{"sprout":0.2,"leafy":0.621,"bud":0.85,"bloom":0.899},"jasmine":{"sprout":0.217,"leafy":0.602,"bud":0.76,"bloom":0.813},"lily":{"sprout":0.28,"leafy":0.848,"bud":1.127,"bloom":1.193},"lotus":{"sprout":0.142,"leafy":0.541,"bud":0.68,"bloom":0.661},"lotusRiver":{"sprout":0,"leafy":0.582,"bud":0.801,"bloom":0.817}};
 
 /** Each light plant's triangles (0 for none). */
-export const TRIANGLES: Record<LodKind, Record<Band, number>> = {"rose":{"sprout":312,"leafy":1192,"bud":1264,"bloom":1208},"sundrop":{"sprout":144,"leafy":560,"bud":608,"bloom":888},"magnolia":{"sprout":120,"leafy":668,"bud":716,"bloom":1108},"marigold":{"sprout":288,"leafy":1516,"bud":1588,"bloom":1868},"island":{"sprout":156,"leafy":956,"bud":980,"bloom":1204},"jasmine":{"sprout":228,"leafy":788,"bud":836,"bloom":892},"lily":{"sprout":216,"leafy":1524,"bud":1796,"bloom":2132},"lotus":{"sprout":270,"leafy":438,"bud":942,"bloom":954},"lotusRiver":{"sprout":0,"leafy":162,"bud":678,"bloom":690}};
+export const TRIANGLES: Record<LodKind, Record<Band, number>> = {"rose":{"sprout":312,"leafy":1192,"bud":1264,"bloom":1208},"sundrop":{"sprout":144,"leafy":560,"bud":608,"bloom":888},"magnolia":{"sprout":120,"leafy":668,"bud":716,"bloom":1108},"marigold":{"sprout":288,"leafy":1516,"bud":1588,"bloom":1868},"island":{"sprout":156,"leafy":956,"bud":980,"bloom":1204},"jasmine":{"sprout":188,"leafy":1184,"bud":2176,"bloom":2344},"lily":{"sprout":216,"leafy":1524,"bud":1796,"bloom":2132},"lotus":{"sprout":270,"leafy":438,"bud":942,"bloom":954},"lotusRiver":{"sprout":0,"leafy":162,"bud":678,"bloom":690}};

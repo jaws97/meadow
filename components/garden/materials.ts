@@ -64,7 +64,7 @@ export function petalMaterial(
       map,
       normalMap: quality === "lite" ? null : petalNormalTexture(f.veins, 1),
       normalScale: new THREE.Vector2(0.35, 0.35),
-      emissiveMap: petalEmissiveTexture(f.emissive, f.veins, 1),
+      emissiveMap: petalEmissiveTexture(f.emissive, f.veins, 1, f.glowEven ?? 0),
       side: THREE.DoubleSide,
       roughness: Math.min(1, f.roughness + fade * 0.3),
       metalness: 0,

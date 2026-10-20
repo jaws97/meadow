@@ -31,7 +31,7 @@ describe("racemeNodes", () => {
       if (sp.raceme) continue;
       for (const seed of ["Lijas", "typical-0", "typical-199"]) expect(racemeNodes(seed, sp, sp.stem.segments)).toEqual([]);
     }
-    expect(ALL_SPECIES.filter((id) => SPECIES[id].raceme)).toEqual(["lily"]);
+    expect(ALL_SPECIES.filter((id) => SPECIES[id].raceme)).toEqual(["jasmine", "lily"]);
   });
 
   it("lays a lily's three flowers bottom-up round the top of the cane, then the bud at its tip", () => {
@@ -58,6 +58,29 @@ describe("racemeNodes", () => {
         expect(d).toBeGreaterThan(Math.PI / 2);
       }
     }
+  });
+
+  it("gives a jasmine's cluster its young buds among the flowers, closed, with the tip bud still last", () => {
+    const jasmine = SPECIES.jasmine;
+    const r = jasmine.raceme!;
+    for (let s = 0; s < 50; s++) {
+      const nodes = racemeNodes(`typical-${s}`, jasmine, jasmine.stem.segments);
+      expect(nodes).toHaveLength(r.flowers + (r.buds ?? 0) + 1);
+      expect(nodes.filter((n) => !n.closed)).toHaveLength(r.flowers);
+      expect(nodes.slice(0, r.flowers).every((n) => !n.closed && !n.tipBud)).toBe(true);
+      expect(nodes.slice(r.flowers, -1).every((n) => n.closed && !n.tipBud && n.length > 0)).toBe(true);
+      const tip = nodes[nodes.length - 1];
+      expect([tip.tipBud, tip.closed, tip.seg, tip.t]).toEqual([true, true, jasmine.stem.segments - 1, 1]);
+      for (const n of nodes) expect(racemeOpen(n, Infinity)).toBe(n.closed ? 0 : 1);
+      // the young buds swell after the flowers
+      expect(Math.min(...nodes.slice(r.flowers, -1).map((n) => n.order))).toBeGreaterThan(r.flowers);
+    }
+  });
+
+  it("lays a lily out as it always has: its young buds are a cluster's alone", () => {
+    const nodes = racemeNodes("typical-199", lily, SEGMENTS);
+    expect(nodes.map((n) => n.closed)).toEqual([false, false, false, true]);
+    expect(lily.raceme!.buds ?? 0).toBe(0);
   });
 
   it("keeps a node's stalk a slim tube that curves back up", () => {

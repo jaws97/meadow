@@ -81,6 +81,11 @@ export interface FlowerSpec {
   emissive: string;
   emissiveDay: number;
   emissiveNight: number;
+  /**
+   * How evenly a petal glows: 0 (left out) the base alone, fading two thirds of the way up, as most flowers do; toward
+   * 1 all the way to the tip, as a night bloomer's white petals do after dark.
+   */
+  glowEven?: number;
   center: {
     color: string;
     radius: number;
@@ -99,10 +104,16 @@ export interface FlowerSpec {
    */
   marks?: { throat: string; streak: string; spots: string };
   sepals: { count: number; length: number; width: number; color: string };
+  /** a slender corolla tube the petals spread from (a jasmine's), metres, drawn in the receptacle's place with the calyx at its foot */
+  tube?: { radius: number; length: number };
   /** bud radius before the petals open */
   budRadius: number;
   /** how much longer than wide the bud's core is (a lily's is a long club); a round bud when left out */
   budAspect?: number;
+  /** the closed petals' length against the open ones' (0.55 when left out); longer makes a longer bud */
+  budLength?: number;
+  /** how far the closed petals lean in over the bud, radians (0.18 when left out); more draws them to a point */
+  budClose?: number;
   /** the bud core's own colour; the petals' base and mid colours mixed when left out */
   budColor?: string;
 }
@@ -128,11 +139,13 @@ export interface Species {
   leaves: LeafSpec;
   flower: FlowerSpec;
   /**
-   * Several flowers up the top of one stem, for a lily (lib/plant/raceme): `flowers` of them, the lowest opening first,
-   * each on a stalk `pedicel` metres long leaning `out` radians from the stem, spread over the top `span` of the cane,
-   * with a bud at the tip. Left out, the one flower crowns the stem.
+   * Several flowers up the top of one stem, for a lily or a jasmine's cluster (lib/plant/raceme): `flowers` of them,
+   * the lowest opening first, each on a stalk `pedicel` metres long leaning `out` radians from the stem, spread over the
+   * top `span` of the cane, with a bud at the tip and `buds` more young buds among the flowers (none when left out),
+   * which stay closed; `tilt` scales how far each flower tips out on its stalk (1 when left out). Left out, the one
+   * flower crowns the stem.
    */
-  raceme?: { flowers: number; pedicel: number; out: number; span: number; scale: number };
+  raceme?: { flowers: number; pedicel: number; out: number; span: number; scale: number; buds?: number; tilt?: number };
   fx: { glowNight: boolean; pulse: boolean; sparks: boolean; scent: boolean; glowColor: string };
 }
 
@@ -272,6 +285,8 @@ export const SPECIES: Record<SpeciesId, Species> = {
     fx: { glowNight: true, pulse: true, sparks: true, scent: false, glowColor: "#3cf5b8" },
   },
   jasmine: {
+    // Mysore mallige, Bangalore's own jasmine (Jasminum sambac): a cluster at the shoot's tip of waxy white flowers
+    // among pointed buds blushed pink at their tips, the flowers opening one a night at dusk, sweetest after dark.
     id: "jasmine",
     name: "Night Jasmine",
     film: "Aladdin",
@@ -279,21 +294,34 @@ export const SPECIES: Record<SpeciesId, Species> = {
     stem: { height: 0.8, radius: 0.01, segments: 4, lean: 0.25, wobble: 0.7, color: "#4a7a3a", tipColor: "#6a9a4a", thorns: false },
     leaves: {
       count: [6, 10], length: 0.12, width: 0.07, serration: 0, fold: 0.2, gloss: 0.8, compound: 1,
-      color: "#245f2e", tipColor: "#3a8a42", veinColor: "#a8d8a0",
+      top: 0.7, color: "#245f2e", tipColor: "#3a8a42", veinColor: "#a8d8a0",
     },
+    // three flowers on short stalks round the shoot's tip with three young buds among them, which stay closed
+    raceme: { flowers: 3, buds: 3, pedicel: 0.13, out: 0.7, span: 0.28, scale: 0.6, tilt: 0.6 },
     flower: {
       layers: [
-        { count: 5, length: 0.14, width: 0.075, open: 1.35, bend: 0.15, cup: 0.3, ruffle: 0.1, tip: 0.6 },
-        { count: 5, length: 0.14, width: 0.075, open: 1.25, bend: 0.1, cup: 0.3, ruffle: 0.1, tip: 0.6 },
+        // six oval, round-tipped petals, each a little twisted and leant, so they overlap like a pinwheel
+        { count: 6, length: 0.13, width: 0.082, open: 1.38, bend: 0.14, cup: 0.36, ruffle: 0.05, tip: 0.25, twist: 0.5, lean: 0.3 },
+        // five smaller and more upright, cupped round the eye
+        { count: 5, length: 0.1, width: 0.068, open: 1.02, bend: 0.06, cup: 0.5, ruffle: 0.04, tip: 0.2, twist: 0.45, lean: 0.32 },
       ],
-      colorBase: "#f6f3ff", colorMid: "#ffffff", colorTip: "#ffffff", veinColor: "#efe9ff", veins: 5,
-      sheenColor: "#ffffff", sheen: 0.7, roughness: 0.5, transmission: 0.4, thickness: 0.1, attenuationColor: "#f0e8ff",
-      emissive: "#fff4d6", emissiveDay: 0.02, emissiveNight: 0.5,
-      center: { color: "#ffe27a", radius: 0.012, stamens: 2, stamenColor: "#ffd36a" },
-      sepals: { count: 5, length: 0.06, width: 0.012, color: "#3a7a3a" },
-      budRadius: 0.03,
+      colorBase: "#eef3df", colorMid: "#ffffff", colorTip: "#fffdf8", veinColor: "#f1ecf4", veins: 3,
+      // waxy, and at the grazing edges of the curled petals the buds' blush
+      sheenColor: "#ffd6e6", sheen: 0.75, roughness: 0.36, transmission: 0.35, thickness: 0.12, attenuationColor: "#fbe2ec",
+      // after dark its petals glow warm white to their tips, and the light at the first flower's heart is kept low, so a
+      // cluster of them reads as flowers rather than one blaze, none of them blue in the night's light
+      emissive: "#fff4d6", emissiveDay: 0.02, emissiveNight: 0.42, glowEven: 0.6,
+      center: { color: "#f2df8a", radius: 0.01, stamens: 2, stamenColor: "#efcf62" },
+      sepals: { count: 5, length: 0.045, width: 0.007, color: "#5f8f4a" },
+      tube: { radius: 0.0055, length: 0.034 },
+      // a mallige bud: a long, smooth, waxy core, white blushed pink, in a short cup of its closed petals
+      budRadius: 0.022,
+      budAspect: 2.8,
+      budLength: 0.45,
+      budClose: 0.28,
+      budColor: "#f5dfe8",
     },
-    fx: { glowNight: true, pulse: false, sparks: false, scent: true, glowColor: "#fff1c9" },
+    fx: { glowNight: false, pulse: false, sparks: false, scent: true, glowColor: "#fff1c9" },
   },
   lily: {
     // A pink Oriental lily, like a florist's 'Sorbonne': six tepals in two whorls of three, the inner ones broader,

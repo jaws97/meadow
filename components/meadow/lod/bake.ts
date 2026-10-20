@@ -78,14 +78,20 @@ function lodReceptacle(radius: number, height: number): THREE.BufferGeometry {
   );
 }
 
-/** How finely a light plant is built: petals coarser the more of them the flower has, no thorns, a few stamens. */
+/**
+ * How finely a light plant is built: petals coarser the more of them the flower has, no thorns, a few stamens. A stem
+ * with several heads whose petals together are many (a jasmine's cluster of flowers and buds) has its petals and sepals
+ * at the coarsest, so it keeps within the same budget as a single bloom.
+ */
 export function lodDetail(sp: Species): PoseDetail {
   const petals = sp.flower.layers.reduce((n, l) => n + l.count, 0);
-  const grid: [number, number] = petals <= 12 ? [3, 6] : petals <= 30 ? [3, 4] : petals <= 60 ? [2, 3] : [2, 2];
+  const heads = sp.raceme ? sp.raceme.flowers + (sp.raceme.buds ?? 0) + 1 : 1;
+  const crowded = heads > 1 && petals * heads > 60;
+  const grid: [number, number] = crowded ? [2, 3] : petals <= 12 ? [3, 6] : petals <= 30 ? [3, 4] : petals <= 60 ? [2, 3] : [2, 2];
   return {
     petal: () => grid,
     leaf: sp.leaves.compound > 1 ? [2, 2] : [2, 3],
-    sepal: [2, 3],
+    sepal: crowded ? [1, 2] : [2, 3],
     stem: [3, 4],
     pedicel: [2, 3],
     rachis: [2, 3],
@@ -237,7 +243,11 @@ function painter(sp: Species): Painter {
       }
     },
     glow(tag, v) {
-      if (tag.kind === "petal") return ramp(PETAL_GLOW, v);
+      if (tag.kind === "petal") {
+        // a night bloomer's petals glow all the way to the tip (FlowerSpec glowEven), as its emissive map does
+        const g = ramp(PETAL_GLOW, v);
+        return f.glowEven ? g + (1 - g) * f.glowEven : g;
+      }
       if (tag.kind === "stamen") return 0.8;
       if (tag.kind === "bud") return 0.35;
       return 0;

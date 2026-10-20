@@ -279,6 +279,24 @@ export function makeThornGeometry(radial = 8, rings = 8): THREE.BufferGeometry {
  * narrow at the stem, swelling to a bulb, pinched at the neck and flaring to
  * the rim at y = height where the petals attach. Base at the origin.
  */
+/**
+ * Where a flower's receptacle and calyx sit in its head (the petals' bases at the origin): the urn just under the
+ * petals with the sepals round its rim, or for a flower with a corolla tube (a jasmine's), the slender tube the petals
+ * spread from with the calyx at its foot.
+ */
+export function receptacleShape(f: { center: { radius: number }; tube?: { radius: number; length: number } }): {
+  radius: number;
+  height: number;
+  y: number;
+  sepalY: number;
+  sepalR: number;
+} {
+  const cr = f.center.radius;
+  if (!f.tube) return { radius: cr * 1.25, height: cr * 2.1, y: -cr * 2.0, sepalY: -cr * 0.25, sepalR: cr * 0.95 };
+  const foot = cr * 0.1 - f.tube.length;
+  return { radius: f.tube.radius, height: f.tube.length, y: foot, sepalY: foot + f.tube.length * 0.12, sepalR: f.tube.radius * 1.1 };
+}
+
 export function makeReceptacleGeometry(radius: number, height: number, seed = 0): THREE.BufferGeometry {
   const profile: [number, number][] = [
     [0.42, 0],

@@ -93,7 +93,7 @@ export function PartyCamera() {
     if (camera instanceof THREE.PerspectiveCamera) place(camera, framing, head, tour.current, wander);
   }, [camera, framing, head, tour, wander]);
 
-  // After the plant (which writes env.headPos) and before the effects draw.
+  // After the plant (which writes env.headPos and env.crownPos) and before the effects draw.
   useFrame((state, delta) => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return;
     const dt = Math.min(delta, 0.1);
@@ -104,10 +104,11 @@ export function PartyCamera() {
       tour.setOn(p.tour, env.time);
       shot = tour.step(env.time);
     }
+    // the plant's crown: the flower head, or the tip of a jasmine's cluster, so its shots stand as they were composed
     if (trailerCam.snapFrames > 0) {
       trailerCam.snapFrames--;
-      head.copy(env.headPos);
-    } else head.lerp(env.headPos, 1 - Math.exp(-dt * HEAD_RATE));
+      head.copy(env.crownPos);
+    } else head.lerp(env.crownPos, 1 - Math.exp(-dt * HEAD_RATE));
     drift(env.time, amount, wander);
     place(camera, live.current, head, shot, wander);
 

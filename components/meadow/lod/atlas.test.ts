@@ -93,7 +93,7 @@ describe("the pictures against their light plants", () => {
     // a thin sprout seen edge-on is where lighting a pixel's average normal strays most from lighting each sample
     expect(off).toEqual([]);
     expect(all.reduce((a, r) => a + Math.abs(r - 1), 0) / all.length).toBeLessThan(0.03);
-    // past 5% today: the sundrop's sprout, the marigold's leafy plant and bud, and the lily's slim bud, each at one angle
+    // past 5% today: the sundrop's sprout, the marigold's leafy plant and bud, and the jasmine's cluster of buds, each at one angle
     expect(all.filter((r) => Math.abs(r - 1) > 0.05).length).toBeLessThanOrEqual(4);
   }, 60_000);
 });
