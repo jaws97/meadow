@@ -407,6 +407,13 @@
   border-color: rgba(255, 170, 150, 0.6);
 }
 
+.gift-field-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--gift-ink-2);
+}
+
 .gift-error {
   margin-top: 8px;
   font-size: 13.5px;

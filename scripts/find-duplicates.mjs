@@ -1,6 +1,8 @@
 // Finds people who may have planted twice: identity is one cookie per browser, so a second device, an in-app browser
-// (Teams, WhatsApp, Instagram) or cleared cookies can plant a second garden for the same colleague. Groups people by
-// first name (ignoring case and spacing) and shows, for each garden, its plot, when it was planted, how much it was
+// (Teams, WhatsApp, Instagram) or cleared cookies can plant a second garden for the same colleague. Names are unique
+// in the Meadow (migration 0007), so a second garden carries a variant ("Asha" and "Asha K"): this groups people by the
+// first word of their name (ignoring case; names are stored trimmed, with single spaces) and shows, for each garden,
+// its sign name, its plot, when it was planted, how much it was
 // cared for, sprinkles given, and when a device last opened it, so the committee can see which one is in use. Removing
 // a garden is explicit, by plot, and only with --yes; it deletes the person with their garden, plant, events,
 // checkpoint, sessions and links. Sprinkles they gave stay in their friends' event logs, so no other plant changes.
@@ -20,7 +22,7 @@ async function main() {
   try {
     const rows = await sql`
       with people as (
-        select pe.id, pe.first_name, lower(regexp_replace(trim(pe.first_name), '\\s+', ' ', 'g')) as key, pe.created_at,
+        select pe.id, pe.first_name, lower(split_part(pe.first_name, ' ', 1)) as key, pe.created_at,
                p.id as plant_id, p.plot_index, p.species, p.rehearsal
         from meadow.people pe
         join meadow.gardens g on g.person_id = pe.id
@@ -33,18 +35,18 @@ async function main() {
       from people pp
       order by pp.key, pp.created_at`;
     const groups = rows.filter((r) => Number(r.same_name) > 1);
-    console.log(`people: ${rows.length}, sharing a first name with someone: ${groups.length}`);
+    console.log(`people: ${rows.length}, sharing the first word of their name with someone: ${groups.length}`);
     let key = null;
     for (const r of groups) {
       if (r.key !== key) {
         key = r.key;
-        console.log(`\n"${r.first_name}"`);
+        console.log(`\n${r.key}`);
       }
-      console.log(`  plot ${String(r.plot_index).padStart(4)}  ${r.species.padEnd(8)}  planted ${r.created_at.toISOString()}  `
+      console.log(`  plot ${String(r.plot_index).padStart(4)}  "${r.first_name}"  ${r.species.padEnd(8)}  planted ${r.created_at.toISOString()}  `
         + `events ${r.events}  sprinkles given ${r.sprinkles_given}  last seen ${r.last_seen ? r.last_seen.toISOString() : "never"}`
         + `${r.rehearsal ? "  (rehearsal)" : ""}`);
     }
-    if (groups.length > 0) console.log("\nSame first name is not proof of a duplicate: check with the person before removing a garden.");
+    if (groups.length > 0) console.log("\nA shared first word is not proof of a duplicate: check with the person before removing a garden.");
 
     const remove = arg("--remove");
     if (remove === undefined) return;

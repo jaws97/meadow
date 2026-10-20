@@ -1,6 +1,6 @@
 // End-to-end smoke test of the real API against a running server (default http://localhost:3000, or SMOKE_BASE_URL).
-// Plants two test seeds named "Test Seed (delete me)" and walks the API: retries, care and its limits, sprinkles, the
-// Meadow, a catch-up across completed hours, personal garden links opened on other devices (sign in, the switch prompt,
+// Plants two test seeds, "Test Seed (delete me)" and "Test Seed B (delete me)" (names are unique in the Meadow), and
+// walks the API: retries, unique names, care and its limits, sprinkles, the Meadow, a catch-up across completed hours, personal garden links opened on other devices (sign in, the switch prompt,
 // switch back, reset, sign out), the practice-copy guard and the weather (the hour just completed, the next 24 hours of
 // forecast and the heavy-rain hint, none of it stored as weather rows); then DELETES every row it created (people
 // cascade to their gardens, plants, events, checkpoints, sprinkles, sessions and links) and checks that nothing is left.
@@ -11,11 +11,9 @@
 // rehearsals, and the server must write no checkpoint and no weather row; the test checks both.
 //
 // SMOKE_EXPECT=production runs it against a production-mode server instead (a local `next build && next start`, or the
-// Production deployment) during a rehearsal before the game clock starts (MEADOW_REHEARSAL=1, before 10 Nov): it then
-// expects the Secure cookie, catch-ups saved as checkpoints (single and bulk), and weather rows written once, and the
-// cleanup also removes the pre-game weather hours the run wrote. SMOKE_STRICT_BASE_URL may name a second production
-// server of the same build WITHOUT MEADOW_REHEARSAL: its Meadow must hide the rehearsal plants and it must refuse to
-// plant before the opening hour.
+// Production deployment) before the game clock starts (before 10 Nov, when every production planting is a practice
+// one): it then expects the Secure cookie, catch-ups saved as checkpoints (single and bulk), and weather rows written
+// once, and the cleanup also removes the pre-game weather hours the run wrote.
 //
 // SMOKE_PARTY_CODE (or the first code in MEADOW_PARTY_CODE) is sent with every planting; when one is known the test
 // also checks that a planting without it, or with an old one, is refused.
@@ -26,11 +24,14 @@ import { randomUUID } from "node:crypto";
 import { connect } from "./db-connect.mjs";
 
 const BASE = (process.env.SMOKE_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-const STRICT_BASE = process.env.SMOKE_STRICT_BASE_URL ? process.env.SMOKE_STRICT_BASE_URL.replace(/\/$/, "") : null;
 const PRODUCTION = process.env.SMOKE_EXPECT === "production";
 const PARTY_CODE = process.env.SMOKE_PARTY_CODE || (process.env.MEADOW_PARTY_CODE ?? "").split(",")[0].trim() || null;
 const withCode = (body) => (PARTY_CODE ? { ...body, partyCode: PARTY_CODE } : body);
 const TEST_NAME = "Test Seed (delete me)";
+const TEST_NAME_B = "Test Seed B (delete me)";
+/** every name this test plants under, lower-cased as the unique index compares them, so the cleanup and the counts
+ * find them all (and a planting that wrongly went in under another case) */
+const TEST_KEYS = [TEST_NAME, TEST_NAME_B].map((n) => n.toLowerCase());
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 
 let failures = 0;
@@ -87,7 +88,7 @@ async function counts(sql) {
            (select count(*)::int from meadow.sprinkles) as sprinkles,
            (select count(*)::int from meadow.checkpoints) as checkpoints,
            (select count(*)::int from meadow.weather_hours) as weather,
-           (select count(*)::int from meadow.people where first_name = ${TEST_NAME}) as test_people`;
+           (select count(*)::int from meadow.people where lower(first_name) = any(${TEST_KEYS})) as test_people`;
   return r;
 }
 
@@ -113,7 +114,7 @@ async function run(sql) {
   check(a.has("meadow_session") && /httponly/i.test(attrs) && /samesite=lax/i.test(attrs), "the session cookie is httpOnly and SameSite=Lax");
   if (PRODUCTION) check(/;\s*secure/i.test(attrs), "in production the session cookie is Secure");
   check(seed.json.me.plant.rehearsal === true,
-    PRODUCTION ? "a planting before the game clock (MEADOW_REHEARSAL=1) is marked as a rehearsal" : "a planting through the dev server is marked as a rehearsal",
+    PRODUCTION ? "a planting before the game clock is marked as a rehearsal" : "a planting through the dev server is marked as a rehearsal",
     `plot ${plotA}, h ${seed.json.me.plant.plantedH}`);
 
   const again = await call("POST", "/api/seed", { body: withCode({ firstName: TEST_NAME, species: "marigold", clientEventId: seedId }) });
@@ -129,6 +130,26 @@ async function run(sql) {
   check(shortId.status === 400 && shortId.json?.error === "client_event_id", "a planting id that is not a UUID is a 400");
   const twice = await call("POST", "/api/seed", { jar: a, body: withCode({ firstName: TEST_NAME, species: "rose", clientEventId: randomUUID() }) });
   check(twice.status === 409 && twice.json?.error === "already_planted", "a second seed on the same device is declined kindly", twice.json?.message);
+
+  // 1b. unique names: the name step's question, and a planting under a name already in the Meadow (in another case)
+  const sameNameOtherCase = TEST_NAME.toUpperCase();
+  const asked = await call("POST", "/api/name", { body: withCode({ firstName: `  ${sameNameOtherCase} ` }) });
+  check(asked.status === 200 && asked.json?.available === false && typeof asked.json?.message === "string" && asked.json?.firstName === sameNameOtherCase,
+    "POST /api/name says a name already in the Meadow (in any case) is taken, with words for the name step", asked.json?.message);
+  const free = await call("POST", "/api/name", { body: withCode({ firstName: TEST_NAME_B }) });
+  check(free.status === 200 && free.json?.available === true && free.json?.message === null, "POST /api/name says a free name is free");
+  const ownLost = await call("POST", "/api/name", { body: withCode({ firstName: TEST_NAME, clientEventId: seedId }) });
+  check(ownLost.status === 200 && ownLost.json?.available === true,
+    "POST /api/name does not count the asker's own planting (an answer lost on the way), so planting again can return it");
+  const badName = await call("POST", "/api/name", { body: withCode({ firstName: "   " }) });
+  check(badName.status === 400 && badName.json?.field === "firstName", "POST /api/name checks the name as planting does", badName.json?.error);
+  if (PARTY_CODE) {
+    const askNoCode = await call("POST", "/api/name", { body: { firstName: TEST_NAME_B } });
+    check(askNoCode.status === 403 && askNoCode.json?.error === "party_code_required", "POST /api/name is behind the party code too");
+  }
+  const clash = await call("POST", "/api/seed", { body: withCode({ firstName: sameNameOtherCase, species: "rose", clientEventId: randomUUID() }) });
+  check(clash.status === 409 && clash.json?.error === "name_taken" && clash.json?.field === "firstName",
+    "a planting under a name already in the Meadow (in another case) is declined kindly, pointing at the name", clash.json?.message);
 
   // 2. care
   const waterId = randomUUID();
@@ -168,7 +189,7 @@ async function run(sql) {
   check(anon.status === 401 && anon.json?.error === "no_session", "GET /api/me without a session is a calm 401");
 
   // 4. a friend sprinkles
-  const seedB = await call("POST", "/api/seed", { jar: b, body: withCode({ firstName: TEST_NAME, species: "jasmine", showName: false, clientEventId: randomUUID() }) });
+  const seedB = await call("POST", "/api/seed", { jar: b, body: withCode({ firstName: TEST_NAME_B, species: "jasmine", showName: false, clientEventId: randomUUID() }) });
   check(seedB.status === 201, "a second test seed is planted", `plot ${seedB.json?.me?.plant?.plot}`);
   const plotB = seedB.json?.me?.plant?.plot;
   const spr = await call("POST", "/api/sprinkle", { jar: b, body: { plot: plotA, clientEventId: randomUUID() } });
@@ -196,16 +217,26 @@ async function run(sql) {
   // another model version, so the server must rebuild them from planting with real weather. A dev server must compute
   // the plants without saving a checkpoint or writing a weather row; a production server must save both catch-ups (the
   // single one from GET /api/me, the bulk one from the Meadow) and write the weather hours once.
-  const [{ n: weatherBefore }] = await sql`select count(*)::int as n from meadow.weather_hours`;
+  //
+  // The shared database is busy while colleagues practise on the live site, so the weather is judged only in the hours
+  // the backdated test plants need, [their planting hour, the hour just completed), leaving out the hour just completed
+  // (Open-Meteo may not have published it yet): rows there stored from this moment on, and rows missing there.
+  const [{ t: wxSince }] = await sql`select now() as t`;
   const backdate = async (plot) => {
     const [p] = await sql`
       update meadow.plants set planted_h = planted_h - 6 where plot_index = ${plot}
-        and garden_id in (select g.id from meadow.gardens g join meadow.people pe on pe.id = g.person_id where pe.first_name = ${TEST_NAME})
-      returning id`;
+        and garden_id in (select g.id from meadow.gardens g join meadow.people pe on pe.id = g.person_id where lower(pe.first_name) = any(${TEST_KEYS}))
+      returning id, planted_h`;
     await sql`update meadow.checkpoints set sim_version = 0 where plant_id = ${p.id}`;
+    return p.planted_h;
   };
-  await backdate(plotA);
-  await backdate(plotB);
+  const wxLo = Math.min(await backdate(plotA), await backdate(plotB));
+  const testWeather = async (hi, since) => {
+    const [r] = await sql`
+      select count(*)::int as stored, (count(*) filter (where fetched_at >= ${since}))::int as fresh
+      from meadow.weather_hours where h >= ${wxLo} and h < ${hi}`;
+    return r;
+  };
   const caught = await call("GET", "/api/me", { jar: a });
   const st = caught.json?.state, now = caught.json?.now, wxs = caught.json?.weather;
   // Open-Meteo may not have published the hour that has only just completed; anything older must be there
@@ -224,18 +255,22 @@ async function run(sql) {
   const cps = await sql`
     select c.sim_version, c.h, p.planted_h from meadow.checkpoints c join meadow.plants p on p.id = c.plant_id
     join meadow.gardens g on g.id = p.garden_id join meadow.people pe on pe.id = g.person_id
-    where pe.first_name = ${TEST_NAME}`;
-  const [{ n: weatherAfter }] = await sql`select count(*)::int as n from meadow.weather_hours`;
+    where lower(pe.first_name) = any(${TEST_KEYS})`;
+  const wxHi = (now?.h ?? wxLo) - 1;
+  const wx = await testWeather(wxHi, wxSince);
   if (PRODUCTION) {
     check(cps.length === 2 && cps.every((c) => c.sim_version > 0 && c.h > c.planted_h),
       "production saved both catch-ups as checkpoints (GET /api/me's and the Meadow's bulk update)", JSON.stringify(cps));
-    check(weatherAfter > weatherBefore, "production wrote the fetched weather hours to the shared store", `${weatherBefore} -> ${weatherAfter}`);
+    check(wx.stored === wxHi - wxLo, "the shared weather store holds every hour the test plants needed (production stores what it fetches)",
+      `${wx.stored} of ${wxHi - wxLo} hours from h ${wxLo}`);
+    const [{ t: thirdSince }] = await sql`select now() as t`;
     await call("GET", "/api/me", { jar: a });
-    const [{ n: weatherThird }] = await sql`select count(*)::int as n from meadow.weather_hours`;
-    check(weatherThird === weatherAfter, "a second visit writes no weather row again (each hour is stored once)", `${weatherAfter} -> ${weatherThird}`);
+    const again = await testWeather(wxHi, thirdSince);
+    check(again.fresh === 0, "a second visit writes no weather row again (each hour is stored once)", `${again.fresh} rows rewritten`);
   } else {
     check(cps.length === 2 && cps.every((c) => c.sim_version === 0), "the dev server saved no checkpoint (only production writes derived state)", JSON.stringify(cps));
-    check(weatherAfter === weatherBefore, "the dev server wrote no weather row (it keeps fetched hours in memory)", `${weatherBefore} -> ${weatherAfter}`);
+    check(wx.fresh === 0, "the dev server wrote no weather row (it keeps fetched hours in memory)",
+      `${wx.fresh} rows stored in the test's hours since the backdate; if the live site was catching up practice plants just then, run it again`);
   }
 
   // 7. personal garden links on other devices
@@ -274,8 +309,7 @@ async function run(sql) {
   const cut = await call("POST", "/api/session", { body: { token: tokenA.slice(0, 40) } });
   check(cut.status === 400 && cut.json?.error === "link_incomplete", "a cut-off link is a 400 that says so");
 
-  // 8. the practice-copy guard: a dev server may not tend a real plant. A production server without the rehearsal flag
-  // hides practice plants and refuses to plant before the opening hour.
+  // 8. the practice-copy guard: a dev server may not tend a real plant
   if (!PRODUCTION) {
     await sql`update meadow.plants set rehearsal = false where plot_index = ${plotB}`;
     const sprReal = await call("POST", "/api/sprinkle", { jar: a, body: { plot: plotB, clientEventId: randomUUID() } });
@@ -283,14 +317,6 @@ async function run(sql) {
     await sql`update meadow.plants set rehearsal = true where plot_index = ${plotB}`;
     check(sprReal.status === 409 && sprReal.json?.error === "practice_only" && careReal.status === 409 && careReal.json?.error === "practice_only",
       "a non-production server refuses to sprinkle or tend a real plant", sprReal.json?.message);
-  }
-  if (STRICT_BASE) {
-    const strictMeadow = await call("GET", "/api/meadow", { base: STRICT_BASE });
-    const shown = (strictMeadow.json?.plots ?? []).filter((p) => p.plot === plotA || p.plot === plotB).length;
-    check(strictMeadow.status === 200 && shown === 0, "production without MEADOW_REHEARSAL hides rehearsal plants from the Meadow",
-      `status ${strictMeadow.status}, count ${strictMeadow.json?.count}`);
-    const strictSeed = await call("POST", "/api/seed", { base: STRICT_BASE, body: withCode({ firstName: TEST_NAME, species: "rose", clientEventId: randomUUID() }) });
-    check(strictSeed.status === 409 && strictSeed.json?.error === "not_yet", "production without MEADOW_REHEARSAL refuses to plant before the opening hour", strictSeed.json?.message);
   }
 
   // 9. "someone else has my link", and signing out
@@ -355,27 +381,49 @@ async function run(sql) {
 }
 
 async function main() {
-  console.log(`smoke test against ${BASE} (expecting ${PRODUCTION ? "production" : "development"} behaviour${STRICT_BASE ? `; strict production at ${STRICT_BASE}` : ""})`);
+  console.log(`smoke test against ${BASE} (expecting ${PRODUCTION ? "production" : "development"} behaviour)`);
   const sql = connect("POSTGRES_URL_NON_POOLING");
   try {
     const [{ started }] = await sql`select now() as started`;
     // leftovers from an interrupted earlier run would skew the before/after comparison
-    const stale = await sql`delete from meadow.people where first_name = ${TEST_NAME} returning id`;
+    const stale = await sql`delete from meadow.people where lower(first_name) = any(${TEST_KEYS}) returning id`;
     if (stale.length > 0) console.log(`removed ${stale.length} test people left by an earlier run`);
     const before = await counts(sql);
     try {
       await run(sql);
     } finally {
       // cleanup runs even when a step failed
-      const removed = await sql`delete from meadow.people where first_name = ${TEST_NAME} returning id`;
+      const mine = await sql`
+        select pe.id as person_id, p.id as plant_id from meadow.people pe
+        left join meadow.gardens g on g.person_id = pe.id left join meadow.plants p on p.garden_id = g.id
+        where lower(pe.first_name) = any(${TEST_KEYS})`;
+      const removed = await sql`delete from meadow.people where lower(first_name) = any(${TEST_KEYS}) returning id`;
       console.log(`cleanup: removed ${removed.length} test people (with their gardens, plants, events, checkpoints, sprinkles, sessions, links)`);
       // a production-mode run stores the weather it fetched; only pre-game hours (h < 0), which no real plant needs
       const wx = await sql`delete from meadow.weather_hours where h < 0 and fetched_at >= ${started} returning h`;
       if (wx.length > 0) console.log(`cleanup: removed ${wx.length} pre-game weather hours this run stored`);
       const after = await counts(sql);
       check(after.test_people === 0, "no test people remain");
+      // everything the test made went with its people; counted by the test's own ids, since colleagues practising on the
+      // live site may add rows of their own meanwhile
+      const people = mine.map((r) => r.person_id), plants = mine.map((r) => r.plant_id).filter(Boolean);
+      const [left] = await sql`
+        select (select count(*)::int from meadow.people where id = any(${people}::uuid[])) as people,
+               (select count(*)::int from meadow.gardens where person_id = any(${people}::uuid[])) as gardens,
+               (select count(*)::int from meadow.plants where id = any(${plants}::uuid[])) as plants,
+               (select count(*)::int from meadow.plant_events where plant_id = any(${plants}::uuid[])) as events,
+               (select count(*)::int from meadow.checkpoints where plant_id = any(${plants}::uuid[])) as checkpoints,
+               (select count(*)::int from meadow.sprinkles where giver_id = any(${people}::uuid[]) or plant_id = any(${plants}::uuid[])) as sprinkles,
+               (select count(*)::int from meadow.sessions where person_id = any(${people}::uuid[])) as sessions,
+               (select count(*)::int from meadow.garden_links where person_id = any(${people}::uuid[])) as links`;
+      check(people.length === 2 && Object.values(left).every((n) => n === 0),
+        "nothing the test made is left behind (gardens, plants, events, checkpoints, sprinkles, sessions, links)",
+        `${people.length} test people; ${JSON.stringify(left)}`);
       const keys = ["people", "plants", "events", "sessions", "links", "sprinkles", "checkpoints", "weather"];
-      check(keys.every((k) => after[k] === before[k]), "row counts are back to where they started", JSON.stringify(after));
+      const moved = keys.filter((k) => after[k] !== before[k]);
+      if (moved.length > 0) {
+        console.log(`note: other activity changed these totals during the run (colleagues practising on the live site, say): ${moved.map((k) => `${k} ${before[k]} -> ${after[k]}`).join(", ")}`);
+      }
     }
   } finally {
     await sql.end();

@@ -18,8 +18,13 @@ The live site is https://meadow-phi.vercel.app. Its settings are in Vercel, in t
   anything inside a `.env` file. Where a command below says `<party code>`, type your code in its place.
 
 Suggested days: steps 1 and 2 on Monday 2 November, steps 3 and 4 on Tuesday 3 or Wednesday 4, step 5 on Thursday 5,
-and Monday 9 November as a quiet spare day. Steps 3 and 4 must be finished, with the rehearsal switched off, before
-midnight on Monday 9 November. From 10 November 00:00 IST the site no longer takes practice plantings.
+and Monday 9 November as a quiet spare day.
+
+Until 10 November 00:00 IST the live site takes practice plantings from anyone with the party link: every planting
+before then is marked as practice, so colleagues can test it on any day until then. There is no switch to turn on or
+off. From 10 November 00:00 IST practice plantings stop by themselves, the practice gardens leave the Meadow, and
+planting waits for 15:00. Clear the practice gardens (step 3.4) before the party: names are unique in the Meadow, so
+a practice garden called "Asha" would keep a colleague called Asha from using that name.
 
 ## 1. Make the party code
 
@@ -36,8 +41,9 @@ a password, since the link is meant to be shared at the party, but keep it to yo
 4. Redeploy so the site picks it up: under **Deployments**, open the newest Production deployment's menu (the three
    dots), choose **Redeploy**, and wait for **Ready**. Every change to a variable needs a redeploy like this.
 5. Check it: open `https://meadow-phi.vercel.app/party?code=<party code>`. The panel says "A gift from Lijas" and shows
-   a QR code, with the link written underneath it. Scan it with your phone. Before the party the phone says "Seeds
-   open at 3 pm on 10 November". That is right; there is nothing to plant yet.
+   a QR code, with the link written underneath it. Scan it with your phone. Before 10 November the phone offers
+   **Receive your seed**: anything planted now is a practice planting, cleared in step 3.4. On 10 November, before
+   15:00, it says "Seeds open at 3 pm on 10 November" instead.
 
 To change the code later without a gap: set the variable to `newcode,oldcode`, redeploy, and open the party screen
 with the new code. Once no one needs the old link, set it to `newcode` alone and redeploy again.
@@ -100,16 +106,16 @@ The scripts keep using the main account from `.env.local`.
 
 ## 3. Dress rehearsal on the live site
 
-For one session the live site takes practice plantings, with the same code, the same database and the same Production
-deployment that will serve the party. Each practice planting is marked as practice when it goes in, and they are all
-cleared afterwards. From 10 November 00:00 IST the site ignores this switch, whatever it is set to, so it can never
-touch a real planting.
+Until 10 November the live site takes practice plantings, with the same code, the same database and the same
+Production deployment that will serve the party. Each practice planting is marked as practice when it goes in, and
+they are all cleared afterwards. Nothing planted on or after 10 November 00:00 IST can be a practice one, so a real
+planting is never touched.
 
-1. In **Environment Variables**, add a variable named `MEADOW_REHEARSAL` with the value `1`, for **Production** only.
-   Redeploy and wait for **Ready**.
-2. Run the production smoke test. It plants two test seeds named "Test Seed (delete me)" and tries every part of the
-   service: planting, care, sprinkles, the Meadow, garden links and the weather. Then it deletes everything it made.
-   Type these four lines:
+1. Nothing to switch on: practice planting is open until 10 November by itself. (If an older checklist left a variable
+   named `MEADOW_REHEARSAL` in **Environment Variables**, it no longer does anything; you can delete it.)
+2. Run the production smoke test. It plants two test seeds, "Test Seed (delete me)" and "Test Seed B (delete me)", and
+   tries every part of the service: planting, unique names, care, sprinkles, the Meadow, garden links and the weather.
+   Then it deletes everything it made. Type these four lines:
    ```
    $env:SMOKE_BASE_URL = "https://meadow-phi.vercel.app"
    $env:SMOKE_EXPECT = "production"
@@ -121,8 +127,10 @@ touch a real planting.
    the cache line), the free weather service was probably busy for a moment: wait ten minutes and run the last line
    again. If anything else says `FAIL`, keep the output (it never prints secrets) and stop here.
    Afterwards, close this terminal window so it forgets those settings, and open a fresh one.
-3. While the rehearsal is on, do step 4 with your colleagues.
-4. Clear the practice plantings. First, look at what would go:
+3. Do step 4 with your colleagues, any day before 10 November. Each phone keeps the garden it planted: scanning
+   again opens that garden rather than the gift, and its name stays taken. To run step 4 again from the start with
+   the same phones and names, clear the practice plantings first (step 3.4).
+4. Clear the practice plantings, at the latest on Monday 9 November. First, look at what would go:
    ```
    node --env-file=.env.local scripts/clear-rehearsals.mjs
    ```
@@ -132,30 +140,28 @@ touch a real planting.
    node --env-file=.env.local scripts/clear-rehearsals.mjs --yes
    ```
    It says how many practice gardens it deleted. Run the first command again: it should say `rehearsal gardens: 0`.
-5. Remove `MEADOW_REHEARSAL` from **Environment Variables**, redeploy, and wait for **Ready**.
-6. Check it: scanning the QR code on the party screen says "Seeds open at 3 pm on 10 November" again.
 
-## 4. Real phones with two or three colleagues
+## 4. Real phones with colleagues
 
-While the rehearsal is on (step 3), ask two or three colleagues to try it on their own phones. Aim for a mix: an
-iPhone and an Android phone, one on office Wi-Fi and one on mobile data, and a laptop or iPad for the personal link.
+Before 10 November (step 3), ask colleagues to try it on their own phones. Aim for a mix: an iPhone and an Android
+phone, one on office Wi-Fi and one on mobile data, and a laptop or iPad for the personal link.
 
 1. Open the party screen on a laptop, `https://meadow-phi.vercel.app/party?code=<party code>`, so everyone can watch
    the feed.
 2. Send each colleague this link privately, not in the team chat:
-   `https://meadow-phi.vercel.app/garden?code=<party code>&rehearsal`
-   The `&rehearsal` ending lets the page plant before the party. The QR code on the party screen doesn't have it, so
-   scanning that will still say "Seeds open at 3 pm on 10 November".
+   `https://meadow-phi.vercel.app/garden?code=<party code>`
+   (Scanning the QR code on the party screen works just as well.)
 3. Each colleague, in turn, receives the seed, types their first name, chooses a flower and plants it. They should see
    the planting moment and then the link sheet. A small line there says "A practice planting, kept apart from the real
-   Meadow"; that is expected. Their name appears in the party screen's feed.
+   Meadow"; that is expected. Their name appears in the party screen's feed. Try a name someone already used, in
+   other capitals too: the name step should ask for an initial or a nickname, like "Asha K", before the seeds appear.
 4. In their garden, each one waters once and looks at the care panel and the weather line. Then they open the Meadow
    (`https://meadow-phi.vercel.app/meadow`), find a colleague with **Find a friend**, visit and sprinkle.
 5. Open the personal garden link from the link sheet on a laptop or iPad. The same garden appears there.
 6. Ask each person whether anything was confusing, slow, hard to read or cut off, and whether the page felt smooth.
    Note their phone and browser beside each answer.
-7. Go back to step 3.4 to clear the practice plantings. After that, their phones show the gift again when they scan on
-   the day.
+7. When you are done testing, go back to step 3.4 to clear the practice plantings. After that, their phones show the
+   gift again when they scan on the day, and their names are free again.
 
 Ask people to scan with the phone's camera, not from inside WhatsApp or Teams, today and on the day. An app's own
 browser keeps a separate memory, so the same person can end up with two gardens.
@@ -173,8 +179,8 @@ Use the laptop that will drive the venue screen, connected to that screen, on th
    light in", and then Lijas's Enchanted Rose garden appears at golden hour. The gift panel with the QR code appears
    within 30 seconds at the latest, even if the garden is still settling.
 5. Scan the QR code from the back of the room with two phones, one on Wi-Fi and one on mobile data. Both should open
-   the gift and say "Seeds open at 3 pm on 10 November". Check that the link under the QR code can be read from the
-   back.
+   the gift, "A seed, just for you". Before 10 November they offer **Receive your seed** (a practice planting; if you
+   plant one, clear it in step 3.4). Check that the link under the QR code can be read from the back.
 6. Leave it running for 15 minutes. The view moves slowly by itself, the pointer hides when the mouse rests, and the
    laptop should not sleep or dim.
 7. Keys, if you need them: **H** hides or shows the panel, **T** starts or stops a slow tour, and **F** switches full
@@ -198,15 +204,18 @@ Write the final address, with any `&quality=` ending, in your private note.
 
 **In the morning**
 
-1. In Vercel, check that `MEADOW_PARTY_CODE` is set for Production, `MEADOW_REHEARSAL` is gone, and the newest
-   Production deployment says **Ready**.
+1. In Vercel, check that `MEADOW_PARTY_CODE` is set for Production and the newest Production deployment says
+   **Ready**.
 2. Check that the practice plantings are gone:
    ```
    node --env-file=.env.local scripts/clear-rehearsals.mjs
    ```
-   It should say `rehearsal gardens: 0`. If any are listed, leave them for now: the live Meadow already hides them.
-   After the party, once the list shows only practice gardens, clear them with `--yes --force` (from 10 November the
-   script asks for both).
+   It should say `rehearsal gardens: 0`. If any are listed, clear them before 15:00, because their names stay taken
+   while they are there (the live Meadow already hides them). Before 15:00 only practice gardens can be listed, and
+   `real plants (kept)` says 0. From 10 November the script asks for both `--yes` and `--force`:
+   ```
+   node --env-file=.env.local scripts/clear-rehearsals.mjs --yes --force
+   ```
 
 **At 14:30**
 
@@ -219,7 +228,9 @@ Write the final address, with any `&quality=` ending, in your private note.
 - Before 15:00, anyone who scans sees "A seed, just for you" and "Seeds open at 3 pm on 10 November". If they keep the
   page open, it opens by itself at 15:00.
 - From 15:00 they tap **Receive your seed** and type their first name, or choose "A friend" to keep it off the sign.
-  Then they choose one of six flowers and tap **Plant the** and the flower's name. The seed settles into its bed, the
+  Names are unique in the Meadow: if a colleague already has theirs, the name step asks them to add an initial or a
+  nickname, like "Asha K". Then they choose one of seven flowers and tap **Plant the** and the flower's name. The seed
+  settles into its bed (a lotus into a glass of water by its pond), the
   link sheet offers a personal link for a laptop or iPad, and their own garden opens.
 - On the big screen the count goes up and names glide into the feed, like "Priya planted a Night Jasmine". Their
   sprouts appear in the Meadow.
@@ -254,7 +265,9 @@ Write the final address, with any `&quality=` ending, in your private note.
 - Colleagues who missed it can plant until 10 December with the same link,
   `https://meadow-phi.vercel.app/garden?code=<party code>`. Share it in the team chat once the party has started, and
   keep `MEADOW_PARTY_CODE` set until then.
-- A day or two later, look for anyone who planted twice, from a second phone or a link opened inside WhatsApp or Teams:
+- A day or two later, look for anyone who planted twice, from a second phone or a link opened inside WhatsApp or Teams.
+  Their second garden carries a variant of their name ("Asha" and "Asha K"), so the script groups names by their first
+  word:
   ```
   node --env-file=.env.local scripts/find-duplicates.mjs
   ```

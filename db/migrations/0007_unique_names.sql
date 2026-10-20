@@ -1,0 +1,22 @@
+-- Unique names, from 20 Oct 2026: every garden sign in the Meadow carries a different name, ignoring case, so a friend
+-- searching for "Asha" finds one flower. Colleagues who share a first name add an initial or a nickname ("Asha K"); the
+-- name step asks for that, and the server answers a taken name with 409 name_taken (lib/server/garden.ts plantSeed and
+-- checkNameFree).
+--
+-- 1. people_first_name_key: a unique index on lower(first_name). The server checks the same expression under the
+--    lock that hands out plots, so two plantings never race for one name; this index holds the line for every other
+--    writer (scripts/hide-name.mjs --rename, a hand-written fix). Names are already tidied before they are stored
+--    (validate.ts cleanFirstName: NFC, trimmed, single spaces), so lower() is the only folding needed. The id stays
+--    the primary key: a name can still be changed or hidden without touching anything that points at the person.
+--    It covers "A friend" signs too, whose real name is kept but not shown.
+-- 2. Nothing else. No row changes.
+--
+-- Before applying it to a database that already holds people, list any names that clash (the creation fails and rolls
+-- back while two people share a name):
+--   select lower(first_name), count(*) from meadow.people group by 1 having count(*) > 1;
+-- On 20 Oct 2026 the shared database held no people at all.
+--
+-- db/lockdown.sql runs after this file inside the same transaction (scripts/migrate.mjs) and asserts the result.
+-- Idempotent.
+
+create unique index if not exists people_first_name_key on meadow.people (lower(first_name));

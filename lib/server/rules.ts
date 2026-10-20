@@ -63,7 +63,7 @@ export function formatIstHour(h: number, nowH: number): string {
 
 /**
  * open: the real window (PLANT_OPEN_H on 10 Nov, to 10 Dec 23:59 IST). rehearsal: before the party, where env.ts allows it
- * (outside production, or MEADOW_REHEARSAL=1 before the game clock starts). early: before the party otherwise. closed:
+ * (outside production, or production before the game clock starts). early: before the party otherwise. closed:
  * after 10 Dec.
  */
 export type PlantingWindow = "open" | "rehearsal" | "early" | "closed";

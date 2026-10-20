@@ -11,13 +11,19 @@
 // holds one. A reload in the middle keeps the name and seed (pendingSeed), so a retry reuses the same request id and
 // never plants twice.
 //
-// Seeds open at the party (10 Nov, 15:00 IST) and planting closes after 10 Dec. On the live site the welcome step
-// checks the season by the same hours the server does (copy.ts seasonAt), so someone who scans the QR code early is
-// told when to come back before they type anything; the step opens by itself at 15:00. ?rehearsal skips the check
-// for a practice run on a production build (the server still decides); on a development server, ?season=early or
-// ?season=closed shows those states.
+// Seeds open at the party (10 Nov, 15:00 IST) and planting closes after 10 Dec. Until 10 Nov the live site takes
+// practice plantings from anyone with the party link, so colleagues can test it. On the live site the welcome step
+// checks the season by the same hours the server does (copy.ts giftSeasonAt): open for practice before 10 Nov, and
+// on 10 Nov someone who scans the QR code early is told when to come back before they type anything; the step opens by
+// itself at 15:00. ?rehearsal skips the check on a production build (the server still decides); on a development
+// server, ?season=early or ?season=closed shows those states.
+//
+// Names are unique in the Meadow (ignoring case), so a friend finds the right flower: the name step says so, asks the
+// server whether the name is free before the seeds appear (this tab's own planting whose answer was lost does not
+// count, so planting again returns that garden), and a name taken in the meantime brings the person back to the name
+// step with the server's words. An answer that arrives after the name was changed, or the step left, is dropped.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { OWNER, SEEDS_OPEN_MS, seasonAt, seedsOpenText, type Season } from "@/components/gift/copy";
+import { OWNER, giftSeasonAt, nextGiftSeasonChangeMs, seedsOpenText, type Season } from "@/components/gift/copy";
 import { GiftSheet } from "@/components/gift/GiftSheet";
 import { ArrowLeft, Soil, Sparkle } from "@/components/gift/icons";
 import { LinkPanel } from "@/components/gift/LinkPanel";
@@ -29,6 +35,7 @@ import {
   ApiProblem,
   OFFLINE_MESSAGE,
   checkFirstName,
+  checkNameFree,
   dropSeedRequestId,
   pendingSeed,
   plantSeed,
@@ -68,7 +75,10 @@ const PREVIEW_SEASON: Season | null = (() => {
   return asked === "early" || asked === "open" || asked === "closed" ? asked : null;
 })();
 
-const seasonNow = (): Season => PREVIEW_SEASON ?? (SEASON_GATED ? seasonAt() : "open");
+const seasonNow = (): Season => PREVIEW_SEASON ?? (SEASON_GATED ? giftSeasonAt() : "open");
+
+/** When the season shown can next change by itself, or null (a development server's ?season=, or no gate at all). */
+const nextSeasonChangeMs = (): number | null => (PREVIEW_SEASON || !SEASON_GATED ? null : nextGiftSeasonChangeMs());
 
 /** "Plant the Night Jasmine", "Plant the Island Bloom". */
 const plantLabel = (name: string) => `Plant the ${name}`;
@@ -79,14 +89,18 @@ function signLength(text: string): "mid" | "long" | undefined {
   return n > 18 ? "long" : n > 12 ? "mid" : undefined;
 }
 
-/** The season as it stands, moving on by itself when seeds open (or when a sleeping phone wakes past that moment). */
+/**
+ * The season as it stands, moving on by itself when the practice days end and when seeds open (or when a sleeping
+ * phone wakes past either moment).
+ */
 function useSeason(): Season {
   const [season, setSeason] = useState(seasonNow);
   useEffect(() => {
-    if (season !== "early") return;
+    const next = nextSeasonChangeMs();
+    if (next === null) return;
     const look = () => setSeason(seasonNow());
     // setTimeout holds at most about 24.8 days; a page left open longer simply looks again then
-    const t = setTimeout(look, Math.min(2_147_000_000, Math.max(1000, SEEDS_OPEN_MS - Date.now() + 500)));
+    const t = setTimeout(look, Math.min(2_147_000_000, Math.max(1000, next - Date.now() + 500)));
     document.addEventListener("visibilitychange", look);
     return () => {
       clearTimeout(t);
@@ -118,11 +132,15 @@ export function GiftFlow({
   const [nameError, setNameError] = useState<string | null>(null);
   const [seedHint, setSeedHint] = useState(false);
   const [planting, setPlanting] = useState<Planting>({ phase: "waiting", wait: null });
+  const [checkingName, setCheckingName] = useState(false);
   const season = useSeason();
   const heading = useRef<HTMLHeadingElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
   const inFlight = useRef(false);
+  const nameCheckInFlight = useRef(false);
+  // bumped whenever the name changes or the step is left, so a slow answer about an older name is dropped
+  const nameCheckSeq = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
@@ -147,15 +165,32 @@ export function GiftFlow({
     }
   }, [step]);
 
-  function submitName() {
+  async function submitName() {
     const check = checkFirstName(name);
     if (!check.ok) {
       setNameError(check.message);
       nameInput.current?.focus();
       return;
     }
+    // a second press while the server is asked does nothing
+    if (nameCheckInFlight.current) return;
+    nameCheckInFlight.current = true;
+    const seq = ++nameCheckSeq.current;
     setNameError(null);
     setName(check.name);
+    setCheckingName(true);
+    // names are unique in the Meadow: ask before the seeds appear (no answer in time: go on, the planting checks again)
+    const free = await checkNameFree(check.name, partyCode);
+    nameCheckInFlight.current = false;
+    if (!mounted.current) return;
+    setCheckingName(false);
+    // the name was changed, or the step left, while the garden was asked: this answer is about something else now
+    if (seq !== nameCheckSeq.current) return;
+    if (free && !free.available) {
+      setNameError(free.message ?? "That name is already in the Meadow. Please add an initial or a nickname.");
+      nameInput.current?.focus();
+      return;
+    }
     setStep("seed");
   }
 
@@ -191,8 +226,8 @@ export function GiftFlow({
     } catch (err) {
       if (!mounted.current) return;
       const problem = err instanceof ApiProblem ? err : new ApiProblem(0, "offline", OFFLINE_MESSAGE);
-      // a name the server would not take goes back to the name, with its words
-      if (problem.status === 400 && problem.body.field === "firstName") {
+      // a name the server would not take, or one someone else took meanwhile, goes back to the name, with its words
+      if (problem.body.field === "firstName" && (problem.status === 400 || problem.code === "name_taken")) {
         setNameError(problem.message);
         setStep("name");
         return;
@@ -208,7 +243,15 @@ export function GiftFlow({
   let body: ReactNode;
   let foot: ReactNode;
   const back = (to: Step) => (
-    <button type="button" className="gift-secondary gift-back" onClick={() => setStep(to)} aria-label="Back">
+    <button
+      type="button"
+      className="gift-secondary gift-back"
+      onClick={() => {
+        nameCheckSeq.current++;
+        setStep(to);
+      }}
+      aria-label="Back"
+    >
       <ArrowLeft size={18} />
     </button>
   );
@@ -270,7 +313,7 @@ export function GiftFlow({
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
-          submitName();
+          void submitName();
         }}
       >
         <h2 ref={heading} tabIndex={-1} className="gift-title gift-title-sm">
@@ -295,15 +338,20 @@ export function GiftFlow({
             placeholder="Your first name"
             value={name}
             aria-invalid={nameError ? true : undefined}
-            aria-describedby={nameError ? "gift-name-error" : "gift-name-note"}
+            aria-describedby={nameError ? "gift-name-error" : "gift-name-unique gift-name-note"}
             onChange={(e) => {
+              nameCheckSeq.current++;
               setName(e.target.value);
               if (nameError) setNameError(null);
             }}
           />
-          {nameError && (
-            <p id="gift-name-error" className="gift-error" role="alert">
+          {nameError ? (
+            <p key="error" id="gift-name-error" className="gift-error" role="alert">
               {nameError}
+            </p>
+          ) : (
+            <p key="hint" id="gift-name-unique" className="gift-field-hint">
+              Each garden in the Meadow goes by its own name. If a colleague shares your first name, add an initial, like Asha K.
             </p>
           )}
         </div>
@@ -329,7 +377,7 @@ export function GiftFlow({
     foot = (
       <div className="gift-sheet-foot-row">
         {back("welcome")}
-        <button type="submit" form="gift-name-form" className="gift-primary">
+        <button type="submit" form="gift-name-form" className="gift-primary" disabled={checkingName} aria-busy={checkingName || undefined}>
           Next
         </button>
       </div>

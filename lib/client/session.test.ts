@@ -4,7 +4,7 @@
 // connection, is tried again as soon as the browser is back online (with the same request), and success drops the
 // party code from the address through replaceState(null, ...). And the gift's season check, by lib/sim's hours.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { seasonAt, seedsOpenText, showcaseLine } from "@/components/gift/copy";
+import { giftSeasonAt, nextGiftSeasonChangeMs, seasonAt, seedsOpenText, showcaseLine } from "@/components/gift/copy";
 import { cleanFirstName, isUuid } from "@/lib/server/validate";
 import {
   ApiProblem,
@@ -81,7 +81,7 @@ describe("planting retries", () => {
     expect(isRetryablePlanting(p(503, "unavailable"))).toBe(true);
     expect(isRetryablePlanting(p(0, "offline"))).toBe(true);
     for (const code of ["too_soon", "too_many_links", "too_many_devices", "shade_limit"]) expect(isRetryablePlanting(p(429, code, 900))).toBe(false);
-    for (const [status, code] of [[503, "meadow_full"], [503, "planting_not_ready"], [403, "party_code_required"], [403, "party_code_wrong"], [409, "already_planted"], [409, "not_yet"], [400, "name_required"], [500, "server_error"]] as const) {
+    for (const [status, code] of [[503, "meadow_full"], [503, "planting_not_ready"], [403, "party_code_required"], [403, "party_code_wrong"], [409, "already_planted"], [409, "name_taken"], [409, "not_yet"], [400, "name_required"], [500, "server_error"]] as const) {
       expect(isRetryablePlanting(p(status, code))).toBe(false);
     }
   });
@@ -168,6 +168,22 @@ describe("the gift's season", () => {
     expect(seasonAt(new Date("2026-11-10T15:00:00+05:30"))).toBe("open");
     expect(seasonAt(new Date("2026-12-10T23:59:00+05:30"))).toBe("open");
     expect(seasonAt(new Date("2026-12-11T00:00:00+05:30"))).toBe("closed");
+  });
+
+  it("is open on the live site for practice plantings until the game clock starts, then waits for 15:00 on 10 Nov", () => {
+    expect(giftSeasonAt(new Date("2026-10-20T10:00:00+05:30"))).toBe("open");
+    expect(giftSeasonAt(new Date("2026-11-09T23:59:00+05:30"))).toBe("open");
+    expect(giftSeasonAt(new Date("2026-11-10T00:00:00+05:30"))).toBe("early");
+    expect(giftSeasonAt(new Date("2026-11-10T14:59:00+05:30"))).toBe("early");
+    expect(giftSeasonAt(new Date("2026-11-10T15:00:00+05:30"))).toBe("open");
+    expect(giftSeasonAt(new Date("2026-12-11T00:00:00+05:30"))).toBe("closed");
+  });
+
+  it("knows when the welcome step changes by itself: at the game clock's start, then when seeds open", () => {
+    const start = Date.parse("2026-11-10T00:00:00+05:30"), open = Date.parse("2026-11-10T15:00:00+05:30");
+    expect(nextGiftSeasonChangeMs(Date.parse("2026-10-20T10:00:00+05:30"))).toBe(start);
+    expect(nextGiftSeasonChangeMs(start)).toBe(open);
+    expect(nextGiftSeasonChangeMs(open)).toBeNull();
   });
 
   it("names the opening moment plainly, and the showcase line follows the season", () => {

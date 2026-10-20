@@ -1,6 +1,7 @@
 // Moderates the names on garden signs, which everyone sees in the shared Meadow (and possibly on the party screen):
 // find a person by plot or first name, hide their name (the Meadow then shows "A friend"), show it again, or rename
-// them. A rename goes through the same cleanFirstName() as the API. Changes reach the Meadow within about ten seconds
+// them. A rename goes through the same cleanFirstName() as the API, and like a planting it needs a name nobody else in
+// the Meadow has (names are unique, ignoring case: migration 0007). Changes reach the Meadow within about ten seconds
 // (the snapshot is reused for a few seconds and cached by the CDN for five).
 //
 //   node --env-file=.env.local scripts/hide-name.mjs --plot 12                   who is on plot 12
@@ -48,7 +49,7 @@ async function main() {
     }
     if (!action) return;
     if (plot === null) {
-      console.log("To change a sign, pick the person by --plot (names are not unique).");
+      console.log("To change a sign, pick the person by --plot (the number the Meadow shows).");
       process.exitCode = 2;
       return;
     }
@@ -56,6 +57,8 @@ async function main() {
     if (action === "rename") {
       const clean = cleanFirstName(renameArg);
       if (!clean.ok) throw new Error(clean.message);
+      const [clash] = await sql`select 1 as one from meadow.people where lower(first_name) = lower(${clean.value}) and id <> ${id}`;
+      if (clash) throw new Error(`"${clean.value}" is already on another sign in the Meadow; names are unique, so pick another (add an initial)`);
       await sql`update meadow.people set first_name = ${clean.value} where id = ${id}`;
       console.log(`renamed plot ${plot} to "${clean.value}"`);
     } else {

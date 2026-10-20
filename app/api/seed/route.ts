@@ -4,7 +4,8 @@
 // httpOnly session cookie, and returns the personal garden link (private, shown once: the server keeps only its hash)
 // with the new plant's view. A retry with the same clientEventId, name and species within half an hour returns the
 // same planting (200, replay: true) instead of planting twice; a device that already holds a garden gets 409
-// already_planted. A missing or old party code gets 403 party_code_required / party_code_wrong. A burst beyond the
+// already_planted. A name already in the Meadow (names are unique, ignoring case) gets 409 name_taken with field
+// firstName. A missing or old party code gets 403 party_code_required / party_code_wrong. A burst beyond the
 // planting throttle gets 429 busy_planting and a busy database 503 busy, both with Retry-After: the UI retries those
 // two by itself with the same body.
 import { NextResponse, type NextRequest } from "next/server";

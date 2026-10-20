@@ -17,10 +17,16 @@
 // clientEventId. A retried planting is answered with the original only for the same name and species, within half an
 // hour, and from no session or its own (rules.ts decideSeedReplay).
 //
-// Rehearsals (env.ts): before the seeds are handed out, planting works outside production, or in production with
-// MEADOW_REHEARSAL=1 before the game clock starts (never on or after 10 Nov). Such plants are marked plants.rehearsal:
-// they take plots from the outer end of the planned rings, the production Meadow hides them, and
-// scripts/clear-rehearsals.mjs removes them. A non-production server may tend only rehearsal plants.
+// Names are unique in the Meadow, ignoring case, so a friend finds the right flower: a planting checks under the same
+// lock that hands out plots, so two people can never take one name at once, and the people_first_name_key index on
+// lower(first_name) (migration 0007) holds the line for every other writer. A taken name is a 409 name_taken with
+// field firstName, and the name step asks first (checkNameFree, POST /api/name).
+//
+// Rehearsals (env.ts): before the seeds are handed out, planting works outside production, or in production before
+// the game clock starts (never on or after 10 Nov). Such plants are marked plants.rehearsal: they take plots from the
+// outer end of the planned rings, and scripts/clear-rehearsals.mjs removes them. Production's own are also marked
+// plants.live_practice, and the production Meadow shows only those, and only before 10 Nov (env.ts practiceVisible).
+// A non-production server may tend only rehearsal plants.
 //
 // Writes outside a locking transaction (checkpoint saves) still go through db.ts transaction(), so every write waits
 // a bounded time for a lock whichever role the app connects as.
@@ -51,7 +57,7 @@ import {
 } from "@/lib/sim";
 import { advanceCheckpoint, seedState, type AdvanceDeps, type CheckpointRecord } from "./catchup";
 import { db, transaction, type Queryable } from "./db";
-import { isProduction, partyCodes, rehearsalAllowed, showRehearsals, writesDerivedState } from "./env";
+import { isProduction, partyCodes, practiceVisible, rehearsalAllowed, writesDerivedState } from "./env";
 import { ApiError } from "./http";
 import { createGardenLink, createSession } from "./identity";
 import { requirePartyCode } from "./party";
@@ -78,7 +84,7 @@ import {
   type Stage,
 } from "./rules";
 import { hashToken } from "./tokens";
-import type { CareInput, CareKind, SeedInput, SprinkleInput } from "./validate";
+import { nameTakenMessage, type CareInput, type CareKind, type NameCheckInput, type SeedInput, type SprinkleInput } from "./validate";
 import { ensureWeather, loadWeather } from "./weather-store";
 
 // any constant works; it only has to be the same for every instance
@@ -397,6 +403,43 @@ async function findPriorPlanting(requestHash: Buffer): Promise<PriorPlanting | n
   return r ? { personId: r.id, firstName: r.first_name, species: r.species, createdAt: r.created_at } : null;
 }
 
+/**
+ * Whether a name is already on a sign in the Meadow, ignoring case, compared as the people_first_name_key index does.
+ * exceptRequestHash leaves out the person a given planting request made (the asker's own planting whose answer was lost).
+ */
+async function nameTaken(q: Queryable, firstName: string, exceptRequestHash: Buffer | null = null): Promise<boolean> {
+  const rows = await q<{ one: number }[]>`
+    select 1 as one from meadow.people
+    where lower(first_name) = lower(${firstName})
+      and (${exceptRequestHash}::bytea is null or seed_request_hash is distinct from ${exceptRequestHash}::bytea)
+    limit 1`;
+  return rows.length > 0;
+}
+
+function nameTakenError(firstName: string): ApiError {
+  return new ApiError(409, "name_taken", nameTakenMessage(firstName), { field: "firstName" });
+}
+
+export interface NameCheck {
+  /** the name as the sign would show it (cleanFirstName) */
+  firstName: string;
+  available: boolean;
+  /** what the name step shows when the name is taken, else null */
+  message: string | null;
+}
+
+/**
+ * Whether a name is still free, for the name step (POST /api/name), behind the same party code as planting. The
+ * device's own pending planting under that name does not count: its answer may have been lost, and planting again
+ * with the same request returns that garden. Only a hint: plantSeed checks again under the plot lock.
+ */
+export async function checkNameFree(input: NameCheckInput): Promise<NameCheck> {
+  requirePartyCode(input.partyCode, partyCodes(), isProduction());
+  const own = input.requestId === null ? null : hashToken(`seed:${input.requestId}`);
+  const taken = await nameTaken(db(), input.firstName, own);
+  return { firstName: input.firstName, available: !taken, message: taken ? nameTakenMessage(input.firstName) : null };
+}
+
 async function answerRetry(prior: PriorPlanting, input: SeedInput, sessionPersonId: string | null, now: Date): Promise<PlantResult> {
   const decision = decideSeedReplay(prior, input, sessionPersonId, now);
   if (decision === "mismatch") {
@@ -441,6 +484,8 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
 
   const species = input.species;
   const rehearsal = window === "rehearsal" || !isProduction();
+  // a practice plant planted through the live site itself: the only kind the live Meadow shows (env.ts practiceVisible)
+  const livePractice = rehearsal && isProduction();
   const seed = randomBytes(6).toString("base64url");
   try {
     const created = await transaction(async (tx) => {
@@ -451,6 +496,8 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
       if (recent.n >= PLANTINGS_PER_MINUTE) {
         throw new ApiError(429, "busy_planting", "Lots of seeds are going in at once. Yours will follow in a moment.", { retryAfterS: plantingRetryAfterS() });
       }
+      // under the plot lock, so two people cannot take one name at once (the index is the backstop)
+      if (await nameTaken(tx, input.firstName)) throw nameTakenError(input.firstName);
       const taken = await tx<{ plot_index: number }[]>`select plot_index from meadow.plants`;
       // a lotus is planted in the river: the next free pocket, or (all taken) a bed plot, where it stands in a brass urli
       const water = species === "lotus";
@@ -466,8 +513,8 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
         values (${input.firstName}, ${input.showName}, ${requestHash}) returning id`;
       const [garden] = await tx<{ id: string }[]>`insert into meadow.gardens (person_id) values (${person.id}) returning id`;
       const [plant] = await tx<{ id: string }[]>`
-        insert into meadow.plants (garden_id, garden_slot, species, seed, plot_index, planted_h, sim_version, rehearsal)
-        values (${garden.id}, 0, ${species}, ${seed}, ${plot}, ${h}, ${modelVersionOf(species)}, ${rehearsal}) returning id`;
+        insert into meadow.plants (garden_id, garden_slot, species, seed, plot_index, planted_h, sim_version, rehearsal, live_practice)
+        values (${garden.id}, 0, ${species}, ${seed}, ${plot}, ${h}, ${modelVersionOf(species)}, ${rehearsal}, ${livePractice}) returning id`;
       const state = seedState({ speciesId: species, plantedH: h, owner: person.id });
       await tx`
         insert into meadow.checkpoints (plant_id, h, state, sim_version)
@@ -491,11 +538,14 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
       me: buildMe(created.ref, created.state, [], now, null, []),
     };
   } catch (err) {
-    // the same request raced itself (a double tap before the first response): answer with the planting that won
-    if (isUniqueViolation(err, "people_seed_request_hash_key")) {
+    // the same request raced itself (a double tap before the first response): answer with the planting that won. That
+    // planting holds this request's name too, so a taken name is first checked against this request's own seed.
+    const nameClash = (err instanceof ApiError && err.code === "name_taken") || isUniqueViolation(err, "people_first_name_key");
+    if (nameClash || isUniqueViolation(err, "people_seed_request_hash_key")) {
       const winner = await findPriorPlanting(requestHash);
       if (winner) return answerRetry(winner, input, opts.sessionPersonId, now);
     }
+    if (nameClash) throw nameTakenError(input.firstName);
     // a build that offers a seed the database's species list does not hold yet (the lotus, before migration 0006): a
     // calm answer rather than a failure, and nothing was planted (the transaction rolled back)
     if (isCheckViolation(err, "plants_species_check")) {
@@ -583,9 +633,9 @@ export interface SprinkleResult {
 /** One small sprinkle from the caller to the plant in another person's plot: one per giver per IST day. */
 export async function sprinkle(giverId: string, input: SprinkleInput, now: Date = new Date()): Promise<SprinkleResult> {
   const nowH = hourIndexOf(now);
-  const rows = await db()<PlantRefRow[]>`
+  const rows = await db()<(PlantRefRow & { live_practice: boolean })[]>`
     select pe.id as person_id, pe.first_name, pe.show_name, p.id as plant_id, p.species, p.seed, p.plot_index, p.planted_h,
-           p.rehearsal
+           p.rehearsal, p.live_practice
     from meadow.plants p
     join meadow.gardens g on g.id = p.garden_id
     join meadow.people pe on pe.id = g.person_id
@@ -593,7 +643,9 @@ export async function sprinkle(giverId: string, input: SprinkleInput, now: Date 
   const target = rows[0] ? toPlantRef(rows[0]) : null;
   // a practice plant hidden from this Meadow counts as an empty plot, and so does a plant of a species this build does not
   // know (species-guard.ts)
-  if (!target || (target.rehearsal && !showRehearsals(nowH))) throw new ApiError(404, "plot_empty", "Nobody has planted in that plot yet.");
+  if (!target || (target.rehearsal && !practiceVisible(rows[0].live_practice, nowH))) {
+    throw new ApiError(404, "plot_empty", "Nobody has planted in that plot yet.");
+  }
   if (!target.rehearsal && !isProduction()) throw practiceOnly();
   if (target.personId === giverId) {
     throw new ApiError(400, "own_plant", target.species === "lotus"

@@ -12,6 +12,9 @@
 // Addresses are rewritten with history.replaceState(null, ...): Next's router copies its own state into the entry and
 // takes the new address as its own, so a later router update does not write the old one (with ?code=) back.
 //
+// Names are unique in the Meadow: checkNameFree asks the server before the seeds appear, and a planting can still come
+// back 409 name_taken (field firstName) when someone took the name in the meantime.
+//
 // Retries follow the backend's rules: a planting is retried by itself only on 429 busy_planting and 503 busy or
 // unavailable (and when the response was lost on the way back), honouring Retry-After with a little jitter, always with
 // the same body and the same clientEventId, so the server answers a retry with the original planting instead of
@@ -303,6 +306,18 @@ export function pendingSeed(now = Date.now()): SeedRequest | null {
   }
 }
 
+/** The id of this tab's pending seed request under exactly this name, or null (none, another name, or too old). */
+export function pendingSeedId(firstName: string, now = Date.now()): string | null {
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as PendingSeed;
+    return p.firstName === firstName && now - p.at < PENDING_MAX_MS && typeof p.id === "string" ? p.id : null;
+  } catch {
+    return null;
+  }
+}
+
 function forgetPendingSeed(): void {
   try {
     window.sessionStorage.removeItem(PENDING_KEY);
@@ -455,6 +470,39 @@ export async function plantSeed(req: SeedRequest, partyCode: string | null, opts
       opts.onWait?.({ attempt, waitMs, problem: err });
       await (err.status === 0 ? sleepUntilOnline(waitMs, opts.signal) : sleep(waitMs, opts.signal));
     }
+  }
+}
+
+export interface NameFree {
+  available: boolean;
+  /** the server's words when the name is taken, else null */
+  message: string | null;
+}
+
+/** How long the name step waits for an answer before going on without one (the planting checks again anyway). */
+const NAME_CHECK_TIMEOUT_MS = 6000;
+
+/**
+ * POST /api/name: whether a name is still free in the Meadow (names are unique, ignoring case). Null when the garden
+ * could not say in time (offline, busy, an old party link): the name step then goes on, and the planting checks again.
+ */
+export async function checkNameFree(firstName: string, partyCode: string | null): Promise<NameFree | null> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), NAME_CHECK_TIMEOUT_MS);
+  // this tab's own planting under that name, if its answer was lost: the server must not count it as someone else's
+  const own = pendingSeedId(firstName);
+  try {
+    const r = await api<{ available?: unknown; message?: unknown }>("/api/name", {
+      method: "POST",
+      body: { firstName, ...(partyCode ? { partyCode } : {}), ...(own ? { clientEventId: own } : {}) },
+      signal: ctrl.signal,
+    });
+    if (typeof r.available !== "boolean") return null;
+    return { available: r.available, message: typeof r.message === "string" ? r.message : null };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
   }
 }
 

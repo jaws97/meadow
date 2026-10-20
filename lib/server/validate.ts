@@ -94,6 +94,53 @@ export function cleanFirstName(raw: unknown): Result<string> {
   return ok(name);
 }
 
+/**
+ * What someone is told when their name is already on a sign in the Meadow: names are unique, ignoring case (the
+ * people_first_name_key index on lower(first_name), migration 0007), so a friend finds the right flower. The example
+ * adds an initial to their own name when that still fits on a sign.
+ */
+export function nameTakenMessage(name: string): string {
+  const example = `${name} S`;
+  const like = Array.from(example).length <= FIRST_NAME_MAX ? `, like ${example},` : "";
+  return `That name is already in the Meadow. Please add an initial or a nickname${like} so friends find the right flower.`;
+}
+
+export interface NameCheckInput {
+  firstName: string;
+  /** as SeedInput.partyCode: the check is behind the same party code as planting */
+  partyCode: string | null;
+  /**
+   * the planting request this device still has pending under that name (SeedInput.requestId), or null: a planting whose
+   * answer was lost holds the name already, and must not make it look taken to the person who planted it
+   */
+  requestId: string | null;
+}
+
+/**
+ * POST /api/name: { firstName, partyCode?, clientEventId? }, asking whether a name is still free before the seed is
+ * chosen. clientEventId is the device's own pending planting request for that name, when it has one.
+ */
+export function parseNameCheckBody(body: unknown): Result<NameCheckInput> {
+  if (!isRecord(body)) return invalid("bad_body", "Please send the name as a JSON object.");
+  const name = cleanFirstName(body.firstName);
+  if (!name.ok) return name;
+  const code = parsePartyCode(body.partyCode);
+  if (!code.ok) return code;
+  const id = body.clientEventId;
+  if (id !== undefined && id !== null && !isUuid(id)) {
+    return invalid("client_event_id", "clientEventId, when sent, is the pending planting's UUID.", "clientEventId");
+  }
+  return ok({ firstName: name.value, partyCode: code.value, requestId: typeof id === "string" ? id.toLowerCase() : null });
+}
+
+/** The party code from a body: absent, null or blank is null; anything else must be a short string. */
+function parsePartyCode(code: unknown): Result<string | null> {
+  if (code !== undefined && code !== null && (typeof code !== "string" || code.trim().length > PARTY_CODE_MAX)) {
+    return invalid("party_code_shape", "That party link looks garbled. Scan the QR code again, or ask a colleague for the link.", "partyCode");
+  }
+  return ok(typeof code === "string" && code.trim() !== "" ? code.trim() : null);
+}
+
 const SPECIES_MESSAGE = "Please choose one of the seven seeds: rose, sundrop, magnolia, marigold, island, jasmine or lotus.";
 
 /**
@@ -112,16 +159,14 @@ export function parseSeedBody(body: unknown): Result<SeedInput> {
   if (!isUuid(body.clientEventId)) {
     return invalid("client_event_id", "Each planting needs a clientEventId made with crypto.randomUUID(), kept and sent again if you retry.", "clientEventId");
   }
-  const code = body.partyCode;
-  if (code !== undefined && code !== null && (typeof code !== "string" || code.trim().length > PARTY_CODE_MAX)) {
-    return invalid("party_code_shape", "That party link looks garbled. Scan the QR code again, or ask a colleague for the link.", "partyCode");
-  }
+  const code = parsePartyCode(body.partyCode);
+  if (!code.ok) return code;
   return ok({
     firstName: name.value,
     species: body.species,
     showName: body.showName ?? true,
     requestId: body.clientEventId.toLowerCase(),
-    partyCode: typeof code === "string" && code.trim() !== "" ? code.trim() : null,
+    partyCode: code.value,
   });
 }
 

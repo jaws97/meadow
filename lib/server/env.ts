@@ -8,9 +8,13 @@
 // rehearsals (plants.rehearsal): hidden from the production Meadow, kept on the outer plots and removed by
 // scripts/clear-rehearsals.mjs. Care and sprinkles from outside production may only touch rehearsal plants.
 //
-// Rehearsals in production (MEADOW_REHEARSAL=1) are limited to the hours before the game clock starts (h < 0, before
-// 10 Nov 00:00 IST), whatever the variable says: a flag left on by mistake can then never mark a colleague's plant as a
-// practice one, hide it from the Meadow or let clear-rehearsals delete it.
+// Rehearsals in production: every planting before the game clock starts (h < 0, before 10 Nov 00:00 IST) is a practice
+// one, so colleagues can test the live site with the party link until then (until 20 Oct this also needed
+// MEADOW_REHEARSAL=1; the variable is no longer read). Those are marked plants.live_practice as well, and they are the
+// only practice plants the production Meadow shows (until the game clock starts), so seeds from a dev server or a
+// Preview never reach the live Meadow or the party screen. The game clock is the only bound: a practice plant can never
+// be planted on or after 10 Nov, so nothing can mark a colleague's plant as a practice one, hide it from the Meadow or
+// let clear-rehearsals delete it. On 10 Nov practice plants leave the Meadow and planting waits for 15:00.
 //
 // The cure is a separate database for development and Preview (see the backend notes); these rules keep the shared one
 // safe until then, and stay correct afterwards.
@@ -47,25 +51,26 @@ export function writesDerivedState(): boolean {
   return isProduction();
 }
 
-/** MEADOW_REHEARSAL=1 in production, and only before the game clock starts (see the header). */
+/** Production rehearses only before the game clock starts (see the header). */
 function productionRehearsal(h: number): boolean {
-  return process.env.MEADOW_REHEARSAL === "1" && h < 0;
+  return h < 0;
 }
 
 /**
  * Whether a planting at game hour h, before the seeds are handed out, may go in as a rehearsal: outside production
- * always; in production only with MEADOW_REHEARSAL=1 and before the game clock starts.
+ * always; in production only before the game clock starts.
  */
 export function rehearsalAllowed(h: number): boolean {
   return !isProduction() || productionRehearsal(h);
 }
 
 /**
- * Whether rehearsal plants are visible here at hour nowH: always outside production; in production only while
- * rehearsing before the game clock starts, so practice plants never share the Meadow with real ones.
+ * Whether a practice (rehearsal) plant is visible here at hour nowH: every one outside production; in production only
+ * the ones planted through production itself (plants.live_practice), and only before the game clock starts, so seeds
+ * from a dev server or a Preview never reach the live Meadow and practice plants never share it with real ones.
  */
-export function showRehearsals(nowH: number): boolean {
-  return !isProduction() || productionRehearsal(nowH);
+export function practiceVisible(livePractice: boolean, nowH: number): boolean {
+  return !isProduction() || (livePractice && productionRehearsal(nowH));
 }
 
 /**

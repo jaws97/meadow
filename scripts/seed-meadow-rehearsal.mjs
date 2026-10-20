@@ -1,7 +1,8 @@
 // Fills the local Meadow with rehearsal plantings to look at it, and takes them away again. Rehearsal only: it
 // plants through the LOCAL dev server's API (which marks every planting as a rehearsal, hidden from the production
-// Meadow) and refuses any other server; every name ends in "(delete me)"; and it only ever changes or deletes the
-// people it created itself, recorded in a state file.
+// Meadow) and refuses any other server; every name ends in "(delete me)" and is unique, as names in the Meadow are (a
+// second round through the list adds a number: "Asha 2 (delete me)"); and it only ever changes or deletes the people it
+// created itself, recorded in a state file.
 //
 //   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs plant 60     plant 60 seeds (seven species in turn)
 //   node --env-file=.env.local scripts/seed-meadow-rehearsal.mjs arrange      move them to the inner rings and the
@@ -36,6 +37,12 @@ const NAMES = [
   "Sanjay", "Usha", "Yash", "Anil", "Chitra", "Dev", "Esha", "Gopal", "Hema", "Jaya", "Kunal", "Latha", "Naveen", "Parvati",
   "Rajesh", "Sunita", "Tanvi", "Uday", "Vani", "Wasim",
 ];
+/** The k-th rehearsal name: the list in turn, then again with a number, every one different and short enough for a sign. */
+const rehearsalName = (k) => {
+  const round = Math.floor(k / NAMES.length);
+  return `${NAMES[k % NAMES.length]}${round > 0 ? ` ${round + 1}` : ""} (delete me)`;
+};
+
 /** Stages by share of the plantings, youngest first. */
 const STAGES = [
   { stage: "seed", share: 0.3, D: 0.02, days: 0 },
@@ -66,9 +73,15 @@ async function plant(count) {
   // a little slack: the database's clock and this machine's need not agree to the second
   const startedAt = new Date(Date.now() - 10_000).toISOString();
   let planted = 0;
-  for (let i = 0; i < count; i++) {
-    const firstName = `${NAMES[(state.people.length + i) % NAMES.length]} (delete me)`;
-    const species = SPECIES[(state.people.length + i) % SPECIES.length];
+  // names come from a counter kept in the state file that moves on with every attempt, so a planting that failed
+  // never leaves a name to clash with later (names are unique); a name taken anyway is skipped for the next one
+  let k = state.nextName ?? state.people.length;
+  const tried = [];
+  for (let i = 0, attempts = 0; i < count && attempts < count * 2; attempts++) {
+    const firstName = rehearsalName(k);
+    const species = SPECIES[k % SPECIES.length];
+    k++;
+    tried.push(firstName);
     const res = await fetch(`${BASE}/api/seed`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -82,7 +95,9 @@ async function plant(count) {
     }
     if (body.me?.plant?.rehearsal !== true) throw new Error("a planting came back as a real plant; stopping (this script is for rehearsals only)");
     planted++;
+    i++;
   }
+  state.nextName = k;
   // find exactly the people just made: rehearsal-only gardens named "(delete me)" created since this run started
   const sql = connect("POSTGRES_URL_NON_POOLING");
   try {
@@ -90,7 +105,7 @@ async function plant(count) {
       select pe.id, pe.first_name from meadow.people pe
       join meadow.gardens g on g.person_id = pe.id join meadow.plants p on p.garden_id = g.id
       where pe.created_at >= ${startedAt} and pe.first_name like '% (delete me)' and p.rehearsal
-        and pe.first_name = any(${NAMES.map((n) => `${n} (delete me)`)})`;
+        and pe.first_name = any(${tried})`;
     const known = new Set(state.people.map((p) => p.id));
     for (const r of rows) if (!known.has(r.id)) state.people.push({ id: r.id, name: r.first_name });
     writeState(state);

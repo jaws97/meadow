@@ -4,7 +4,19 @@ import { describe, expect, it } from "vitest";
 import { POND_SPECIES, SIM_SPECIES } from "@/lib/sim";
 import { PLOT_LIMIT, WATER_BASE } from "./plots";
 import { newToken } from "./tokens";
-import { SPECIES_IDS, cleanFirstName, isClientEventId, isUuid, parseCareBody, parseLinkOpenBody, parseSeedBody, parseSprinkleBody } from "./validate";
+import {
+  FIRST_NAME_MAX,
+  SPECIES_IDS,
+  cleanFirstName,
+  isClientEventId,
+  isUuid,
+  nameTakenMessage,
+  parseCareBody,
+  parseLinkOpenBody,
+  parseNameCheckBody,
+  parseSeedBody,
+  parseSprinkleBody,
+} from "./validate";
 
 const ID = "3f6c2a9e-8b1d-4c7a-9e2f-1a2b3c4d5e6f";
 
@@ -94,6 +106,35 @@ describe("parseSeedBody", () => {
     expect(!id.ok && id.field).toBe("clientEventId");
     expect(parseSeedBody(["Asha", "rose"]).ok).toBe(false);
     expect(parseSeedBody(null).ok).toBe(false);
+  });
+});
+
+describe("unique names", () => {
+  it("asks for an initial or a nickname, suggesting one from the person's own name when it still fits on a sign", () => {
+    const m = nameTakenMessage("Asha");
+    expect(m).toMatch(/^That name is already in the Meadow\./);
+    expect(m).toContain("like Asha S,");
+    const long = "A".repeat(FIRST_NAME_MAX - 1);
+    expect(nameTakenMessage(long)).not.toContain("like");
+    expect(nameTakenMessage(long)).toMatch(/nickname so friends find the right flower\.$/);
+  });
+
+  it("parses the name step's question as planting parses the name and the party code", () => {
+    expect(parseNameCheckBody({ firstName: "  Asha   K ", partyCode: " Rose-7f3k9q " })).toEqual({
+      ok: true,
+      value: { firstName: "Asha K", partyCode: "Rose-7f3k9q", requestId: null },
+    });
+    expect(parseNameCheckBody({ firstName: "Asha" })).toEqual({ ok: true, value: { firstName: "Asha", partyCode: null, requestId: null } });
+    // the device's own pending planting under that name, so a planting whose answer was lost does not look taken
+    const own = parseNameCheckBody({ firstName: "Asha", clientEventId: "3F2504E0-4F89-41D3-9A0C-0305E82C3301" });
+    expect(own.ok && own.value.requestId).toBe("3f2504e0-4f89-41d3-9a0c-0305e82c3301");
+    const badId = parseNameCheckBody({ firstName: "Asha", clientEventId: "short" });
+    expect(badId.ok === false && badId.field).toBe("clientEventId");
+    const blank = parseNameCheckBody({ firstName: "  " });
+    expect(blank.ok === false && blank.field).toBe("firstName");
+    const code = parseNameCheckBody({ firstName: "Asha", partyCode: 7 });
+    expect(code.ok === false && code.code).toBe("party_code_shape");
+    expect(parseNameCheckBody(null).ok).toBe(false);
   });
 });
 
