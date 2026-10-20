@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   above,
   clearFellBack,
+  climbed,
   fallBack,
   fellBackNote,
   guarded,
@@ -34,14 +35,14 @@ const garden = { party: false, pinnedByUrl: false };
 describe("the tier a visit opens on", () => {
   it("is Auto's when nothing was chosen", () => {
     const s = storage();
-    expect(startPicture("lite", garden, s)).toBeNull();
+    expect(startPicture("lite", garden, s).chosen).toBeNull();
     expect(picture.get()).toMatchObject({ choice: "auto", auto: "lite", applies: true, fellBack: null });
     expect(guarded()).toBe(false);
   });
 
   it("is the tier chosen by hand, which the guard watches when it is above Auto", () => {
     const s = storage({ [CHOICE]: { tier: "cinematic", at: 1 } });
-    expect(startPicture("lite", garden, s)).toBe("cinematic");
+    expect(startPicture("lite", garden, s).chosen).toBe("cinematic");
     expect(picture.get().choice).toBe("cinematic");
     expect(guarded()).toBe(true);
   });
@@ -54,13 +55,13 @@ describe("the tier a visit opens on", () => {
   });
 
   it("ignores a stored tier it does not know", () => {
-    expect(startPicture("lite", garden, storage({ [CHOICE]: { tier: "ultra", at: 1 } }))).toBeNull();
+    expect(startPicture("lite", garden, storage({ [CHOICE]: { tier: "ultra", at: 1 } })).chosen).toBeNull();
     expect(picture.get().choice).toBe("auto");
   });
 
   it("is never the choice on the party screen", () => {
     const s = storage({ [CHOICE]: { tier: "cinematic", at: 1 } });
-    expect(startPicture("balanced", { party: true, pinnedByUrl: false }, s)).toBeNull();
+    expect(startPicture("balanced", { party: true, pinnedByUrl: false }, s).chosen).toBeNull();
     expect(picture.get()).toMatchObject({ choice: "auto", applies: false });
     expect(guarded()).toBe(false);
     expect(s.data.has(CHOICE)).toBe(true);
@@ -68,7 +69,7 @@ describe("the tier a visit opens on", () => {
 
   it("gives way to a ?quality= pin, and the guard stands down", () => {
     const s = storage({ [CHOICE]: { tier: "cinematic", at: 1 } });
-    expect(startPicture("lite", { party: false, pinnedByUrl: true }, s)).toBeNull();
+    expect(startPicture("lite", { party: false, pinnedByUrl: true }, s).chosen).toBeNull();
     expect(picture.get()).toMatchObject({ choice: "cinematic", applies: false });
     expect(guarded()).toBe(false);
   });
@@ -77,12 +78,12 @@ describe("the tier a visit opens on", () => {
 describe("the guard", () => {
   it("drops a choice above Auto when the last page died on it, and keeps a note for the pill", () => {
     const s = storage({ [CHOICE]: { tier: "cinematic", at: 1 }, [GUARD]: { tier: "cinematic", at: 2 } });
-    expect(startPicture("lite", garden, s)).toBeNull();
+    expect(startPicture("lite", garden, s).chosen).toBeNull();
     expect(picture.get()).toMatchObject({ choice: "auto", fellBack: "cinematic" });
     expect(s.data.has(CHOICE)).toBe(false);
     expect(s.data.has(GUARD)).toBe(false);
     // the note outlives the visit until the pill has said it
-    expect(startPicture("lite", garden, s)).toBeNull();
+    expect(startPicture("lite", garden, s).chosen).toBeNull();
     expect(picture.get().fellBack).toBe("cinematic");
     clearFellBack(s);
     expect(picture.get().fellBack).toBeNull();
@@ -91,7 +92,7 @@ describe("the guard", () => {
 
   it("only clears a mark left for another tier (the choice changed since)", () => {
     const s = storage({ [CHOICE]: { tier: "balanced", at: 1 }, [GUARD]: { tier: "cinematic", at: 2 } });
-    expect(startPicture("lite", garden, s)).toBe("balanced");
+    expect(startPicture("lite", garden, s).chosen).toBe("balanced");
     expect(s.data.has(GUARD)).toBe(false);
     expect(picture.get().fellBack).toBeNull();
   });
@@ -110,6 +111,33 @@ describe("the guard", () => {
     expect(picture.get()).toMatchObject({ choice: "auto", fellBack: "balanced" });
     expect(s.data.has(CHOICE)).toBe(false);
     expect(JSON.parse(s.data.get(FELL_BACK) ?? "{}").tier).toBe("balanced");
+  });
+});
+
+describe("Auto on a tier it climbed to", () => {
+  const phone = { party: false, pinnedByUrl: false, plan: "lite" as const };
+
+  it("is watched while it is drawn above the device's plan", () => {
+    expect(startPicture("balanced", phone, storage())).toEqual({ chosen: null, auto: "balanced" });
+    expect(climbed()).toBe(true);
+    expect(guarded()).toBe(false);
+    // on the plan's own tier there is nothing to watch
+    startPicture("lite", phone, storage());
+    expect(climbed()).toBe(false);
+  });
+
+  it("goes back to the plan's tier, quietly, when the last page died on the climb", () => {
+    const s = storage({ [GUARD]: { tier: "balanced", by: "auto", at: 2 } });
+    expect(startPicture("balanced", phone, s)).toEqual({ chosen: null, auto: "lite" });
+    expect(picture.get()).toMatchObject({ choice: "auto", auto: "lite", fellBack: null });
+    expect(s.data.has(GUARD)).toBe(false);
+  });
+
+  it("leaves a choice made by hand alone, and a mark Auto left for another tier", () => {
+    const hand = storage({ [CHOICE]: { tier: "cinematic", at: 1 }, [GUARD]: { tier: "balanced", by: "auto", at: 2 } });
+    expect(startPicture("balanced", phone, hand)).toEqual({ chosen: "cinematic", auto: "balanced" });
+    const other = storage({ [GUARD]: { tier: "cinematic", by: "auto", at: 2 } });
+    expect(startPicture("balanced", phone, other)).toEqual({ chosen: null, auto: "balanced" });
   });
 });
 

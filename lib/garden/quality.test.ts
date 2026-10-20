@@ -86,7 +86,10 @@ describe("device plan", () => {
   });
 
   it("never lets the governor climb past what the GPU class allows", () => {
-    expect(planFor(device({ kind: "phone", touch: true })).maxTier).toBe("lite");
+    // a phone may earn balanced (Safari names no GPU, so an iPhone is judged by its frames), an old one stays on lite
+    expect(planFor(device({ kind: "phone", touch: true, gpu: "Apple GPU" })).maxTier).toBe("balanced");
+    expect(planFor(device({ kind: "phone", touch: true, gpuClass: "high" })).maxTier).toBe("balanced");
+    expect(planFor(device({ kind: "phone", touch: true, gpuClass: "low" })).maxTier).toBe("lite");
     expect(planFor(device({ gpuClass: "mid" })).maxTier).toBe("balanced");
     expect(planFor(device({ gpuClass: "high" })).maxTier).toBe("cinematic");
   });
@@ -873,6 +876,26 @@ describe("tiers once the garden is showing", () => {
     const n = new Governor(range, range.ceiling);
     feed(n, { now: 0 }, 300, 1000 / 72, null);
     expect(n.roomAbove).toBe(false);
+  });
+
+  it("on a phone without a GPU timer, notes room only after a minute of frames at the panel's pace", () => {
+    const g = new Governor(range, range.start);
+    g.roomWithoutTimer = true;
+    const clock = { now: 0 };
+    g.beginGrace(0, 6000);
+    const d = feed(g, clock, 50, 1000 / 60, null);
+    expect(g.roomAbove).toBe(false);
+    d.push(...feed(g, clock, 600, 1000 / 60, null));
+    expect(kinds(d)).not.toContain("tier");
+    expect(g.roomAbove).toBe(true);
+    // frames under the panel's pace note nothing, nor does a desktop without a timer (roomWithoutTimer off)
+    const slow = new Governor(range, range.start);
+    slow.roomWithoutTimer = true;
+    feed(slow, { now: 0 }, 600, 30, null);
+    expect(slow.roomAbove).toBe(false);
+    const desk = new Governor(range, range.start);
+    feed(desk, { now: 0 }, 600, 1000 / 60, null);
+    expect(desk.roomAbove).toBe(false);
   });
 
   it("forgets that room after a step down", () => {

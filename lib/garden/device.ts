@@ -171,9 +171,12 @@ const lower = (q: Quality): Quality => TIERS[Math.max(0, TIERS.indexOf(q) - 1)];
 /**
  * The starting plan for a device. Phones open on "lite": a phone that holds a
  * steady frame rate beats one that renders more and stutters, and it runs
- * cooler through a daily visit. Tablets and laptops follow the GPU: integrated
- * graphics get "balanced", a discrete card or Apple silicon "cinematic". Few
- * cores or little memory pull a device down a tier.
+ * cooler through a daily visit. Safari names no GPU ("Apple GPU"), so a new
+ * iPhone and an old one look alike here; a phone that proves it has room on
+ * lite (lib/garden/quality, roomWithoutTimer) opens on "balanced" next time,
+ * tried under the veil, where it can still step back. Tablets and laptops
+ * follow the GPU: integrated graphics get "balanced", a discrete card or Apple
+ * silicon "cinematic". Few cores or little memory pull a device down a tier.
  */
 export function planFor(d: Device): QualityPlan {
   let tier: Quality;
@@ -182,8 +185,9 @@ export function planFor(d: Device): QualityPlan {
   else if (d.gpuClass === "high" && !d.touch) tier = "cinematic";
   else tier = "balanced";
   if (d.kind !== "phone" && (d.cores < 4 || d.memory < 4)) tier = lower(tier);
-  // Phones stay on lite; elsewhere the governor may climb back to what the GPU class allows.
-  const maxTier: Quality = d.kind === "phone" ? "lite" : d.gpuClass === "high" ? "cinematic" : d.gpuClass === "mid" ? "balanced" : "lite";
+  // The governor may climb back to what the GPU class allows; a phone no further than balanced, and an old one not at all.
+  const maxTier: Quality =
+    d.gpuClass === "low" ? "lite" : d.kind === "phone" ? "balanced" : d.gpuClass === "high" ? "cinematic" : "balanced";
   return { tier, maxTier: TIERS.indexOf(maxTier) < TIERS.indexOf(tier) ? tier : maxTier };
 }
 

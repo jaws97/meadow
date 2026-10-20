@@ -551,7 +551,10 @@ export function RenderGovernor() {
   const timer = useMemo(() => GpuTimer.create(gl.getContext()), [gl]);
   const governor = useMemo(() => {
     const q = quality.get();
-    return new Governor(q.range, q.budget);
+    const g = new Governor(q.range, q.budget);
+    // a phone has no GPU timer to vouch for room above, so steady frames may (lib/garden/device planFor)
+    g.roomWithoutTimer = q.device?.kind === "phone";
+    return g;
   }, []);
   /** The tier the governor itself last set, so a change made by hand can be told apart. */
   const ownTier = useRef<Quality>(garden.get().quality);

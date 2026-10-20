@@ -9,7 +9,7 @@
 // its pond as well (pond: the model's pond numbers, eased the same way, and the
 // moments this device's own care started); it is null for the six soil flowers.
 import { useSyncExternalStore } from "react";
-import { planFor, readDevice, recallTier } from "@/lib/garden/device";
+import { planFor, readDevice, recallTier, rememberTier } from "@/lib/garden/device";
 import { startPicture } from "@/lib/garden/picture";
 import { quality } from "@/lib/garden/quality";
 import type { SpeciesId } from "@/lib/plant/species";
@@ -147,10 +147,12 @@ export function detectQuality(): Quality {
   const plan = planFor(device);
   const pinnedTier = asked && (QUALITIES as readonly string[]).includes(asked) ? (asked as Quality) : null;
   // A device that settled on another tier last time opens on it (device.recallTier).
-  const autoTier = recallTier(device, plan.maxTier) ?? plan.tier;
+  const recalled = recallTier(device, plan.maxTier);
   const party = window.location.pathname.startsWith("/party");
-  const chosen = startPicture(autoTier, { party, pinnedByUrl: pinnedTier !== null });
-  const tier = pinnedTier ?? chosen ?? autoTier;
+  const { chosen, auto } = startPicture(recalled ?? plan.tier, { party, pinnedByUrl: pinnedTier !== null, plan: plan.tier });
+  // the last visit died on a tier it had climbed to: the plan's tier is remembered instead, and the climb waits a week
+  if (recalled !== null && auto !== recalled) rememberTier(device, auto);
+  const tier = pinnedTier ?? chosen ?? auto;
   quality.init(device, { ...plan, tier }, {
     pinned: pinnedTier !== null || chosen !== null,
     auto: params.get("governor") !== "off",

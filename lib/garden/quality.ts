@@ -361,6 +361,8 @@ const GRACE_SETTLE_MAX = 2;
 const UP_AFTER_MS = 10000;
 const TIER_UP_AFTER_MS = 10000;
 const TIER_UP_AFTER_DOWN_MS = 30000;
+/** Without a GPU timer (a phone that may: roomWithoutTimer), a tier up needs this long of frames at the panel's pace. */
+const TIER_UP_UNTIMED_MS = 60000;
 /**
  * A step up is on trial this long: frames under the comfortable line for
  * PROBE_FAIL_MS fail it (it goes back once the gap is up), and the next one
@@ -493,6 +495,13 @@ export class Governor {
    * visit's opening instead.
    */
   roomAbove = false;
+  /**
+   * Room for the next tier may be noted without a GPU timer (a phone: Safari and most Android browsers have none):
+   * a full minute of frames at the panel's own pace, at the tier's starting budget or above. Frames at the panel's
+   * pace do not say how much is left over, so it is a guess, tested where it can be undone: the next visit opens on
+   * the tier above under the veil, which steps back down if the floor is too slow there.
+   */
+  roomWithoutTimer = false;
   /** Live: the last budget or tier change, and the time before which nothing steps up. */
   private changedAt = -Infinity;
   private upAfter = -Infinity;
@@ -969,10 +978,13 @@ export class Governor {
     while (this.seen.length > 1 && this.seen[0].end < now - SEEN_MS) this.seen.shift();
     if (easy) this.easyFrom ??= start;
     else this.easyFrom = null;
-    // Room for the next tier: noted, never climbed in the open (see roomAbove).
-    if (easy && timer && gpu < GPU_TIER_UP && this.atCeiling()) this.tierUpFrom ??= start;
+    // Room for the next tier: noted, never climbed in the open (see roomAbove, roomWithoutTimer).
+    const timedRoom = easy && timer && gpu < GPU_TIER_UP && this.atCeiling();
+    const untimedRoom = this.roomWithoutTimer && easy && !timer && this.budget >= this.range.start * 0.99;
+    if (timedRoom || untimedRoom) this.tierUpFrom ??= start;
     else this.tierUpFrom = null;
-    if (!highest && this.tierUpFrom !== null && now - this.tierUpFrom >= this.tierUpMs) this.roomAbove = true;
+    const roomAfter = timer ? this.tierUpMs : Math.max(this.tierUpMs, TIER_UP_UNTIMED_MS);
+    if (!highest && this.tierUpFrom !== null && now - this.tierUpFrom >= roomAfter) this.roomAbove = true;
 
     // A step up on trial that turns the frames uncomfortable goes back, but
     // only once its gap is up, and then only if they are still uncomfortable;

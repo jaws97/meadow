@@ -12,7 +12,9 @@
 // A tier above what Auto picks can be too much for a device: a phone's browser may kill the page, or the graphics
 // may be lost. So while such a choice is on screen, and the page is in front, a guard mark sits in storage; it is
 // lifted when the page goes to the background or away. A visit that finds the mark still there (the last page died
-// in front) opens on Auto, with a note under the pill saying so. A WebGL context lost in front on such a choice falls
+// in front) opens on Auto, with a note under the pill saying so. Auto itself is watched the same way when it opened
+// above the device's own plan, on a tier an earlier visit found room for (a phone on balanced: lib/garden/device):
+// a visit that finds that mark opens on the plan's tier again, quietly, and the climb is not tried for a week. A WebGL context lost in front on such a choice falls
 // back the same way, and the page reloads at once, since the garden it was drawing is gone; lost in the background
 // (a browser freeing memory), the choice stays and the page reloads once it is in front.
 //
@@ -41,6 +43,8 @@ export interface PictureState {
   choice: PictureChoice;
   /** The tier Auto picks on this device: the opening's own (remembered or planned), then the last one Auto drew. */
   auto: Quality;
+  /** The device's own plan (lib/garden/device planFor): Auto above it climbed there on an earlier visit. */
+  plan: Quality;
   /** The choice is drawn on this page (not the party screen, not a `?quality=` pin), so the guard watches it. */
   applies: boolean;
   /** A choice above Auto fell back to Auto (the tier it was), until the pill has said so. */
@@ -94,7 +98,7 @@ const readTier = (s: PictureStorage | null, key: string): Quality | null => {
   return isTier(t) ? t : null;
 };
 
-let state: PictureState = { choice: "auto", auto: "balanced", applies: false, fellBack: null };
+let state: PictureState = { choice: "auto", auto: "balanced", plan: "balanced", applies: false, fellBack: null };
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<PictureState>) {
@@ -121,20 +125,29 @@ export function usePicture<T>(selector: (s: PictureState) => T): T {
 }
 
 /**
- * Called once as the page picks its opening tier (lib/garden/store), with the tier Auto would open on. Returns the
- * tier chosen by hand to open on instead, or null for Auto. A guard mark left by the last page on a choice above Auto
- * means that page died in front: the choice is dropped, and the pill will say so.
+ * Called once as the page picks its opening tier (lib/garden/store), with the tier Auto would open on and the
+ * device's own plan. Returns the tier chosen by hand to open on instead (null for Auto), and Auto's tier. A guard mark
+ * left by the last page means that page died in front: on a choice above Auto, the choice is dropped and the pill will
+ * say so; on Auto opened above the plan, Auto goes back to the plan's tier (the store remembers that for next time).
  */
-export function startPicture(auto: Quality, opts: { party: boolean; pinnedByUrl: boolean }, s: PictureStorage | null = local()): Quality | null {
+export function startPicture(
+  auto: Quality,
+  opts: { party: boolean; pinnedByUrl: boolean; plan?: Quality },
+  s: PictureStorage | null = local(),
+): { chosen: Quality | null; auto: Quality } {
+  const plan = opts.plan ?? auto;
   if (opts.party) {
-    set({ choice: "auto", auto, applies: false, fellBack: null });
-    return null;
+    set({ choice: "auto", auto, plan, applies: false, fellBack: null });
+    return { chosen: null, auto };
   }
   let chosen = readTier(s, CHOICE_KEY);
-  const guarded = readTier(s, GUARD_KEY);
-  if (guarded !== null) {
+  const mark = read(s, GUARD_KEY);
+  const guardedTier = readTier(s, GUARD_KEY);
+  if (guardedTier !== null) {
     write(s, GUARD_KEY, null);
-    if (chosen !== null && guarded === chosen && above(chosen, auto)) {
+    if (mark?.by === "auto") {
+      if (chosen === null && guardedTier === auto && above(auto, plan)) auto = plan;
+    } else if (chosen !== null && guardedTier === chosen && above(chosen, auto)) {
       write(s, CHOICE_KEY, null);
       write(s, FELL_BACK_KEY, { tier: chosen, at: Date.now() });
       chosen = null;
@@ -143,8 +156,8 @@ export function startPicture(auto: Quality, opts: { party: boolean; pinnedByUrl:
   const note = read(s, FELL_BACK_KEY);
   const fresh = note !== null && typeof note.at === "number" && Date.now() - note.at < FELL_BACK_MAX_AGE_MS;
   if (note !== null && !fresh) write(s, FELL_BACK_KEY, null);
-  set({ choice: chosen ?? "auto", auto, applies: !opts.pinnedByUrl, fellBack: fresh && isTier(note.tier) ? note.tier : null });
-  return opts.pinnedByUrl ? null : chosen;
+  set({ choice: chosen ?? "auto", auto, plan, applies: !opts.pinnedByUrl, fellBack: fresh && isTier(note.tier) ? note.tier : null });
+  return { chosen: opts.pinnedByUrl ? null : chosen, auto };
 }
 
 /**
@@ -163,8 +176,18 @@ export function clearFellBack(s: PictureStorage | null = local()) {
   if (state.fellBack !== null) set({ fellBack: null });
 }
 
-/** A choice above Auto is drawn on this page: the one case the guard watches. */
+/** A choice above Auto is drawn on this page: the guard watches it. */
 export const guarded = (p: PictureState = state): boolean => p.applies && p.choice !== "auto" && above(p.choice, p.auto);
+
+/** Auto opened above the device's plan, on a tier an earlier visit found room for: the guard watches that too. */
+export const climbed = (p: PictureState = state): boolean => p.applies && p.choice === "auto" && above(p.auto, p.plan);
+
+/** What the guard mark says while one is due: the tier, and whether a hand chose it or Auto climbed to it. */
+function guardMark(): { tier: Quality; by: "hand" | "auto" } | null {
+  if (guarded()) return { tier: state.choice as Quality, by: "hand" };
+  if (climbed()) return { tier: state.auto, by: "auto" };
+  return null;
+}
 
 /** The choice drops to Auto after the graphics were lost on it (the page reloads next). */
 export function fallBack(s: PictureStorage | null = local()) {
@@ -177,25 +200,33 @@ export function fallBack(s: PictureStorage | null = local()) {
 }
 
 /**
- * Keeps the guard mark while a choice above Auto is drawn on the canvas and the page is in front, and falls back to
- * Auto (then reloads) if the canvas loses its graphics on such a choice. Returns the cleanup.
+ * Keeps the guard mark while a choice above Auto (or Auto above the plan) is drawn on the canvas and the page is in
+ * front, and falls back (then reloads) if the canvas loses its graphics on it. Returns the cleanup.
  */
 export function watchPicture(canvas: HTMLCanvasElement, s: PictureStorage | null = local()): () => void {
+  // once the graphics are lost, the mark is left as it was set then, for the reload to read
   let lost = false;
   const sync = () => {
-    if (!lost && guarded() && document.visibilityState === "visible") write(s, GUARD_KEY, { tier: state.choice, at: Date.now() });
+    if (lost) return;
+    const mark = guardMark();
+    if (mark && document.visibilityState === "visible") write(s, GUARD_KEY, { ...mark, at: Date.now() });
     else write(s, GUARD_KEY, null);
   };
-  const leave = () => write(s, GUARD_KEY, null);
+  const leave = () => {
+    if (!lost) write(s, GUARD_KEY, null);
+  };
   const reloadInFront = () => {
     if (document.visibilityState === "visible") window.location.reload();
   };
   const onLost = () => {
-    if (lost || !guarded()) return;
+    const mark = lost ? null : guardMark();
+    if (!mark) return;
     lost = true;
-    // lost in the background, a browser freeing memory: the choice stays, and the page reloads once it is in front
-    if (document.visibilityState === "visible") fallBack(s);
-    else write(s, GUARD_KEY, null);
+    // lost in the background, a browser freeing memory: nothing is dropped, and the page reloads once it is in front
+    if (document.visibilityState !== "visible") write(s, GUARD_KEY, null);
+    else if (mark.by === "hand") fallBack(s);
+    // a climbed Auto: the mark stays, and the reload opens on the plan's tier (startPicture)
+    else write(s, GUARD_KEY, { ...mark, at: Date.now() });
     document.addEventListener("visibilitychange", reloadInFront);
     reloadInFront();
   };
