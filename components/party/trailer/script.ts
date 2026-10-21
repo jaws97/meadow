@@ -490,15 +490,18 @@ const OPENING: readonly Segment[] = [
   },
   {
     // the payoff, cut on the home chord
+    // the bloom card's own view of the flower (lib/garden/cardAim), close enough that the opening petals fill the band
+    // and far enough that they never leave it; the lens lowers the bloom, which stands above its head's point
     id: "S12",
     from: 29.4,
     to: 31.6,
     keys: [
-      [29.4, shot(0.1, -0.03, 0.12, 1, 0.7)],
-      [31.6, shot(0.12, -0.05, 0.11, 1, 0.7)],
+      [29.4, shot(0.12, -0.04, 0.22, 1, 0.75)],
+      [31.6, shot(0.14, -0.05, 0.19, 1, 0.75)],
     ],
     interp: "L",
-    dof: { target: "head", range: 0.1, bokeh: 1.4 },
+    lens: { shiftY: -0.06 },
+    dof: { target: "head", range: 0.18, bokeh: 1.4 },
     pollen: 0.3,
     fluff: 0.3,
   },
