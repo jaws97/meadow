@@ -2,9 +2,10 @@
 // The way into Google sign-in from the garden's own sheets and menus: Google's "Continue with Google" button, drawn as
 // its branding asks (the four-colour G on white, a hairline border, Google's words), so it reads as Google's own door,
 // with a quiet line under it on what Meadow keeps (lib/server/login-rules.ts: only a scrambled number, never an email,
-// a name or a picture) and a link to the privacy page. Inside another app's built-in browser, where Google signs no one
-// in, it offers the way out instead: the same page in Chrome on Android, and on an iPhone the app's own "Open in
-// browser", with the address to copy.
+// a name or a picture) and a link to the privacy page. `compact` is the smaller one offered beside something else (the
+// seed, the personal link). Inside another app's built-in browser, where Google signs no one in, it offers the way out
+// instead: the same page in Chrome on Android, and on an iPhone the app's own "Open in browser", with the address to
+// copy (compact: a line).
 import { useState } from "react";
 import { copyText } from "@/components/gift/clipboard";
 import { chromeIntentUrl, inAppBrowser, signInWithGoogle } from "@/lib/client/session";
@@ -33,12 +34,23 @@ export function KeptLine() {
   );
 }
 
-export function GoogleButton({ forWhat = "garden" }: { forWhat?: "garden" | "keep" }) {
+export function GoogleButton({ forWhat = "garden", compact = false }: { forWhat?: "garden" | "keep"; compact?: boolean }) {
   // the sheets render only in the browser (the door decides after load), so the browser can be asked at once
   const [inApp] = useState(() => (typeof navigator === "undefined" ? null : inAppBrowser(navigator.userAgent)));
   const [going, setGoing] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const size = compact ? "compact" : undefined;
+  if (inApp === "android" && compact) {
+    return (
+      <p className="gift-google-kept">
+        <a href={chromeIntentUrl(window.location.href)}>Open in Chrome</a> to sign in with Google.
+      </p>
+    );
+  }
+  if (inApp === "ios" && compact) {
+    return <p className="gift-google-kept">To sign in with Google, open this page in Safari (the app&rsquo;s &middot;&middot;&middot; menu, Open in browser).</p>;
+  }
   if (inApp === "android") {
     return (
       <div className="gift-google-wrap">
@@ -69,10 +81,11 @@ export function GoogleButton({ forWhat = "garden" }: { forWhat?: "garden" | "kee
     );
   }
   return (
-    <div className="gift-google-wrap">
+    <div className="gift-google-wrap" data-size={size}>
       <button
         type="button"
         className="gift-google"
+        data-size={size}
         disabled={going}
         aria-busy={going || undefined}
         onClick={() => {

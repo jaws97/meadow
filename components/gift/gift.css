@@ -2067,3 +2067,28 @@
   font-size: 12px;
   color: var(--gift-ink-3);
 }
+
+/* the smaller Google door, offered beside something else (the seed, the personal link) */
+.gift-google-wrap[data-size="compact"] {
+  align-items: center;
+  gap: 8px;
+}
+
+.gift-google[data-size="compact"] {
+  width: auto;
+  min-height: 44px;
+  padding: 0 20px;
+  gap: 10px;
+  font-size: 15px;
+  box-shadow: none;
+}
+
+/* after planting, beside the personal link: the choice to keep the garden on Google instead */
+.gift-keep {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gift-line);
+}

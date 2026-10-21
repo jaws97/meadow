@@ -45,10 +45,8 @@ export async function keepPlanting(q: Queryable, token: string, subject: Buffer,
 }
 
 export interface LoginStatus {
-  /** Google sign-in is on here (env.ts googleSignIn) */
+  /** Google sign-in is on here (env.ts googleSignIn), offered and never required */
   available: boolean;
-  /** a seed needs it: never (since 22 Oct); kept for pages from before, which read it */
-  required: boolean;
   /** the device's garden is kept on an account */
   kept: boolean;
   /** an account is signed in on this device, which holds no garden yet: the seed planted next is kept on it */
@@ -57,10 +55,10 @@ export interface LoginStatus {
 
 /** GET /api/session's word on sign-in, for the device's garden (`personId`) or its login cookie when it has none. */
 export async function loginStatus(personId: string | null, loginToken: string | undefined): Promise<LoginStatus> {
-  if (!googleSignIn()) return { available: false, required: false, kept: false, pending: false };
+  if (!googleSignIn()) return { available: false, kept: false, pending: false };
   const kept = personId ? await personKept(db(), personId) : false;
   const pending = personId ? false : (await loginStartSubject(db(), loginToken)) !== null;
-  return { available: true, required: false, kept, pending };
+  return { available: true, kept, pending };
 }
 
 export interface SignInDone {

@@ -16,10 +16,10 @@
 // site is a real garden. The welcome step reminds anyone who has planted already that their personal garden link opens
 // their garden on this device, so nobody plants twice.
 //
-// Once Google sign-in is on (lib/server/login.ts), someone without the party link continues with Google from the
-// welcome step (GoogleButton): an account that keeps a garden opens it, and one that keeps none comes back to the name
-// step (startAt), signed in, and the seed planted then is kept on the account, so it opens on every device they sign in
-// on. The party link plants as before, without signing in.
+// Google sign-in (lib/server/login.ts) is offered, never asked for: the welcome step has a quiet "Continue with Google"
+// under the seed, for someone who kept a garden on Google (it opens here) or would like this one kept there from the
+// start (back on the name step, signed in, startAt), and once the seed is in, beside the personal link, the choice to
+// keep the garden on Google instead of keeping a link. Either way the garden then opens on every device signed in.
 //
 // Names are unique in the Meadow (ignoring case), so a friend finds the right flower: the name step says so, asks the
 // server whether the name is free before the seeds appear (this tab's own planting whose answer was lost does not
@@ -74,15 +74,15 @@ function signLength(text: string): "mid" | "long" | undefined {
 
 export function GiftFlow({
   partyCode,
-  signIn = { needed: false, pending: false },
+  signIn = { available: false, pending: false },
   startAt = "welcome",
   onPlanted,
   onEnterGarden,
   onAlreadyPlanted,
 }: {
   partyCode: string | null;
-  /** needed: this seed goes in only after Google sign-in (no party link); pending: an account is signed in, for this seed */
-  signIn?: { needed: boolean; pending: boolean };
+  /** available: Google sign-in is offered here; pending: an account is signed in on this device, for this seed */
+  signIn?: { available: boolean; pending: boolean };
   /** "name" when the person has just come back from signing in */
   startAt?: "welcome" | "name";
   /** the seed is in and this device now holds its session (the care layer can be fetched, ready for the garden) */
@@ -209,6 +209,8 @@ export function GiftFlow({
 
   let body: ReactNode;
   let foot: ReactNode;
+  // Google sign-in, offered and never asked for: not again once an account is signed in for this seed
+  const offerGoogle = signIn.available && !signIn.pending;
   const back = (to: Step) => (
     <button
       type="button"
@@ -238,18 +240,19 @@ export function GiftFlow({
           blooms in about two weeks.
         </p>
         <p className="gift-note" style={{ marginTop: 12 }}>
-          {signIn.needed
-            ? "Sign in with Google so your garden opens on all your devices. Planted already? Signing in opens your garden here."
+          {offerGoogle
+            ? "Planted a seed already? Open your personal garden link on this device, or continue with Google if you kept your garden there."
             : "Planted a seed already? Open your personal garden link on this device to see your flower."}
         </p>
       </div>
     );
-    foot = signIn.needed ? (
-      <GoogleButton forWhat="garden" />
-    ) : (
-      <button type="button" className="gift-primary" onClick={() => setStep("name")}>
-        Receive your seed
-      </button>
+    foot = (
+      <>
+        <button type="button" className="gift-primary" onClick={() => setStep("name")}>
+          Receive your seed
+        </button>
+        {offerGoogle && <GoogleButton forWhat="garden" compact />}
+      </>
     );
   } else if (step === "name") {
     const preview = checkFirstName(name);
@@ -413,6 +416,15 @@ export function GiftFlow({
         {planting.phase === "planted" && planting.linkShown && (
           <LinkPanel link={planting.result.link} variant="first" flowerName={flower} rehearsal={planting.result.me.plant.rehearsal} />
         )}
+        {planting.phase === "planted" && planting.linkShown && offerGoogle && (
+          <div className="gift-keep">
+            <p className="gift-note">
+              Your link always opens your garden. Rather not keep a link? Keep your garden on your Google account, and it opens
+              wherever you sign in.
+            </p>
+            <GoogleButton forWhat="keep" compact />
+          </div>
+        )}
       </div>
     );
     if (planting.phase === "planted" && planting.linkShown) {
@@ -446,8 +458,8 @@ function FailedActions({
   onBack: () => void;
   onHome: () => void;
 }) {
-  // without the party link: sign in first, or open the garden the account keeps already
-  if (problem.code === "sign_in_needed" || problem.code === "account_has_garden") return <GoogleButton forWhat="garden" />;
+  // the Google account signed in here keeps a garden already: open that one
+  if (problem.code === "account_has_garden") return <GoogleButton forWhat="garden" />;
   if (problem.code === "already_planted") {
     const who = typeof problem.body.firstName === "string" ? problem.body.firstName : null;
     return (

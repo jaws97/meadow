@@ -10,9 +10,9 @@
 // - anyone else is given the seed (since 21 Oct, party link or not: the QR link's ?code=... rides along and spares the
 //   party's seeds the limits on strangers' plantings; planting never closes), unless planting asks for the party link
 //   again (MEADOW_PLANTING=party, which GET /api/session reports): then someone without it sees Lijas's rose with a
-//   gentle line about the link. Once Google sign-in is on, someone without the party link continues with Google first
-//   (GiftFlow), and comes back from Google to /garden?signin=...: to their own garden, with a note under the pill; to
-//   the name step, signed in; or to a dialog when the sign-in could not do what it was for (takeSignInResult).
+//   gentle line about the link. Where Google sign-in is offered (GiftFlow, the name pill's menu), the person comes back
+//   from Google to /garden?signin=...: to their own garden, with a note under the pill; to the name step, signed in;
+//   or to a dialog when the sign-in could not do what it was for (takeSignInResult).
 // The decision needs the server (the session cookie is httpOnly), so the first render, which is also the prerendered
 // HTML, shows only the loading veil, and the door opens once GET /api/session answers (asked as the page script
 // loads, lib/client/session.ts, so the answer is usually in by the time the page hydrates). That first answer also
@@ -383,10 +383,7 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
       {door.mode === "gift" && (
         <GiftFlow
           partyCode={door.partyCode}
-          signIn={{
-            needed: door.partyCode === null && door.login?.required === true && !door.login.pending,
-            pending: door.login?.pending === true,
-          }}
+          signIn={{ available: door.login?.available === true, pending: door.login?.pending === true }}
           startAt={door.startAt}
           onPlanted={onPlanted}
           onEnterGarden={enterGarden}

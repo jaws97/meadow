@@ -2,9 +2,9 @@
 // { signedIn, person: { firstName, plot } | null, previous: { firstName, plot } | null, plantingOpen, login }, where
 // previous is the garden "switch back" (POST /api/session/back) would return to, plantingOpen says whether anyone may
 // plant without the party link (false only under MEADOW_PLANTING=party), so the door can show the rose instead of a
-// seed that could not go in, and login is Google sign-in's word (lib/server/login.ts loginStatus: whether it is on and
-// a seed without the party link needs it, whether this garden is kept on an account, and whether an account is signed
-// in on this device for the seed planted next).
+// seed that could not go in, and login is Google sign-in's word (lib/server/login.ts loginStatus: whether it is offered
+// here, whether this garden is kept on an account, and whether an account is signed in on this device for the seed
+// planted next).
 //
 // POST /api/session: opens a personal garden link on this device. The garden page reads the token from its URL
 // fragment (/garden#k=<token>, never sent to any server or log), removes it from the address bar, and posts

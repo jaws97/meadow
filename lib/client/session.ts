@@ -46,10 +46,8 @@ export interface SessionStatus {
 
 /** Google sign-in on this server, for this device (GET /api/session). */
 export interface LoginStatus {
-  /** sign-in is on here */
+  /** sign-in is on here (offered, never required) */
   available: boolean;
-  /** a seed planted without the party link needs it */
-  required: boolean;
   /** this device's garden is kept on a Google account */
   kept: boolean;
   /** an account is signed in on this device, which holds no garden yet: the seed planted next is kept on it */
