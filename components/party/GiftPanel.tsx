@@ -15,16 +15,19 @@ import { QrCode } from "@/components/party/QrCode";
 import { SeedFeed } from "@/components/party/SeedFeed";
 import { party } from "@/components/party/store";
 
-/** A rosebud on a fine gold rule: the panel's crest. Original art. */
+/**
+ * A rosebud on a fine gold rule: the panel's crest. Original art. The rules' gradients are in the drawing's own units:
+ * a gradient measured on a line's box (which has no height) is not drawn at all.
+ */
 function Crest() {
   return (
     <svg className="party-crest" viewBox="0 0 220 26" aria-hidden="true">
       <defs>
-        <linearGradient id="party-crest-l" x1="0" x2="1" y1="0" y2="0">
+        <linearGradient id="party-crest-l" gradientUnits="userSpaceOnUse" x1="6" x2="88" y1="0" y2="0">
           <stop offset="0" stopColor="#e8c480" stopOpacity="0" />
           <stop offset="1" stopColor="#e8c480" stopOpacity="0.75" />
         </linearGradient>
-        <linearGradient id="party-crest-r" x1="1" x2="0" y1="0" y2="0">
+        <linearGradient id="party-crest-r" gradientUnits="userSpaceOnUse" x1="214" x2="132" y1="0" y2="0">
           <stop offset="0" stopColor="#e8c480" stopOpacity="0" />
           <stop offset="1" stopColor="#e8c480" stopOpacity="0.75" />
         </linearGradient>
