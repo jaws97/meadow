@@ -180,6 +180,14 @@ Use the laptop that will drive the venue screen, connected to that screen, on th
    laptop should not sleep or dim.
 8. Keys, if you need them: **H** hides or shows the panel, **T** starts or stops a slow tour, and **F** switches full
    screen.
+9. Play the trailer once, through the venue's speakers: move the mouse and press **Play the trailer** in the top left
+   corner, or press **D**. The screen dips to black for a few seconds, then the trailer runs for a little over a
+   minute: a seed of light, its first drink, a day of growing in the real sky, the bloom, a visitor, the other
+   flowers at night, MEADOW on black and "Your seed is waiting". The panel and the QR code come back by themselves at
+   the end. Check that the words can be read from the back, and set the volume so the music sits under the room's
+   chatter without booming. **M** mutes the music; `&music=off` at the end of the address leaves it out altogether.
+   **D** stops the trailer at any moment, and the panel comes back. If Windows has **Animation effects** turned off
+   (Settings > Accessibility > Visual effects), the trailer keeps the watering can still; turn them on to see it pour.
 
 If loading is slow, or the motion is jerky:
 
