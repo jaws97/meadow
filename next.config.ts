@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import { OLD_HOST, PUBLIC_ORIGIN } from "./lib/origin";
+import { MOVE_PAGES, OLD_HOST, PUBLIC_ORIGIN } from "./lib/origin";
 
 /**
  * The pages the old address forwards to the new one. Its API, its scripts and its pictures stay served where they are,
@@ -14,8 +14,18 @@ const nextConfig: NextConfig = {
     return [
       // The garden's old address (until 21 Oct, lib/origin) forwards its pages to the new one, with the path and the
       // query (and a personal link's #k= key, which the browser carries across), for search engines and anyone arriving
-      // fresh. A device that already holds a garden there stays, so its garden is never lost; its cards and the links it
-      // shares point at the new address all the same.
+      // fresh. A device that already holds a garden there is carried across with it instead: its garden pages go
+      // through /api/move (lib/server/move.ts), which swaps the old address's cookie for a fresh personal link to the
+      // new address's garden; its other pages stay served there until then.
+      ...MOVE_PAGES.map((source) => ({
+        source,
+        has: [
+          { type: "host" as const, value: OLD_HOST },
+          { type: "cookie" as const, key: SESSION_COOKIE_NAME },
+        ],
+        destination: `/api/move?to=${encodeURIComponent(source)}`,
+        permanent: false,
+      })),
       ...FORWARDED_PAGES.map((source) => ({
         source,
         has: [{ type: "host" as const, value: OLD_HOST }],

@@ -15,9 +15,9 @@ from the party link is spared the limits that keep a flood of strangers out of t
 seed without it waits after 60 new seeds in an hour or 300 in a day. Names are unique in the Meadow, so each person
 plants once, under their own name, and a name with an offensive word in it is turned away (`lib/server/unkind.ts`).
 
-Live at **https://growmyflower.vercel.app**. The first address, meadow-phi.vercel.app, forwards its pages there, except
-on a device that already holds a garden at the old address, which stays with its garden (`lib/origin.ts`,
-`next.config.ts`).
+Live at **https://growmyflower.vercel.app**. The first address, meadow-phi.vercel.app, forwards its pages there, and a
+device that already holds a garden at the old address is carried across with it, through a fresh personal link
+(`lib/origin.ts`, `lib/server/move.ts`, `next.config.ts`).
 
 ## The pages
 
