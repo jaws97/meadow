@@ -28,6 +28,7 @@ import { canShareFile, encodeCard, encodeCardNow, isIos, saveCard, shareCard } f
 import { requestCardPhoto } from "@/components/garden/CardCamera";
 import { copyText } from "@/components/gift/clipboard";
 import { display } from "@/components/gift/fonts";
+import { keyboardBox } from "@/components/gift/viewport";
 import { PUBLIC_ORIGIN, typedLink } from "@/components/party/logic";
 import { say, type MeView } from "@/lib/client/plant";
 import { primaryTouch } from "@/lib/garden/device";
@@ -246,9 +247,14 @@ export function BloomSheet({
     const update = () => {
       const active = document.activeElement;
       const writing = sheet.contains(active) && (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement);
-      const covered = writing && vv.scale <= 1.01 ? window.innerHeight - vv.height - vv.offsetTop : 0;
-      el.style.setProperty("--gift-kb", covered > 80 ? `${Math.round(covered)}px` : "0px");
-      setKeyboard(covered > 80);
+      // laid in the part of the page still in sight, as the gift's sheet is (components/gift/viewport.ts)
+      const kb = writing && vv.scale <= 1.01 ? keyboardBox(window.innerHeight, vv) : null;
+      if (kb) {
+        el.dataset.kb = "";
+        el.style.setProperty("--gift-vv-top", `${kb.top}px`);
+        el.style.setProperty("--gift-vv-h", `${kb.height}px`);
+      } else delete el.dataset.kb;
+      setKeyboard(kb !== null);
     };
     // (focus has settled only once the event is over)
     let timer = 0;

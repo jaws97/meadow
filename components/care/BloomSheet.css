@@ -221,8 +221,14 @@
 @media (orientation: landscape) and (max-height: 540px) {
   .gift-dock.bloom-dock {
     top: max(8px, env(safe-area-inset-top));
-    bottom: calc(max(8px, env(safe-area-inset-bottom)) + var(--gift-kb, 0px));
+    bottom: max(8px, env(safe-area-inset-bottom));
     align-items: flex-end;
+  }
+  /* while the keyboard is up: in the part of the page still in sight (gift.css .gift-dock[data-kb]) */
+  .gift-dock.bloom-dock[data-kb] {
+    top: var(--gift-vv-top, 0px);
+    bottom: auto;
+    height: var(--gift-vv-h, 100dvh);
   }
   .gift-sheet.bloom-sheet {
     width: min(760px, 100%);

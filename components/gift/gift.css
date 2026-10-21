@@ -50,11 +50,23 @@
   z-index: 30;
   left: max(12px, env(safe-area-inset-left));
   right: max(12px, env(safe-area-inset-right));
-  bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--gift-kb, 0px));
+  bottom: max(12px, env(safe-area-inset-bottom));
   display: flex;
   justify-content: center;
   pointer-events: none;
-  transition: bottom 0.25s ease;
+}
+
+/* while a phone's keyboard is up: laid in the part of the page still in sight (GiftSheet, viewport.ts) */
+.gift-dock[data-kb] {
+  top: var(--gift-vv-top, 0px);
+  bottom: auto;
+  height: var(--gift-vv-h, 100dvh);
+  padding: 10px 0;
+  align-items: flex-end;
+}
+
+.gift-dock[data-kb] .gift-sheet {
+  max-height: 100%;
 }
 
 .gift-sheet {
@@ -62,7 +74,7 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-height: calc(100dvh - 92px - var(--gift-kb, 0px));
+  max-height: calc(100dvh - 92px);
   overflow: hidden;
   border: 1px solid var(--gift-line);
   border-radius: 28px;
@@ -92,7 +104,7 @@
 
 @media (min-width: 640px) {
   .gift-dock {
-    bottom: calc(max(24px, env(safe-area-inset-bottom)) + var(--gift-kb, 0px));
+    bottom: max(24px, env(safe-area-inset-bottom));
   }
   .gift-sheet {
     width: min(560px, 100%);
