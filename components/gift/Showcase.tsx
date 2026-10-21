@@ -1,7 +1,7 @@
 "use client";
-// For someone without a garden once planting has closed (the door offers everyone the seed until then): Lijas's
-// Enchanted Rose, the garden everyone sees first, with a quiet caption instead of an error (copy.ts SHOWCASE_LINE), and
-// a reminder that a personal garden link opens their own garden here. The caption lets every touch through to the
+// For someone without a garden or the party link while planting asks for the link (MEADOW_PLANTING=party; otherwise the
+// door offers everyone the seed): Lijas's Enchanted Rose, the garden everyone sees first, with a quiet caption instead
+// of an error (copy.ts SHOWCASE_LINE), and a reminder that a personal garden link opens their own garden here. The caption lets every touch through to the
 // garden, so it can still be turned and zoomed. Its title is a second-level heading: the page's own heading is the
 // hidden introduction (app/seo.tsx).
 import { SHOWCASE_LINE } from "@/components/gift/copy";

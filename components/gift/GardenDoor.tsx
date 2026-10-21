@@ -7,9 +7,10 @@
 //   lib/client/gardens); a replaced link is explained, never an error page;
 // - someone whose device already holds a garden goes straight to it, with the care layer and the identity pill (and
 //   if that session ends while the garden is open, the care layer says so and the door explains in a dialog);
-// - anyone else is given the seed while planting is open (since 21 Oct, party link or not: the QR link's ?code=...
-//   rides along and spares the party's seeds the limits on strangers' plantings), and once it has closed sees Lijas's
-//   rose with a gentle line.
+// - anyone else is given the seed (since 21 Oct, party link or not: the QR link's ?code=... rides along and spares the
+//   party's seeds the limits on strangers' plantings; planting never closes), unless planting asks for the party link
+//   again (MEADOW_PLANTING=party, which GET /api/session reports): then someone without it sees Lijas's rose with a
+//   gentle line about the link.
 // The decision needs the server (the session cookie is httpOnly), so the first render, which is also the prerendered
 // HTML, shows only the loading veil, and the door opens once GET /api/session answers (asked as the page script
 // loads, lib/client/session.ts, so the answer is usually in by the time the page hydrates). That first answer also
@@ -31,7 +32,6 @@
 // door; ?sound=off never shows it.
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { seasonAt } from "@/components/gift/copy";
 import { Dialog } from "@/components/gift/Dialog";
 import { display } from "@/components/gift/fonts";
 import { GiftFlow } from "@/components/gift/GiftFlow";
@@ -67,8 +67,8 @@ const CareLayer = dynamic(loadCareLayer, { ssr: false, loading: () => null });
 const SIGNED_OUT_EVENT: (typeof import("@/lib/client/plant"))["SIGNED_OUT_EVENT"] = "garden:signed-out";
 
 /**
- * A development server offers the gift whatever the season (its seeds are practice ones); there ?as=showcase shows what
- * a visitor without a garden sees on the live site once planting has closed.
+ * A development server always offers the gift (its seeds are practice ones); there ?as=showcase shows what a visitor
+ * without the party link sees on the live site when planting asks for the link again.
  */
 const IS_DEV = process.env.NODE_ENV !== "production";
 const AS_SHOWCASE = IS_DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("as") === "showcase";
@@ -96,6 +96,8 @@ const personKey = (p: PersonSummary) => `${p.firstName}:${p.plot ?? "-"}`;
 
 /** Where someone without a link to open goes: their own garden, the gift, or the showcase. */
 async function sessionDoor(): Promise<Door> {
+  // whether someone without the party link may plant: yes, unless the server says planting asks for the link again
+  let plantingOpen = true;
   try {
     // the first time, the answer the page asked for as it loaded
     const s = await (takeSessionAhead() ?? getSession());
@@ -104,14 +106,13 @@ async function sessionDoor(): Promise<Door> {
       forgetPartyCode();
       return { mode: "garden", person: s.person, previous: s.previous };
     }
+    plantingOpen = s.plantingOpen !== false;
   } catch {
     // the server could not say: offer what the address says, and planting will tell if this device has a garden
   }
   const partyCode = capturePartyCode();
   if (AS_SHOWCASE) return { mode: "showcase" };
-  // the seed for everyone while planting is open (by the server's own hours, copy.ts seasonAt); once it has closed, a
-  // party link still opens the gift, which says so in its own words
-  if (partyCode !== null || IS_DEV || seasonAt() === "open") return { mode: "gift", partyCode };
+  if (partyCode !== null || plantingOpen || IS_DEV) return { mode: "gift", partyCode };
   return { mode: "showcase" };
 }
 

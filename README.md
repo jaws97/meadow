@@ -9,8 +9,8 @@ a little each day, it blooms in about two weeks; neglected, it blooms later and 
 grower can send it to someone they love: a golden-hour picture card with their own message, and a link to the living
 flower. Everyone's flowers grow together in the shared Meadow, round a rose that is already in full bloom.
 
-Planting opened early, and it is open to everyone. From 20 October to 10 December anyone can plant, party link or not,
-and every planting on the live site is a real garden that keeps growing through the party and after it. A seed planted
+Planting opened early, on 20 October; it is open to everyone, party link or not, and it never closes. Every planting
+on the live site is a real garden that keeps growing through the party and after it. A seed planted
 from the party link is spared the limits that keep a flood of strangers out of the Meadow and off the big screen: a
 seed without it waits after 60 new seeds in an hour or 300 in a day. Names are unique in the Meadow, so each person
 plants once, under their own name, and a name with an offensive word in it is turned away (`lib/server/unkind.ts`).
@@ -23,7 +23,7 @@ on a device that already holds a garden at the old address, which stays with its
 
 | Page | What it is |
 | --- | --- |
-| `/garden` | Everyone's first stop. Without a garden it offers the seed (after 10 December, it shows the rose in bloom instead); on a device that holds a garden it opens that garden, with its care card and its sounds. The party link (`/garden?code=...`) opens it too. |
+| `/garden` | Everyone's first stop. Without a garden it offers the seed (or, should planting ever ask for the party link again, the rose in bloom); on a device that holds a garden it opens that garden, with its care card and its sounds. The party link (`/garden?code=...`) opens it too. |
 | `/meadow` | The shared Meadow: rings of beds and a slow river round the rose. Ride the lantern cart (or glide), visit a friend's flower, leave a sprinkle, find someone by name. |
 | `/meadow/garden?plot=N` | A friend's garden, to look at only. |
 | `/party?code=...` | The big screen for the party: the rose, the QR code that carries the party link, new seeds as they are planted, and a seventy-second trailer played in the live garden (below). |

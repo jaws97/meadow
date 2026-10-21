@@ -60,7 +60,7 @@ export function catchUp<S extends PlantState>(checkpoint: S, events: readonly Ti
 
 export interface Planting {
   speciesId: SpeciesId;
-  /** the game hour the seed went in; validate it with canPlant() when the player plants */
+  /** the game hour the seed went in (any hour: planting never closes) */
   plantedH: number;
   /** the player's id; their own sprinkles do not count as a friend's */
   owner: string | null;

@@ -2,13 +2,13 @@
 // index h covers [h, h + 1) and its IST clock hour is h % 24. India keeps no daylight saving, so every game day is 24 h
 // and hour arithmetic is exact. This is the only part of lib/sim that touches Date: the model works on hour indexes alone.
 //
-// The seeds are handed out at the party (PLANT_OPEN_H, 10 Nov 15:00 IST) and planting closes after 10 Dec 23:59
-// (PLANT_CLOSE_H). Each plant then keeps its own clock: under good care its bud matures about 13.25 days after its own
+// The seeds are handed out at the party (PLANT_OPEN_H, 10 Nov 15:00 IST); planting opened on 20 Oct and never closes
+// (since 21 Oct). Each plant then keeps its own clock: under good care its bud matures about 13.25 days after its own
 // planting and opens at the flower's natural hour (the next morning, or dusk for Night Jasmine), so it blooms 13-15 days
 // (about TYPICAL_BLOOM_DAYS) after planting. Nothing steers a plant toward that number; it is for copy and expectations.
-import { GAME_START, PLANT_CLOSE_H, PLANT_OPEN_H, canPlant, hodOf } from "./model";
+import { GAME_START, PLANT_OPEN_H, hodOf } from "./model";
 
-export { PLANT_OPEN_H, PLANT_CLOSE_H, canPlant };
+export { PLANT_OPEN_H };
 
 /** h = 0: 10 Nov 2026 00:00 IST. */
 export const GAME_START_IST = GAME_START;

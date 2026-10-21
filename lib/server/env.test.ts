@@ -3,7 +3,6 @@
 // production, where every planting is real, before the party too.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deployment, isProduction, partyCodes, plantingOpenToAll, showRehearsals, writesDerivedState } from "./env";
-import { plantingWindow } from "./rules";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -50,15 +49,12 @@ describe("practice plants", () => {
     expect(showRehearsals()).toBe(true);
   });
 
-  it("never show in production, whatever the old MEADOW_REHEARSAL switch says, and planting is open from 20 Oct", () => {
+  it("never show in production, whatever the old MEADOW_REHEARSAL switch says", () => {
     vi.stubEnv("VERCEL_ENV", "production");
     for (const flag of ["", "0", "1"]) {
       vi.stubEnv("MEADOW_REHEARSAL", flag);
       expect(showRehearsals()).toBe(false);
     }
-    // 20 Oct, the party morning, the party and the last hour of 10 Dec: open; after it, closed
-    for (const h of [-494, -1, 0, 14, 15, 743]) expect(plantingWindow(h), `h ${h}`).toBe("open");
-    expect(plantingWindow(744)).toBe("closed");
   });
 });
 

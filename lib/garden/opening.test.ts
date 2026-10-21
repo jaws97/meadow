@@ -1,14 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PLANTING_CLOSES_MS } from "@/components/gift/copy";
 import {
   BREATH_MS,
   DWELL_MIN_MS,
   FOCUS_DONE_MS,
   INITIAL,
   PENDING_MAX_MS,
-  PLANTING_CLOSES_AT,
   PUSH,
   PUSH_MS,
   SKIP_WITHIN_MS,
@@ -138,11 +136,8 @@ interface Page {
   kept?: boolean;
   visible?: boolean;
   random?: () => number;
-  /** the clock (Date.now()), when not NOW */
-  now?: number;
 }
 
-/** January 2027: planting has closed. */
 const NOW = 1_800_000_000_000;
 
 /** Runs the first-look script as a browser parsing the page would, with a clock reading 1234 ms since navigation. */
@@ -182,7 +177,7 @@ function runFirstLook(page: "garden" | "meadow", p: Page = {}, env = process.env
     location,
     performance,
     math,
-    { now: () => p.now ?? NOW },
+    { now: () => NOW },
   );
   return {
     attrs,
@@ -287,10 +282,11 @@ describe("the words in the first paint", () => {
     expect(skipped.attrs["data-quote"]).toBeUndefined();
   });
 
-  it("starts the garden's quote only for a plain address, where the door can only run it", () => {
+  it("starts the garden's quote only for a device that holds a garden, at a plain address, where the door can only run it", () => {
     const prod = (p: Page) => runFirstLook("garden", p, "production").note.run;
-    expect(prod({ openedAt: anHourAgo })).toBe(true);
     expect(prod({ held: true })).toBe(true);
+    // a device that has only seen a quote before, without a garden, is offered the seed: the door decides
+    expect(prod({ openedAt: anHourAgo })).toBe(false);
     // a first visit keeps the signed-off sprout, and the door decides
     expect(prod({})).toBe(false);
     // a garden link or a party code may open a dialog or the gift instead
@@ -303,14 +299,6 @@ describe("the words in the first paint", () => {
     expect(prod({ held: true, openedAt: String(NOW - 60_000) })).toBe(false);
     // other parts of the address change nothing
     expect(prod({ held: true, hash: "#top", search: "?dev" })).toBe(true);
-  });
-
-  it("while planting is open, starts the garden's quote only for a device that holds a garden (others are offered the seed)", () => {
-    const season = PLANTING_CLOSES_AT - 24 * 3600_000;
-    const prod = (p: Page) => runFirstLook("garden", { ...p, now: season }, "production").note.run;
-    expect(prod({ held: true, openedAt: String(season - 3600_000) })).toBe(true);
-    expect(prod({ openedAt: String(season - 3600_000) })).toBe(false);
-    expect(PLANTING_CLOSES_AT).toBe(PLANTING_CLOSES_MS);
   });
 
   it("in development, starts the garden's quote only for a device that holds a garden (others are offered the gift)", () => {

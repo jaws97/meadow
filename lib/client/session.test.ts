@@ -3,9 +3,8 @@
 // UUIDs the seed route accepts. Then one planting run against a stand-in window: a lost answer is said to be a lost
 // connection, is tried again as soon as the browser is back online (with the same request), and success drops the
 // party code from the address through replaceState(null, ...). The name step's check says a name the garden will not put
-// on a sign is taken, in the server's words. And the gift's season check, by lib/sim's hours.
+// on a sign is taken, in the server's words.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PLANTING_CLOSES_MS, nextSeasonChangeMs, seasonAt } from "@/components/gift/copy";
 import { cleanFirstName, isUuid } from "@/lib/server/validate";
 import {
   ApiProblem,
@@ -185,21 +184,5 @@ describe("the name step's check", () => {
     expect(await checkNameFree("Ravi", null)).toBeNull();
     vi.stubGlobal("fetch", answer(403, { error: "party_code_wrong", message: "m" }));
     expect(await checkNameFree("Ravi", "old")).toBeNull();
-  });
-});
-
-describe("the gift's season", () => {
-  it("is open from 20 Oct, through the party, until 10 Dec, then closed", () => {
-    expect(seasonAt(new Date("2026-10-20T10:00:00+05:30"))).toBe("open");
-    expect(seasonAt(new Date("2026-11-10T00:00:00+05:30"))).toBe("open");
-    expect(seasonAt(new Date("2026-11-10T14:59:00+05:30"))).toBe("open");
-    expect(seasonAt(new Date("2026-12-10T23:59:00+05:30"))).toBe("open");
-    expect(seasonAt(new Date("2026-12-11T00:00:00+05:30"))).toBe("closed");
-  });
-
-  it("knows when the welcome step changes by itself: when planting closes", () => {
-    expect(PLANTING_CLOSES_MS).toBe(Date.parse("2026-12-11T00:00:00+05:30"));
-    expect(nextSeasonChangeMs(Date.parse("2026-10-20T10:00:00+05:30"))).toBe(PLANTING_CLOSES_MS);
-    expect(nextSeasonChangeMs(PLANTING_CLOSES_MS)).toBeNull();
   });
 });

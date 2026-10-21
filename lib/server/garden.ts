@@ -24,10 +24,10 @@
 // lower(first_name) (migration 0007) holds the line for every other writer. A taken name is a 409 name_taken with
 // field firstName, and the name step asks first (checkNameFree, POST /api/name).
 //
-// Planting is open from 20 Oct to 10 Dec (lib/sim canPlant), and every planting through production is real, before the
-// party too. Plantings through a dev server or a Preview (env.ts) are marked plants.rehearsal: they take plots from the
-// outer end of the planned rings, the production Meadow never shows them, scripts/clear-rehearsals.mjs removes them, and
-// such a server may tend only them.
+// Planting opened on 20 Oct and has no closing date (since 21 Oct), and every planting through production is real,
+// before the party too. Plantings through a dev server or a Preview (env.ts) are marked plants.rehearsal: they take plots
+// from the outer end of the planned rings, the production Meadow never shows them, scripts/clear-rehearsals.mjs removes
+// them, and such a server may tend only them.
 //
 // Writes outside a locking transaction (checkpoint saves) still go through db.ts transaction(), so every write waits
 // a bounded time for a lock whichever role the app connects as.
@@ -73,7 +73,6 @@ import {
   istClock,
   istDayOfHour,
   openPlantingWait,
-  plantingWindow,
   sprinkleMessage,
   stageOf,
   toRecordedEvent,
@@ -462,16 +461,13 @@ async function answerRetry(prior: PriorPlanting, input: SeedInput, sessionPerson
 }
 
 /**
- * Plants a seed for a new person: checks the planting window, gives them the next plot, and creates the person, their
+ * Plants a seed for a new person: checks who may plant, gives them the next plot, and creates the person, their
  * garden, the plant and its first checkpoint, a session and a personal garden link, all in one transaction.
  */
 export async function plantSeed(input: SeedInput, opts: { sessionPersonId: string | null; now?: Date }): Promise<PlantResult> {
   const now = opts.now ?? new Date();
   const h = hourIndexOf(now);
   const pass = plantingPass(input.partyCode, partyCodes(), isProduction(), plantingOpenToAll());
-  if (plantingWindow(h) === "closed") {
-    throw new ApiError(409, "planting_closed", "Planting closed on 10 Dec. You can still wander the Meadow and enjoy everyone's flowers.");
-  }
   // a retry first, so a device whose first attempt set the cookie but lost the response still gets its garden link
   const requestHash = hashToken(`seed:${input.requestId}`);
   const prior = await findPriorPlanting(requestHash);

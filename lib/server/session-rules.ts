@@ -12,7 +12,7 @@
 
 export const SESSION_COOKIE = "meadow_session";
 export const PREV_SESSION_COOKIE = "meadow_prev";
-/** Longer than the season: planting closes 10 Dec and gardens keep growing after. */
+/** Half a year, long past a flower's bloom; after it, the personal garden link opens the garden again. */
 export const SESSION_MAX_AGE_S = 60 * 60 * 24 * 180;
 
 const DAY_MS = 24 * 60 * 60 * 1000;

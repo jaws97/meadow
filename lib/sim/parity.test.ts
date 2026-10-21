@@ -13,7 +13,7 @@ import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { SoilSpeciesId as SpeciesId } from "@/lib/plant/species";
 import { CLIM_T } from "./climate";
-import { BED, GAME_START, PLANT_CLOSE_H, PLANT_OPEN_H, SIM_SPECIES, SIM_VERSION, TWIN, canPlant, createPlant, expectBloom, rainSoon, step, toVisual } from "./model";
+import { BED, GAME_START, PLANT_OPEN_H, SIM_SPECIES, SIM_VERSION, TWIN, createPlant, expectBloom, rainSoon, step, toVisual } from "./model";
 import type { ForecastRow, HourWeather, PlantState, SimEvent } from "./model";
 import { catchUp, type TimedEvent } from "./replay";
 
@@ -118,16 +118,14 @@ describe("golden-v7 parity with the prototype", () => {
       void truth; void name;
       return [id, k];
     }));
-    const consts: Record<string, unknown> = { BED, SPECIES: species, TWIN: goldenOnly(TWIN), PLANT_OPEN_H, PLANT_CLOSE_H, GAME_START };
-    expect(Object.keys(consts).sort()).toEqual(Object.keys(G.constants).sort());
-    for (const key of Object.keys(G.constants)) expect(same(consts[key], G.constants[key], true), `constants.${key}`).toBe(true);
+    const consts: Record<string, unknown> = { BED, SPECIES: species, TWIN: goldenOnly(TWIN), PLANT_OPEN_H, GAME_START };
+    // the one departure from the prototype's planting window: it planted from the party until PLANT_CLOSE_H (11 Dec
+    // 00:00 IST), and the live garden plants (and replants) at any hour, from 20 Oct with no closing hour since 21 Oct,
+    // so the golden file's closing hour and its canPlant table have no counterpart here
+    expect(G.constants.PLANT_CLOSE_H).toBe(744);
+    expect(Object.keys(consts).sort()).toEqual(Object.keys(G.constants).filter((k) => k !== "PLANT_CLOSE_H").sort());
+    for (const key of Object.keys(consts)) expect(same(consts[key], G.constants[key], true), `constants.${key}`).toBe(true);
     expect(same(CLIM_T, G.climT, true), "climT").toBe(true);
-  });
-
-  it("agrees on the planting window, except that planting opened on 20 Oct rather than at the party", () => {
-    // the one departure from the prototype (model.ts canPlant): before PLANT_OPEN_H the live window is open, so a plant
-    // planted before 10 Nov can be replanted before the party too; from the party on the two agree
-    for (const [h, ok] of G.canPlant) expect(canPlant(h), `canPlant(${h})`).toBe(h < PLANT_OPEN_H ? true : ok);
   });
 
   it("agrees on every heavy-rain hint case (rainSoon), junk rows included", () => {

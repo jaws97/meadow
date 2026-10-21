@@ -58,12 +58,11 @@ export const SIM_VERSION = 7;
 /** h = 0: 10 Nov 2026 00:00 IST, the day of the party. */
 export const GAME_START = "2026-11-10T00:00+05:30";
 /**
- * 10 Nov 15:00 IST: the party starts and Lijas hands out the seeds. Planting itself opened earlier, on 20 Oct, for anyone
- * with the party link (canPlant), so this hour now only names the party; the prototype opened planting here.
+ * 10 Nov 15:00 IST: the party starts and Lijas hands out the seeds. Planting itself opened earlier, on 20 Oct, and has no
+ * closing hour (since 21 Oct: the prototype's closed after 10 Dec), so this hour now only names the party; the
+ * prototype opened planting here.
  */
 export const PLANT_OPEN_H = 15;
-/** 11 Dec 00:00 IST: the last planting hour is 10 Dec 23:00-23:59. */
-export const PLANT_CLOSE_H = 744;
 
 export const BED = Object.freeze({
   A: 0.1, Zr0: 0.07, Zbed: 0.25, rho: 1300,     // m2 per plant, root depth at planting (m), raised-bed depth (m), kg/m3
@@ -475,12 +474,6 @@ export function leafArea(s: PlantState, sp: SimSpecies): number {
 export function soilN(s: PlantState): number { return s.Ns / (BED.rho * BED.A * s.Zr); }
 /** A feed adds no growth once the plant is N-sufficient (fN = 1 at NNI >= 0.9) and the bed still holds plenty. */
 export function nRich(s: PlantState): boolean { return s.NNI >= 0.9 && soilN(s) >= BED.Nrich; }
-/**
- * Planting (and replanting) is open until 10 Dec 23:59 IST. It opened on 20 Oct, before the party (the prototype opened
- * it at PLANT_OPEN_H), and needs no lower bound: a plant can only be replanted after it exists, and step() ignores hours
- * before its planting. parity.test.ts records this departure from the golden file's window.
- */
-export function canPlant(h: number): boolean { return h < PLANT_CLOSE_H; }
 /** Rose, sundrop, magnolia, marigold, the Island Bloom and the Pink Lily open with the morning light; Night Jasmine at dusk. */
 export function opensInMorning(sp: SimSpecies): boolean { return sp.openHod < 12; }
 /**
@@ -540,7 +533,7 @@ export function abaSignal(sp: SimSpecies, f: number, KsRoot: number, KsSalt: num
 }
 
 /**
- * A fresh seed in a bed watered at planting. plantedAtIndex is the game hour it goes in (check canPlant first).
+ * A fresh seed in a bed watered at planting. plantedAtIndex is the game hour it goes in (any hour: planting never closes).
  *
  * "Not yet" marks sit below the planting hour, so they never collide with a real hour: -1 (and -99 for the last can and
  * feed, -1 for the last bud-drop day) as in the prototype for a planting on or after 10 Nov, and further back for a
@@ -614,7 +607,7 @@ export function step(state: PlantState, hour: HourInput, events?: readonly SimEv
       s.alive = true; s.fairyUsed = true; s.Dw = s.Ds = s.R = s.O = s.Qd = s.Qc = s.Qr = s.wCx = s.Dsalt = s.BS = 0;
       s.Ps = s.Pa = s.Pm = s.Dpest = 0; s.Sc *= 0.5; s.Sf = 0; s.turgor = 0.5; s.aba = 0;
       s.B = Math.max(s.B, 0.6 * Bideal(sp, s.D));
-    } else if (k === "replant" && !s.alive && s.fairyUsed && canPlant(h)) {
+    } else if (k === "replant" && !s.alive && s.fairyUsed) {                // at any hour: planting never closes
       const dz = s.Zr - BED.Zr0;
       const keep = { fairyUsed: true, gen: s.gen + 1, owner: s.owner, W: s.W * BED.Zr0 / s.Zr,
         L: s.L + s.W * dz / s.Zr, cP: s.cP, cI: s.cI, cET: s.cET, cDP: s.cDP, cRO: s.cRO, cMag: s.cMag, lastFeedH: s.lastFeedH,

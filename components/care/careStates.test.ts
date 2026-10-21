@@ -157,7 +157,7 @@ describe("the resting card's words", () => {
       action: { label: "Plant a second-chance seedling", kind: "replant" },
     });
     expect(copyFor({ mode: "replant" }, "rose").body).toMatch(/same bed/);
-    for (const mode of ["sprinkling", "waking", "sprouting", "replanting", "closed"] as const) {
+    for (const mode of ["sprinkling", "waking", "sprouting", "replanting"] as const) {
       expect(copyFor({ mode }, "lotus", "pond").title.length).toBeGreaterThan(0);
       expect(copyFor({ mode }, "lotus", "pond").body).not.toMatch(/\bbed\b|sprout\b/);
     }

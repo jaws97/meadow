@@ -492,9 +492,7 @@ export type Resting =
   /** the sprout is on its way to the garden (sent, not yet confirmed) */
   | { mode: "sprouting" }
   /** the sprout is going in this hour */
-  | { mode: "replanting" }
-  /** planting has closed for the season */
-  | { mode: "closed" };
+  | { mode: "replanting" };
 
 /** What a resting plant offers, or null while it is awake. */
 export function restingOf(me: Pick<MeView, "state" | "care" | "pending" | "now">, local: readonly LocalAction[]): Resting | null {
@@ -507,8 +505,8 @@ export function restingOf(me: Pick<MeView, "state" | "care" | "pending" | "now">
   if (sending("revive")) return { mode: "sprinkling" };
   if (sending("replant")) return { mode: "sprouting" };
   if (me.care.revive || !me.state.fairyUsed) return { mode: "revive" };
-  if (me.care.replant) return { mode: "replant" };
-  return { mode: "closed" };
+  // the dust is spent: a second-chance sprout can always go in, since planting never closes
+  return { mode: "replant" };
 }
 
 // ---- optimistic care -----------------------------------------------------------------------------------------------------

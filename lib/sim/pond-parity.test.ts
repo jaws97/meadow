@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CLIM_T } from "./climate";
-import { GAME_START, PLANT_CLOSE_H, PLANT_OPEN_H } from "./model";
+import { GAME_START, PLANT_OPEN_H } from "./model";
 import type { HourWeather, SimEvent } from "./model";
 import { createPlant, step, toVisual } from "./plant";
 import { JAR, POND, POND_NONE, POND_SPECIES, POND_TWIN, POND_VERSION, createPond, expectBloomPond, stepPond, toVisualPond, type PondState } from "./pond";
@@ -94,10 +94,12 @@ describe("golden-pond-v1 parity with the prototype", () => {
     const { truth, name, ...lotus } = POND_SPECIES.lotus; // the golden file leaves out the copy
     void truth; void name;
     const consts: Record<string, unknown> = {
-      POND, JAR, SPECIES: { lotus }, TWIN: POND_TWIN, POND_VERSION, PLANT_OPEN_H, PLANT_CLOSE_H, GAME_START, NONE: POND_NONE,
+      POND, JAR, SPECIES: { lotus }, TWIN: POND_TWIN, POND_VERSION, PLANT_OPEN_H, GAME_START, NONE: POND_NONE,
     };
-    expect(Object.keys(consts).sort()).toEqual(Object.keys(G.constants).sort());
-    for (const key of Object.keys(G.constants)) expect(same(consts[key], G.constants[key], true), `constants.${key}`).toBe(true);
+    // planting never closes now (parity.test.ts): the golden file's closing hour has no counterpart here
+    expect(G.constants.PLANT_CLOSE_H).toBe(744);
+    expect(Object.keys(consts).sort()).toEqual(Object.keys(G.constants).filter((k) => k !== "PLANT_CLOSE_H").sort());
+    for (const key of Object.keys(consts)) expect(same(consts[key], G.constants[key], true), `constants.${key}`).toBe(true);
     // the forecasts run on the app's own climate normal
     expect(same(CLIM_T, G.climT, true), "climT").toBe(true);
   });

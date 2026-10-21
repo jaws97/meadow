@@ -2,7 +2,7 @@
 // hour, the only weather input of the bloom forecast (expectBloom). Row h is the hour [h, h+1) from 10 Nov 00:00 IST, taken
 // from the Open-Meteo row stamped at the END of that hour, exactly as the model steps it; h = 0 .. 982 runs to 20 Dec
 // 23:00-24:00. Past the end, climAt() in model.ts repeats the mean daily cycle of the last 7 days, so a forecast for a
-// 10 Dec planting never runs off the table.
+// late planting (planting never closes) never runs off the table.
 //
 // Source: Open-Meteo Historical Weather API (/v1/archive, models=best_match: ECMWF IFS 9 km + ERA5 + ERA5-Land) for
 // Bangalore (12.9716 N, 77.5946 E, Asia/Kolkata), 3 Nov - 20 Dec of each year, temperature_2m at 0.1 degC. Weather data

@@ -1,10 +1,10 @@
-// The rules around the model: the planting window, when a seed from outside the party waits, when a retried planting
-// gets the original, idempotent retries and rate limits for care, shade and cover changes, the conditions for Fairy Dust
-// and replanting, how stored rows become the model's events, the IST clock helpers, and the Meadow's bands.
+// The rules around the model: when a seed from outside the party waits, when a retried planting gets the original,
+// idempotent retries and rate limits for care, shade and cover changes, the conditions for Fairy Dust and replanting
+// (at any hour: planting never closes), how stored rows become the model's events, the IST clock helpers, and the
+// Meadow's bands.
 import { describe, expect, it } from "vitest";
 import {
   BED,
-  PLANT_OPEN_H,
   POND,
   POND_NONE,
   createPlant,
@@ -27,7 +27,6 @@ import {
   istDayOfHour,
   lastPinchH,
   openPlantingWait,
-  plantingWindow,
   sprinkleMessage,
   stageOf,
   toRecordedEvent,
@@ -52,15 +51,6 @@ function ev(kind: RecordedEvent["kind"], h: number, extra: Partial<RecordedEvent
 function ctx(over: Partial<CareContext> = {}): CareContext {
   return { state: fresh(), pending: [], existing: null, nowH: 100, checkpointH: 100, ...over };
 }
-
-describe("planting window", () => {
-  // from lib/sim's canPlant, so a change of the window there needs no change here
-  it("is open from 20 Oct, through the party morning, to 10 Dec 23:59 IST, then closed", () => {
-    for (const h of [-494, -1, 0, PLANT_OPEN_H - 1, PLANT_OPEN_H, 743]) expect(plantingWindow(h), `h ${h}`).toBe("open");
-    expect(plantingWindow(744)).toBe("closed");
-    expect(plantingWindow(800)).toBe("closed");
-  });
-});
 
 describe("seeds from outside the party", () => {
   it("go in freely while the Meadow takes a steady stream of newcomers", () => {
@@ -218,12 +208,14 @@ describe("decideCare: Fairy Dust and replanting", () => {
     expect(decideCare({ kind: "revive", on: null }, ctx({ state: asleep(), pending: [pending] }))).toEqual({ action: "duplicate", event: pending });
   });
 
-  it("replants only after the dust is spent, while planting is open", () => {
+  it("replants only after the dust is spent, at any hour: planting never closes", () => {
     const spent = asleep({ fairyUsed: true });
     expect(decideCare({ kind: "replant", on: null }, ctx({ state: spent }))).toMatchObject({ action: "insert", h: 100 });
     expect(decideCare({ kind: "replant", on: null }, ctx())).toMatchObject({ action: "reject", code: "not_needed" });
     expect(decideCare({ kind: "replant", on: null }, ctx({ state: asleep() }))).toMatchObject({ action: "reject", code: "revive_first" });
-    expect(decideCare({ kind: "replant", on: null }, ctx({ state: spent, nowH: 800, checkpointH: 800 }))).toMatchObject({ code: "planting_closed" });
+    // long after 10 Dec, where the prototype's window closed
+    expect(decideCare({ kind: "replant", on: null }, ctx({ state: spent, nowH: 800, checkpointH: 800 }))).toMatchObject({ action: "insert", h: 800 });
+    expect(careStatus(spent, [], 2400).replant).toBe(true);
     // before the party too: planting opened on 20 Oct, and a plant planted then can need its second chance before 10 Nov
     expect(decideCare({ kind: "replant", on: null }, ctx({ state: spent, nowH: 5, checkpointH: 5 }))).toMatchObject({ action: "insert", h: 5 });
     expect(decideCare({ kind: "replant", on: null }, ctx({ state: spent, nowH: -300, checkpointH: -300 }))).toMatchObject({ action: "insert", h: -300 });

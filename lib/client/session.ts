@@ -38,6 +38,8 @@ export interface SessionStatus {
   person: PersonSummary | null;
   /** the garden "switch back" would return to, when this device switched gardens */
   previous: PersonSummary | null;
+  /** whether anyone may plant without the party link (false only under MEADOW_PLANTING=party); absent from older servers */
+  plantingOpen?: boolean;
 }
 
 export type LinkOpen =

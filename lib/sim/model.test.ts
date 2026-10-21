@@ -5,9 +5,12 @@
 // than the cans supplied, and the bloom forecast never runs off the climate table.
 import { describe, expect, it } from "vitest";
 import { CLIM_T } from "./climate";
-import { BED, Bideal, PLANT_CLOSE_H, SIM_SPECIES, WX_FALLBACK, cleanWx, createPlant, expectBloom, fOf, hodOf, openWindow, step, thetaOf, toVisual } from "./model";
+import { BED, Bideal, SIM_SPECIES, WX_FALLBACK, cleanWx, createPlant, expectBloom, fOf, hodOf, openWindow, step, thetaOf, toVisual } from "./model";
 import type { HourWeather, LooseWeather, PlantState, SimEvent } from "./model";
 import { IDS, PARTY, W, YEARS, at, goodCare, inOwnPart, mulberry32, randomPolicy, rowsFor, simulate } from "./__fixtures__/harness";
+
+/** 10 Dec 23:00 IST, the last hour of the prototype's planting window: planting has never closed since 21 Oct. */
+const LAST_OLD_WINDOW_H = 743;
 
 const WX: HourWeather = { T: 25, RH: 60, P: 0, SW: 500, ET0: 0.3, U: 5, Ts: 25, isDay: 1 };
 const NIGHT: HourWeather = { ...WX, SW: 0, ET0: 0, isDay: 0 };
@@ -125,24 +128,25 @@ describe("untrusted events", () => {
     expect(st(Array.from({ length: 30 }, () => ({ kind: "feed" }))).Sf).toBeCloseTo(BED.feedSalt * (1 - 0.1 / 24), 12);
   });
 
-  it("replants only inside the planting window, as a watered sprout of the next generation whose flower is capped", () => {
+  it("replants at any hour, as a watered sprout of the next generation whose flower is capped", () => {
     const gone = { ...a, alive: false, fairyUsed: true };
-    const re = st([{ kind: "replant" }], gone, PLANT_CLOSE_H - 1);
-    expect(re).toMatchObject({ gen: 2, alive: true, plantedH: PLANT_CLOSE_H - 1, lastCanH: PLANT_CLOSE_H - 1, fairyUsed: true, cap: BED.replantCap });
+    const re = st([{ kind: "replant" }], gone, LAST_OLD_WINDOW_H);
+    expect(re).toMatchObject({ gen: 2, alive: true, plantedH: LAST_OLD_WINDOW_H, lastCanH: LAST_OLD_WINDOW_H, fairyUsed: true, cap: BED.replantCap });
     expect(re.D).toBeGreaterThanOrEqual(BED.sproutD);
     expect(re.D).toBeLessThan(BED.sproutD + 0.01);
     expect(re.B).toBeGreaterThanOrEqual(Bideal(SIM_SPECIES.rose, BED.sproutD));
     expect(toVisual(re).says).toBe("a second-chance sprout; my flower will be smaller");
-    expect(st([{ kind: "replant" }], gone, PLANT_CLOSE_H).gen).toBe(1);
+    // past the prototype's window (it closed after 10 Dec): planting never closes now
+    for (const h of [LAST_OLD_WINDOW_H + 1, 24 * 120]) expect(st([{ kind: "replant" }], gone, h).gen, `h ${h}`).toBe(2);
   });
 });
 
 describe("the bloom forecast", () => {
-  it("covers a planting on the last day, past the end of the climate table", () => {
-    for (const id of IDS) {
-      const s = createPlant(id, PLANT_CLOSE_H - 1, "me"), e = expectBloom(s, SIM_SPECIES[id], { h: s.h, climT: CLIM_T });
-      expect(e?.days, id).toBeGreaterThan(12);
-      expect(e?.days, id).toBeLessThan(20);
+  it("covers late plantings, past the end of the climate table (10 Dec, and a month later)", () => {
+    for (const id of IDS) for (const h of [LAST_OLD_WINDOW_H, LAST_OLD_WINDOW_H + 24 * 31]) {
+      const s = createPlant(id, h, "me"), e = expectBloom(s, SIM_SPECIES[id], { h: s.h, climT: CLIM_T });
+      expect(e?.days, `${id} h ${h}`).toBeGreaterThan(12);
+      expect(e?.days, `${id} h ${h}`).toBeLessThan(20);
     }
   });
 
@@ -214,7 +218,7 @@ describe("opening in the flower's own part of the day", () => {
   });
 
   it("the bloom forecast also lands in the flower's own part of the day", () => {
-    for (const id of IDS) for (const p of [PARTY, PARTY + 7, PARTY + 24 * 9 + 4, PLANT_CLOSE_H - 1]) {
+    for (const id of IDS) for (const p of [PARTY, PARTY + 7, PARTY + 24 * 9 + 4, LAST_OLD_WINDOW_H]) {
       const e = expectBloom(createPlant(id, p, "me"), SIM_SPECIES[id], { h: p, climT: CLIM_T });
       expect(e !== null && inOwnPart(id, hodOf(e.bloomH)), `${id} planted h ${p}`).toBe(true);
     }

@@ -9,7 +9,7 @@
 // card says "Sprinkling the Fairy Dust"; it promises a wake "within the hour" only once the server has said yes; and if
 // the dust did not reach the garden, the button comes back with the reason beside it (offline, or the server's own
 // words). When the button goes, focus moves to the card's title rather than dropping to the page, and comes back to the
-// button if it returns. After planting closes (10 Dec), the card says a sprout cannot go in.
+// button if it returns. Planting never closes, so once the dust is spent a second-chance sprout can always go in.
 import { useEffect, useRef } from "react";
 import { SparkleIcon, SproutIcon } from "@/components/care/icons";
 import type { Failure, Resting } from "@/lib/client/plant";
@@ -42,12 +42,6 @@ export function copyFor(r: Resting, noun: string, vessel: Vessel = "bed"): Copy 
       return { title: "Planting the second-chance sprout.", body: "A moment while it reaches the garden.", action: null };
     case "replanting":
       return { title: "A second-chance sprout is going in.", body: "It will be settled within the hour.", action: null };
-    case "closed":
-      return {
-        title: `Your ${noun} is resting.`,
-        body: "Planting has closed for the season, so a new sprout cannot go in. Your friends' flowers are still there to visit in the Meadow.",
-        action: null,
-      };
   }
 }
 
@@ -77,12 +71,6 @@ function lotusCopy(r: Resting, noun: string, vessel: "pond" | "jar"): Copy {
       return { title: "Planting the second-chance seedling.", body: "A moment while it reaches the pond.", action: null };
     case "replanting":
       return { title: "A second-chance seedling is going in.", body: "It will be settled in its pot within the hour.", action: null };
-    case "closed":
-      return {
-        title: `Your ${noun} is resting.`,
-        body: "Planting has closed for the season, so a new seedling cannot go in. Your friends' flowers are still there to visit in the Meadow.",
-        action: null,
-      };
   }
 }
 
@@ -102,7 +90,7 @@ export function RestingCard({
   onAction: (kind: "revive" | "replant") => void;
 }) {
   const { title, body, action } = copyFor(resting, noun, vessel);
-  const settling = resting.mode !== "revive" && resting.mode !== "replant" && resting.mode !== "closed";
+  const settling = resting.mode !== "revive" && resting.mode !== "replant";
   const titleRef = useRef<HTMLParagraphElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   /** the person pressed the button: keep their focus in the card as it changes */

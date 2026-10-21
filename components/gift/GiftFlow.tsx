@@ -11,19 +11,16 @@
 // holds one. A reload in the middle keeps the name and seed (pendingSeed), so a retry reuses the same request id and
 // never plants twice.
 //
-// Planting is open from 20 Oct, before the party, to 10 Dec, to everyone since 21 Oct, party link or not (the link's
-// code only spares the party's seeds the limits on strangers' plantings), and every planting on the live site is a
-// real garden. The welcome step reminds anyone who has planted already that their personal garden link opens their
-// garden on this device, so nobody plants twice. On the live site it follows the season by the same hours the server
-// does (copy.ts seasonAt), so after 10 Dec it says planting has closed; on a development server, ?season=closed shows
-// that.
+// Planting opened on 20 Oct, before the party, and never closes; since 21 Oct it is open to everyone, party link or not
+// (the link's code only spares the party's seeds the limits on strangers' plantings), and every planting on the live
+// site is a real garden. The welcome step reminds anyone who has planted already that their personal garden link opens
+// their garden on this device, so nobody plants twice.
 //
 // Names are unique in the Meadow (ignoring case), so a friend finds the right flower: the name step says so, asks the
 // server whether the name is free before the seeds appear (this tab's own planting whose answer was lost does not
 // count, so planting again returns that garden), and a name taken in the meantime brings the person back to the name
 // step with the server's words. An answer that arrives after the name was changed, or the step left, is dropped.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { nextSeasonChangeMs as nextChangeMs, seasonAt, type Season } from "@/components/gift/copy";
 import { GiftSheet } from "@/components/gift/GiftSheet";
 import { ArrowLeft, Sparkle } from "@/components/gift/icons";
 import { LinkPanel } from "@/components/gift/LinkPanel";
@@ -60,24 +57,6 @@ const REDUCED_MOMENT_MS = 1100;
 const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/**
- * Whether the welcome step follows the planting season: on the live site (Vercel's production, or a production build
- * elsewhere). Previews and development servers plant practice seeds at any time.
- */
-const SEASON_GATED = process.env.NEXT_PUBLIC_VERCEL_ENV ? process.env.NEXT_PUBLIC_VERCEL_ENV === "production" : process.env.NODE_ENV === "production";
-
-/** On a development server, ?season=closed shows what the live site shows after 10 Dec. */
-const PREVIEW_SEASON: Season | null = (() => {
-  if (process.env.NODE_ENV === "production" || typeof window === "undefined") return null;
-  const asked = new URLSearchParams(window.location.search).get("season");
-  return asked === "open" || asked === "closed" ? asked : null;
-})();
-
-const seasonNow = (): Season => PREVIEW_SEASON ?? (SEASON_GATED ? seasonAt() : "open");
-
-/** When the season shown can next change by itself, or null (a development server's ?season=, or no gate at all). */
-const nextSeasonChangeMs = (): number | null => (PREVIEW_SEASON || !SEASON_GATED ? null : nextChangeMs());
-
 /** "Plant the Night Jasmine", "Plant the Island Bloom". */
 const plantLabel = (name: string) => `Plant the ${name}`;
 
@@ -85,24 +64,6 @@ const plantLabel = (name: string) => `Plant the ${name}`;
 function signLength(text: string): "mid" | "long" | undefined {
   const n = Array.from(text).length;
   return n > 18 ? "long" : n > 12 ? "mid" : undefined;
-}
-
-/** The season as it stands, moving on by itself when planting closes (or when a sleeping phone wakes past it). */
-function useSeason(): Season {
-  const [season, setSeason] = useState(seasonNow);
-  useEffect(() => {
-    const next = nextSeasonChangeMs();
-    if (next === null) return;
-    const look = () => setSeason(seasonNow());
-    // setTimeout holds at most about 24.8 days; a page left open longer simply looks again then
-    const t = setTimeout(look, Math.min(2_147_000_000, Math.max(1000, next - Date.now() + 500)));
-    document.addEventListener("visibilitychange", look);
-    return () => {
-      clearTimeout(t);
-      document.removeEventListener("visibilitychange", look);
-    };
-  }, [season]);
-  return season;
 }
 
 export function GiftFlow({
@@ -128,7 +89,6 @@ export function GiftFlow({
   const [seedHint, setSeedHint] = useState(false);
   const [planting, setPlanting] = useState<Planting>({ phase: "waiting", wait: null });
   const [checkingName, setCheckingName] = useState(false);
-  const season = useSeason();
   const heading = useRef<HTMLHeadingElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
@@ -251,19 +211,7 @@ export function GiftFlow({
     </button>
   );
 
-  if (step === "welcome" && season === "closed") {
-    body = (
-      <div className="gift-step" key="closed">
-        <p className="gift-eyebrow">
-          <Sparkle size={16} />A gift
-        </p>
-        <h2 ref={heading} tabIndex={-1} className="gift-title">
-          The planting season is over
-        </h2>
-        <p className="gift-text">Planting closed on 10 December. The Enchanted Rose is here for you to enjoy.</p>
-      </div>
-    );
-  } else if (step === "welcome") {
+  if (step === "welcome") {
     body = (
       <div className="gift-step" key="welcome">
         <p className="gift-eyebrow">

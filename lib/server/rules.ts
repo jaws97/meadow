@@ -1,5 +1,5 @@
-// The game rules the API enforces around the model, kept pure so they are tested without a database: the planting
-// window, when a retried planting may be answered with the original, what a care action may do right now (rate limits,
+// The game rules the API enforces around the model, kept pure so they are tested without a database: when a seed from
+// outside the party waits, when a retried planting may be answered with the original, what a care action may do right now (rate limits,
 // idempotent retries, shade and cover changes, revive and replant conditions), how stored event rows become the model's
 // TimedEvents, IST clock helpers, and the coarse bands the Meadow shows.
 //
@@ -18,7 +18,6 @@ import {
   POND,
   POND_NONE,
   bloomedAt,
-  canPlant,
   dateOfHour,
   isPondState,
   type PlantState,
@@ -58,17 +57,11 @@ export function formatIstHour(h: number, nowH: number): string {
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}, ${hod}`;
 }
 
-// ---- planting window ------------------------------------------------------------------------------------------------
+// ---- planting -------------------------------------------------------------------------------------------------------
 
-/**
- * open: planting is open, from 20 Oct (before the party) to 10 Dec 23:59 IST (lib/sim canPlant). closed: after 10 Dec.
- * Whether a planting is a practice one is the deployment's call (env.ts), not the hour's.
- */
-export type PlantingWindow = "open" | "closed";
-
-export function plantingWindow(h: number): PlantingWindow {
-  return canPlant(h) ? "open" : "closed";
-}
+// Planting is open at every hour: it opened on 20 Oct, before the party, and has no closing hour since 21 Oct (the
+// prototype's closed after 10 Dec), so a fresh seed or a replanted sprout can go in whenever someone comes. Whether a
+// planting is a practice one is the deployment's call (env.ts), not the hour's.
 
 /**
  * Real seeds planted across the Meadow over the past hour, and the past day, beyond which a seed planted without the
@@ -279,7 +272,7 @@ export function careStatus(state: PlantState, pending: readonly RecordedEvent[],
       ? { ready: nowH >= nextFeed, nextH: nowH >= nextFeed ? null : nextFeed }
       : { ready: false, nextH: null },
     revive: !state.alive && !state.fairyUsed && !waking,
-    replant: !state.alive && state.fairyUsed && canPlant(nowH) && !waking,
+    replant: !state.alive && state.fairyUsed && !waking,
     shade: toggleOn(state, pending, "shade"),
     shadeSinceH: shadeSince(state, pending),
     cover: toggleOn(state, pending, "cover"),
@@ -395,9 +388,6 @@ export function decideCare(input: { kind: CareKind; on: boolean | null }, ctx: C
       }
       if (!state.fairyUsed) {
         return { action: "reject", status: 409, code: "revive_first", message: "Try the Fairy Dust first; it can wake a sleeping plant once." };
-      }
-      if (!canPlant(h)) {
-        return { action: "reject", status: 409, code: "planting_closed", message: "Planting closed on 10 Dec, so a fresh seed cannot go in now. Your friends' flowers are still there to visit." };
       }
       return { action: "insert", h, amount: null };
     }

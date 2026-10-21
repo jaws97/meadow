@@ -20,8 +20,8 @@ The live site is https://growmyflower.vercel.app. Its settings are in Vercel, in
 Suggested days: steps 1 and 2 on Monday 2 November, steps 3 and 4 on Tuesday 3 or Wednesday 4, step 5 on Thursday 5,
 and Monday 9 November as a quiet spare day.
 
-Planting is already open on the live site to everyone, with or without the party link, from 20 October until 10
-December. Every planting is a real garden: it keeps growing through the party, may bloom before it, and stays. So the
+Planting is already open on the live site to everyone, with or without the party link; it opened on 20 October and
+never closes. Every planting is a real garden: it keeps growing through the party, may bloom before it, and stays. So the
 colleagues who test it now keep their gardens, and the Meadow will already hold a few flowers when the party starts.
 Names are unique in the Meadow, so each person plants once, under their own name, and a name with an offensive word in
 it is turned away. A seed planted without the party link waits after 60 new seeds in an hour or 300 in a day, so
@@ -276,7 +276,7 @@ Write the final address, with any `&quality=` ending, in your private note.
 
 **After the party**
 
-- Colleagues who missed it can plant until 10 December with the same link,
+- Colleagues who missed it can plant whenever they like, with the same link,
   `https://growmyflower.vercel.app/garden?code=<party code>`, or without it, at `https://growmyflower.vercel.app/garden`.
   Share the link in the team chat once the party has started, and keep `MEADOW_PARTY_CODE` set until then.
 - If strangers' names ever need keeping off the big screen, hide a name as below; to stop strangers planting at all,

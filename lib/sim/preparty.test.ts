@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { SoilSpeciesId } from "@/lib/plant/species";
 import { CLIM_T } from "./climate";
 import { MEAN, NH, OWNER, goodCare, simulate, type Run } from "./__fixtures__/harness";
-import { PLANT_CLOSE_H, canPlant, createPlant as createSoil, expectBloom, step as stepSoil, type HourWeather } from "./model";
+import { createPlant as createSoil, expectBloom, step as stepSoil, type HourWeather } from "./model";
 import { bloomedAt, createPlant, diedAt, ripeAt, step } from "./plant";
 import { POND_NONE } from "./pond";
 
@@ -86,8 +86,6 @@ describe("a plant planted before the party", () => {
   });
 
   it("can be woken with Fairy Dust and replanted before the party, in a bed or a pond", () => {
-    expect(canPlant(EARLY)).toBe(true);
-    expect(canPlant(PLANT_CLOSE_H)).toBe(false);
     const wx = MEAN[10];
     // a soil plant asleep for the second time, a week before the party
     let s = { ...createSoil("marigold", EARLY, OWNER), alive: false, fairyUsed: true, diedH: -200 };

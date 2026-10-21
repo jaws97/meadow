@@ -41,7 +41,6 @@ export const POND_VERSION = 1;
 /** "Not yet": an hour mark that has never been set. */
 export const POND_NONE = -1e6;
 const NONE = POND_NONE;
-const PLANT_CLOSE_H = 744;
 
 export const POND = Object.freeze({
   // pond (m, L)
@@ -423,11 +422,6 @@ function shownLA(s: PondState, sp: PondSpecies): number {
 }
 function mudN(s: PondState): number { return s.Ns / GEO.mass; }
 function nRich(s: PondState): boolean { return s.NNI >= 0.9 && mudN(s) >= POND.Nrich; }
-/**
- * Planting (and replanting) is open until 10 Dec 23:59 IST: it opened on 20 Oct, before the party (the prototype opened it
- * at the party, 10 Nov 15:00), as model.ts canPlant. No lower bound is needed: stepPond ignores hours before the planting.
- */
-function canPlant(h: number): boolean { return h < PLANT_CLOSE_H; }
 /** The petals open (and a paused opening resumes) only from openHod to closeHod. */
 export function pondOpenWindow(sp: PondSpecies, hod: number): boolean { return hod >= sp.openHod && hod < sp.closeHod; }
 const openWindow = pondOpenWindow;
@@ -527,7 +521,7 @@ export function stepPond(state: PondState, hour: HourInput, events?: readonly Si
       s.kH = 0;
       s.alive = true; s.fairyUsed = true; s.Dw = s.Ds = s.Dg = s.R = 0; s.Pa = s.Dpest = 0; s.Sc *= 0.5; s.turgor = 0.5; s.aba = 0;
       s.B = Math.max(s.B, 0.6 * Bideal(sp, s.D));
-    } else if (k === "replant" && !s.alive && s.fairyUsed && canPlant(h)) {
+    } else if (k === "replant" && !s.alive && s.fairyUsed) {             // at any hour: planting never closes
       const keep = { fairyUsed: true, gen: s.gen + 1, owner: s.owner, Vp: s.Vp, Vq: s.Vq, Wm: s.Wm, Tw: s.Tw, Tm: s.Tm, Tw3: s.Tw3, Tn5: s.Tn5, TnRun: s.TnRun, Ta: s.Ta, cl: s.cl, Ts24: s.Ts24,
         Al: s.Al, Nw: s.Nw, Nm: s.Nm, Ns: s.Ns, kH: s.kH, lastKoiH: s.lastKoiH, koiDay: s.koiDay,
         cP: s.cP, cI: s.cI, cE: s.cE, cT: s.cT, cO: s.cO, cMag: s.cMag, cSet: s.cSet, cJ: s.cJ, lastFeedH: s.lastFeedH, lastCanH: s.lastCanH };
