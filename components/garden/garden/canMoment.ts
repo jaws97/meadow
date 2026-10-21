@@ -16,8 +16,8 @@
 //
 // A press the server refuses (or a phone that gives up offline) never pours if the answer comes before the water does
 // (on the way out the can goes back the way it came; mid-tip it rights itself), stops the water gently if it comes
-// mid-pour, and always eases home: the can never snaps. With reduced motion, on a page that saw the press late, or with
-// the rain cover over the saucer, the can stays where it is and only the soil answers. The can tips about its rose, as
+// mid-pour, and always eases home: the can never snaps. With reduced motion, on a page that was hidden before it saw the
+// press, or with the rain cover over the saucer, the can stays where it is and only the soil answers. The can tips about its rose, as
 // a gardener's hand raises the handle, so the spout stays at its pouring point and never reaches into the plant.
 //
 // Positions are metres in garden space (the hero's stem at the origin, +z toward the camera); a bearing is the angle
@@ -332,7 +332,10 @@ export function varyOf(at: number): Vary {
 export interface CanPlan {
   station: Station;
   vary: Vary;
-  /** the can stays where it is and only the soil answers (reduced motion, a late page, the rain cover over the saucer) */
+  /**
+   * the can stays where it is and only the soil answers (reduced motion, a page hidden before it saw the press, the rain
+   * cover over the saucer)
+   */
   still: boolean;
   /** when the server refused the press (s), or -1: the water that landed fades and the can goes home */
   refusedAt: number;

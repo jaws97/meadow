@@ -7,6 +7,7 @@
 // part of a production build, where the panel still opens with ?dev.
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { canReportText } from "@/components/garden/garden/canReport";
 import { garden, useGarden, type CanSoil, type GardenState, type Quality } from "@/lib/garden/store";
 import { SPECIES_LIST } from "@/lib/plant/species";
 import { STAGES, stageOf } from "@/lib/plant/growth";
@@ -364,6 +365,19 @@ function Readout() {
   );
 }
 
+/**
+ * The latest watering-can press as the garden played it (canReport), read twice a second; in the header, so it shows
+ * with the panel tucked away: on a phone with ?dev, press Water on the care card and read whether the can flew.
+ */
+function CanReadout() {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    const id = window.setInterval(() => setText(canReportText()), 500);
+    return () => window.clearInterval(id);
+  }, []);
+  return text ? <p className="text-[10px] leading-snug text-white/55 select-none">{text}</p> : null;
+}
+
 export function DevPanel() {
   const collapsed = useSyncExternalStore(subscribeCollapsed, readCollapsed, serverCollapsed);
   const toggle = useCallback(() => writeCollapsed(!readCollapsed()), []);
@@ -414,6 +428,7 @@ export function DevPanel() {
           </button>
         </div>
         <Readout />
+        <CanReadout />
       </header>
 
       {!collapsed && (

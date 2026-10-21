@@ -3,11 +3,15 @@
 // frame from the garden's own frame callback (Garden.tsx), before the weather and the materials read it. The first
 // frame it sees this page's own can in the store (canMoment, set by lib/client/plant sendCare) it latches it: where
 // to pour, chosen once on the viewer's side; how the press varies; whether the can flies at all. From then on all of it
-// is a function of the time since the press, so a tier swap, a remount or a tab brought back lands on the right beat.
+// is a function of the time since that frame, so a tier swap, a remount or a tab brought back lands on the right beat.
+// The moment starts when the garden first sees the press, not at the tap: a long frame just after it (a phone still
+// compiling the plant it swapped in after planting, or busy with the care card's own answer) only holds the can back
+// that long, and it still plays from its first beat.
 //
-// The can stays where it stands and only the soil answers when the press was first seen more than a second late (a
-// hidden tab), under the loading veil, with reduced motion, when the closed rain cover stands over where it would pour,
-// or with CAN_FLIES off (?can=still in the address): the soil-only version, should the moving can ever misbehave.
+// The can stays where it stands and only the soil answers when the page was hidden after the press (a phone locked or a
+// tab put away before the garden saw it), under the loading veil, with reduced motion, when the closed rain cover stands
+// over where it would pour, or with CAN_FLIES off (?can=still in the address): the soil-only version, should the moving
+// can ever misbehave. Which of these kept the can home is left in canReport for the development panel.
 // A refusal from the server (the store's refusedAt) sends a can home without a snap; a cover going up or coming down
 // mid-moment sends it home too, the water still reaching the plant. A press made while the can is still out waits until
 // it is home, then plays from then. While the can moves, and until the wet it left has blended back into the bed, the
@@ -22,6 +26,7 @@ import { env } from "@/lib/garden/env";
 import { momentHold, quality, underVeil } from "@/lib/garden/quality";
 import { garden, type CanSoil } from "@/lib/garden/store";
 import { isLotus } from "@/lib/plant/species";
+import { canReport } from "@/components/garden/garden/canReport";
 import {
   CAN,
   CAN_DRIP,
@@ -50,8 +55,6 @@ import {
 
 /** The moving can, on or off for everyone (off: the soil answers alone, the can stays where it stands). */
 const CAN_FLIES = true;
-/** A press first seen later than this (s) plays the soil's answer only. */
-const LATE_S = 1;
 /** How many of the last drops the shower can draw at once. */
 export const DRIP_SLOTS = 4;
 /** The drops swell on the rose's rim this long (s) before they fall. */
@@ -70,7 +73,7 @@ const beat = (b: CanBeat) => beatListeners.forEach((l) => l(b));
 
 /** Everything the drawing reads, written in place each frame. */
 export const canLive = {
-  /** seconds since the latched press, -1 when there is none */
+  /** seconds into the latched press's moment (from the frame it was first seen in), -1 when there is none */
   t: -1,
   /** the can's pose (at rest outside a moment) */
   pose: newPose(),
@@ -112,7 +115,7 @@ export const canLive = {
 
 interface Latch {
   at: number;
-  /** when its moment's clock started (epoch ms): the press, or for a press that waited for the can, its latching */
+  /** when its moment's clock started (epoch ms): the frame this page first saw the press in */
   origin: number;
   plan: CanPlan;
   soil: CanSoil;
@@ -129,9 +132,14 @@ interface Latch {
 
 let latch: Latch | null = null;
 let lastSeen = 0;
-/** A press made while the can was still out (it waits until the can is home), and when this page first saw it (ms). */
-let waitingAt = 0;
-let waitingSeen = 0;
+/** When this page was last hidden (epoch ms): a press made before then and seen only after it keeps the can home. */
+let hiddenAt = 0;
+if (typeof document !== "undefined") {
+  if (document.hidden) hiddenAt = Date.now();
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) hiddenAt = Date.now();
+  });
+}
 let idle = true;
 let stillParam: boolean | null = null;
 /** Development only: the moment held at this many seconds from its press (for sign-off stills), or null to let it run. */
@@ -221,20 +229,33 @@ function wetEnd(plan: CanPlan): number {
   return plan.refusedAt >= 0 ? Math.min(land + 47, plan.refusedAt + 3) : land + 47;
 }
 
+/** Why a press's can stays where it stands and only the soil answers, or "" when it flies. */
+function stayReason(hidden: boolean, coverBlocks: boolean): string {
+  if (!CAN_FLIES) return "the moving can is switched off";
+  if (canStillByUrl()) return "?can=still in the address";
+  if (hidden) return "the page was hidden after the press";
+  if (underVeil(quality.get())) return "the loading veil was up";
+  if (reducedMotion()) return "reduced motion is on";
+  if (coverBlocks) return "the rain cover is over the saucer";
+  return "";
+}
+
 /**
- * Latches press `m`: `seenLate` is how late after the press this page first saw it (s), `origin` when its moment's
- * clock starts (epoch ms).
+ * Latches press `m` in the frame at `origin` (epoch ms), where its moment's clock starts; `hidden` says the page was
+ * hidden after the press was made.
  */
-function begin(m: { at: number; refusedAt: number; soil: CanSoil }, camera: THREE.Camera, drawn: number, seenLate: number, origin: number): Latch {
+function begin(m: { at: number; refusedAt: number; soil: CanSoil }, camera: THREE.Camera, drawn: number, hidden: boolean, origin: number): Latch {
   const s = garden.get();
-  const t0 = seenLate;
   const vary = varyOf(m.at);
   const view = Math.atan2(camera.position.z, camera.position.x);
   const station = stationFor(s.growth, view, vary.sweep);
   // (the plant's crown: a lily's tip stands above its lead flower)
   const head = Math.max(0, env.crownPos.y - HERO_GROUND_Y);
   const coverBlocks = s.cover > 0.5 && coverInTheWay(station, head);
-  const still = !CAN_FLIES || canStillByUrl() || t0 > LATE_S || underVeil(quality.get()) || reducedMotion() || coverBlocks;
+  const stayed = stayReason(hidden, coverBlocks);
+  const still = stayed !== "";
+  canReport.seenAfter = (origin - m.at) / 1000;
+  canReport.stayed = stayed;
   const plan: CanPlan = { station, vary, still, refusedAt: m.refusedAt > 0 ? Math.max(0, (m.refusedAt - origin) / 1000) : -1, stoppedAt: -1 };
   canLive.before = drawn;
   for (const d of canLive.drips) d.w = -1;
@@ -270,18 +291,12 @@ export function stepCan(nowMs: number, camera: THREE.Camera, drawn: number) {
   const s = garden.get();
   const m = isLotus(s.speciesId) ? null : s.canMoment;
   if (latch && !m) drop();
-  if (latch && m && m.at !== latch.at && latch.plan.still === false && canLive.t < canStillAt(latch.plan)) {
-    // a newer press while the can is still out (a retry after a refusal): it waits until the can is home
-    if (waitingAt !== m.at) {
-      waitingAt = m.at;
-      waitingSeen = nowMs;
-    }
-  } else if (latch && m && m.at !== latch.at) drop();
+  // a newer press while the can is still out (a retry after a refusal) waits until the can is home
+  else if (latch && m && m.at !== latch.at && (latch.plan.still || canLive.t >= canStillAt(latch.plan))) drop();
   if (!latch && m && m.at !== lastSeen) {
     lastSeen = m.at;
-    // a press that waited plays from when it latches, judged late only by when this page first saw it
-    const waited = waitingAt === m.at;
-    latch = waited ? begin(m, camera, drawn, (waitingSeen - m.at) / 1000, nowMs) : begin(m, camera, drawn, (nowMs - m.at) / 1000, m.at);
+    // it plays from this frame, however long after the tap it comes, unless the page was hidden in between
+    latch = begin(m, camera, drawn, hiddenAt >= m.at, nowMs);
   }
   const L = latch;
   if (!L) return toIdle();
