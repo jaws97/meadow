@@ -1,8 +1,28 @@
 import type { NextConfig } from "next";
+import { OLD_HOST, PUBLIC_ORIGIN } from "./lib/origin";
+
+/**
+ * The pages the old address forwards to the new one. Its API, its scripts and its pictures stay served where they are,
+ * so a page still open there keeps working, and old link previews keep their picture.
+ */
+const FORWARDED_PAGES = ["/", "/garden", "/meadow", "/meadow/garden", "/party"];
+/** lib/server/session-rules SESSION_COOKIE: a device holding a garden on the old address (lib/origin.test.ts). */
+const SESSION_COOKIE_NAME = "meadow_session";
 
 const nextConfig: NextConfig = {
   async redirects() {
     return [
+      // The garden's old address (until 21 Oct, lib/origin) forwards its pages to the new one, with the path and the
+      // query (and a personal link's #k= key, which the browser carries across), for search engines and anyone arriving
+      // fresh. A device that already holds a garden there stays, so its garden is never lost; its cards and the links it
+      // shares point at the new address all the same.
+      ...FORWARDED_PAGES.map((source) => ({
+        source,
+        has: [{ type: "host" as const, value: OLD_HOST }],
+        missing: [{ type: "cookie" as const, key: SESSION_COOKIE_NAME }],
+        destination: `${PUBLIC_ORIGIN}${source}`,
+        permanent: true,
+      })),
       { source: "/", destination: "/garden", permanent: false },
       // The Lantern Cart's old test bed grew into the real Meadow. The query (e.g. ?mover=) carries over on its own.
       { source: "/meadow-spike", destination: "/meadow", permanent: true },

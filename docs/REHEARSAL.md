@@ -4,7 +4,7 @@ A calm checklist for the week before the party on Tuesday 10 November 2026, whic
 it in order. Each step says what you should see; if something looks different, stop there and ask for help. Nothing
 later depends on rushing.
 
-The live site is https://meadow-phi.vercel.app. Its settings are in Vercel, in the **meadow** project.
+The live site is https://growmyflower.vercel.app. Its settings are in Vercel, in the **meadow** project.
 
 ## Before you start
 
@@ -43,7 +43,7 @@ but keep it to yourself until then.
    is the code, and its environment is **Production** only. Save.
 4. Redeploy so the site picks it up: under **Deployments**, open the newest Production deployment's menu (the three
    dots), choose **Redeploy**, and wait for **Ready**. Every change to a variable needs a redeploy like this.
-5. Check it: open `https://meadow-phi.vercel.app/party?code=<party code>`. The panel says "A gift for you" and shows
+5. Check it: open `https://growmyflower.vercel.app/party?code=<party code>`. The panel says "A gift for you" and shows
    a QR code, with the link written underneath it. Scan it with your phone. The phone offers **Receive your seed**.
    Stop there unless you want a garden of your own: anything planted is a real garden that stays.
 
@@ -91,7 +91,7 @@ The scripts keep using the main account from `.env.local`.
    - Either way, if `POSTGRES_URL_NON_POOLING` is still listed for Production or Preview, remove it from those two.
      The scripts read it from `.env.local`, not from Vercel.
 6. Redeploy Production, as in step 1.4, and wait for **Ready**.
-7. Check the site: `https://meadow-phi.vercel.app/meadow` opens and the Meadow appears. If it keeps asking you to try
+7. Check the site: `https://growmyflower.vercel.app/meadow` opens and the Meadow appears. If it keeps asking you to try
    again, check that the value you pasted is the whole line with no space at either end, then redeploy. The
    smoke test in step 3 is the full test.
 8. Check the database is still private:
@@ -116,7 +116,7 @@ same Production deployment that will serve the party.
    The two test gardens show in the live Meadow and on the party screen's feed for the few minutes it runs, then it
    deletes everything it made. Type these four lines:
    ```
-   $env:SMOKE_BASE_URL = "https://meadow-phi.vercel.app"
+   $env:SMOKE_BASE_URL = "https://growmyflower.vercel.app"
    $env:SMOKE_EXPECT = "production"
    $env:SMOKE_PARTY_CODE = "<party code>"
    node --env-file=.env.local scripts/smoke-api.mjs
@@ -141,17 +141,17 @@ Ask a few colleagues to try it on their own phones. Aim for a mix: an iPhone and
 and one on mobile data, and a laptop or iPad for the personal link. Their gardens are real and keep growing, so ask the
 people who would plant anyway.
 
-1. Open the party screen on a laptop, `https://meadow-phi.vercel.app/party?code=<party code>`, so everyone can watch
+1. Open the party screen on a laptop, `https://growmyflower.vercel.app/party?code=<party code>`, so everyone can watch
    the feed.
 2. Send each colleague this link privately, not in the team chat:
-   `https://meadow-phi.vercel.app/garden?code=<party code>`
+   `https://growmyflower.vercel.app/garden?code=<party code>`
    (Scanning the QR code on the party screen works just as well.)
 3. Each colleague, in turn, receives the seed, types their first name, chooses a flower and plants it. They should see
    the planting moment and then the link sheet. Their name appears in the party screen's feed. Try a name someone
    already used, in other capitals too: the name step should ask for an initial or a nickname, like "Asha K", before
    the seeds appear.
 4. In their garden, each one waters once and looks at the care panel and the weather line. Then they open the Meadow
-   (`https://meadow-phi.vercel.app/meadow`), find a colleague with **Find a friend**, visit and sprinkle.
+   (`https://growmyflower.vercel.app/meadow`), find a colleague with **Find a friend**, visit and sprinkle.
 5. Open the personal garden link from the link sheet on a laptop or iPad. The same garden appears there.
 6. Ask each person whether anything was confusing, slow, hard to read or cut off, and whether the page felt smooth.
    Note their phone and browser beside each answer.
@@ -173,7 +173,7 @@ Use the laptop that will drive the venue screen, connected to that screen, on th
    **GL_RENDERER** line should name the separate card, for example NVIDIA.
 3. Use Chrome or Edge. Press Windows + P and choose **Second screen only**, or **Duplicate** if you also want to see it
    on the laptop.
-4. Open `https://meadow-phi.vercel.app/party?code=<party code>` and press **F** for full screen.
+4. Open `https://growmyflower.vercel.app/party?code=<party code>` and press **F** for full screen.
 5. Time how long it takes to open. A soft veil shows "Gathering the seeds", "Unfurling the petals" and "Letting the
    light in", and then Lijas's Enchanted Rose garden appears at golden hour. The gift panel with the QR code appears
    within 30 seconds at the latest, even if the garden is still settling.
@@ -277,7 +277,7 @@ Write the final address, with any `&quality=` ending, in your private note.
 **After the party**
 
 - Colleagues who missed it can plant until 10 December with the same link,
-  `https://meadow-phi.vercel.app/garden?code=<party code>`, or without it, at `https://meadow-phi.vercel.app/garden`.
+  `https://growmyflower.vercel.app/garden?code=<party code>`, or without it, at `https://growmyflower.vercel.app/garden`.
   Share the link in the team chat once the party has started, and keep `MEADOW_PARTY_CODE` set until then.
 - If strangers' names ever need keeping off the big screen, hide a name as below; to stop strangers planting at all,
   set `MEADOW_PLANTING` to `party` for Production and redeploy (step 1.4). Planting then needs the party link again.

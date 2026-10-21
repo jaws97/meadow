@@ -6,7 +6,7 @@
 //   every day. Happy birthday.            each paragraph balanced so no word is left alone
 //   Lijas                                 italic, gold: the colleague's Meadow name, or "A friend"
 //   ───────────────────────────────────
-//   Enchanted Rose · grown in 14 days in the Meadow, Bangalore        meadow-phi.vercel.app
+//   Enchanted Rose · grown in 14 days in the Meadow, Bangalore        growmyflower.vercel.app
 //
 // The words are laid out from the foot up (layoutCard, pure and tested with a stand-in measure), and the dusk's
 // gradient follows the top of the words, so a long message never sits on the bare photograph. A message that will not

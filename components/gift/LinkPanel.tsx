@@ -25,7 +25,7 @@ function otherScreens(): string {
 }
 const serverOtherScreens = () => "another device";
 
-/** "meadow-phi.vercel.app/garden#k=Ab3dE…": enough to recognise, not enough to use. */
+/** "growmyflower.vercel.app/garden#k=Ab3dE…": enough to recognise, not enough to use. */
 function maskLink(link: string): string {
   try {
     const url = new URL(link);

@@ -44,8 +44,8 @@ describe("the card's words", () => {
   });
 
   it("sends the living flower's link with the picture", () => {
-    expect(shareText("rose", 12, "https://meadow-phi.vercel.app")).toBe(
-      "An Enchanted Rose I grew for you, in the Meadow. See it growing: https://meadow-phi.vercel.app/meadow/garden?plot=12",
+    expect(shareText("rose", 12, "https://growmyflower.vercel.app")).toBe(
+      "An Enchanted Rose I grew for you, in the Meadow. See it growing: https://growmyflower.vercel.app/meadow/garden?plot=12",
     );
     expect(shareText("marigold", 2003, "http://localhost:3000")).toBe(
       "A Marigold I grew for you, in the Meadow. See it growing: http://localhost:3000/meadow/garden?plot=2003",
@@ -122,7 +122,7 @@ describe("wrapping the message", () => {
   });
 
   it("cuts a run too long for its room with an ellipsis, between letters", () => {
-    expect(clipText("meadow-phi.vercel.app", 1000, mono)).toBe("meadow-phi.vercel.app");
+    expect(clipText("growmyflower.vercel.app", 1000, mono)).toBe("growmyflower.vercel.app");
     const cut = clipText("meadow-git-bloom-card-jaws97s-projects.vercel.app", 200, mono);
     expect(cut.endsWith("…")).toBe(true);
     expect(mono(cut)).toBeLessThanOrEqual(200);

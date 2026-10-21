@@ -13,12 +13,11 @@
 // count. The party code itself is never written into the code base: it rides
 // in the screen's own address (/party?code=...).
 import { framingFor, LAYOUT, type Framing } from "@/lib/garden/layout";
+import { PUBLIC_ORIGIN } from "@/lib/origin";
 import { SPECIES, type SpeciesId } from "@/lib/plant/species";
 import { goldenHour } from "@/lib/sky/sun";
 
-export { goldenHour };
-
-export const PUBLIC_ORIGIN = "https://meadow-phi.vercel.app";
+export { goldenHour, PUBLIC_ORIGIN };
 
 /**
  * The plant the screen shows: the owner's seed (the garden's own default, lib/garden/store) and their rose. The screens

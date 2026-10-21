@@ -63,9 +63,9 @@ describe("the party code and the QR link", () => {
   });
 
   it("always points at the live garden, with the code escaped", () => {
-    expect(gardenLink("Ab12xY9q")).toBe("https://meadow-phi.vercel.app/garden?code=Ab12xY9q");
-    expect(gardenLink("a b&c")).toBe("https://meadow-phi.vercel.app/garden?code=a%20b%26c");
-    expect(typedLink(gardenLink("Ab12xY9q"))).toBe("meadow-phi.vercel.app/garden?code=Ab12xY9q");
+    expect(gardenLink("Ab12xY9q")).toBe("https://growmyflower.vercel.app/garden?code=Ab12xY9q");
+    expect(gardenLink("a b&c")).toBe("https://growmyflower.vercel.app/garden?code=a%20b%26c");
+    expect(typedLink(gardenLink("Ab12xY9q"))).toBe("growmyflower.vercel.app/garden?code=Ab12xY9q");
   });
 
   it("fits a version 4 code at error correction M for a typical code, so the modules stay large", () => {

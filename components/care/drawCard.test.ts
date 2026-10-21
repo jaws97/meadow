@@ -12,7 +12,7 @@ const words = (over: Partial<CardWords> = {}): CardWords => ({
   from: "Lijas",
   species: "Enchanted Rose",
   days: 14,
-  domain: "meadow-phi.vercel.app",
+  domain: "growmyflower.vercel.app",
   ...over,
 });
 
@@ -24,7 +24,7 @@ describe("the card's words", () => {
     expect(ys("To Amma,")).toBeLessThan(message[0].y);
     expect(message[message.length - 1].y).toBeLessThan(ys("Lijas"));
     expect(ys("Lijas")).toBeLessThan(l.rule.y);
-    expect(l.rule.y).toBeLessThan(ys("meadow-phi.vercel.app"));
+    expect(l.rule.y).toBeLessThan(ys("growmyflower.vercel.app"));
     // within the card, the words in its lower half, the foot clear of the edge
     for (const x of l.lines) {
       expect(x.y).toBeGreaterThan(CARD_H / 2);
