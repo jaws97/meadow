@@ -21,7 +21,7 @@ Live at **https://meadow-phi.vercel.app**.
 | `/garden` | Everyone's first stop. Without a garden it shows the rose in bloom; opened from the party link (`/garden?code=...`) it offers the seed; on a device that holds a garden it opens that garden, with its care card and its sounds. |
 | `/meadow` | The shared Meadow: rings of beds and a slow river round the rose. Ride the lantern cart (or glide), visit a friend's flower, leave a sprinkle, find someone by name. |
 | `/meadow/garden?plot=N` | A friend's garden, to look at only. |
-| `/party?code=...` | The big screen for the party: the rose, the QR code that carries the party link, and new seeds as they are planted. |
+| `/party?code=...` | The big screen for the party: the rose, the QR code that carries the party link, new seeds as they are planted, and a seventy-second trailer played in the live garden (below). |
 
 There are eight flowers to choose from: Enchanted Rose, Sundrop, Magnolia, Marigold, Island Bloom, Night Jasmine, Pink
 Lily and Lotus. The lotus grows in a small pond with koi, with its own water model.
@@ -60,7 +60,7 @@ components/   garden, gift, care, meadow, lotus, deer, party, sound
 lib/          sim (plant model), server, client, garden, plant, sky, sound
 db/           SQL migrations and the lockdown every migration re-applies
 scripts/      maintenance scripts (below)
-docs/         REHEARSAL.md, the party-week checklist
+docs/         REHEARSAL.md, the party-week checklist, and the trailer's stills
 ```
 
 ## Running it locally
@@ -133,6 +133,33 @@ file. Those that remove or move people's gardens or sessions (`clear-rehearsals`
 [docs/REHEARSAL.md](docs/REHEARSAL.md) is the calm checklist for the week before the party: making the party code,
 giving the app its own login, a smoke test on the live site, trying it on real phones, the venue check on the real
 laptop and screen, and the run sheet for the day.
+
+### The trailer
+
+The party screen can play a seventy-second trailer, cut like a film trailer but drawn live in the garden rather than
+played from a video: a seed of light at dawn, its first drink from the watering can in slow motion, a day of growing
+under the real Bangalore sky with a passing shower, the rose opening at golden hour, a doe who comes to look at it,
+night and the lantern, the other flowers each named on black, the title, and "Your seed is waiting." Then the panel
+and its QR code come back by themselves.
+
+<p>
+  <img src="docs/trailer/seed.jpg" width="49%" alt="A seed of light in its mound, with the words One seed." />
+  <img src="docs/trailer/bloom.jpg" width="49%" alt="The Enchanted Rose opening at golden hour, close up" />
+  <img src="docs/trailer/visitor.jpg" width="49%" alt="A chital doe looking toward the rose, the lantern lit between them" />
+  <img src="docs/trailer/title.jpg" width="49%" alt="MEADOW in gold on black, under a rosebud on a fine gold rule" />
+</p>
+
+It is made for the venue laptop rather than phones. Move the mouse and press **Play the trailer** in the top left corner, or
+press **D**; **D** again stops it at any moment and the panel comes back. Its music is composed in code, a music box
+over real garden recordings (all CC0); **M** mutes it, and `&music=off` at the end of the address leaves it out. A
+laptop too slow for the look plays the trailer slower rather than skipping, so time it at the venue check (step 9 of
+the rehearsal).
+
+The trailer lives in `components/party/trailer`: `script.ts` is the whole timeline as a shot list with every channel
+keyed in time, tested without a browser; `Director.tsx` plays it in the canvas; `control.ts` starts and stops it and
+always hands the screen back; `TrailerOverlay.tsx` sets the words; and `score.ts`, `music.ts` and `beds.ts` are the
+sound. On a development server, `await window.__trailerMusic.preview()` in the console renders the whole mix to a
+WAV.
 
 ## Credits
 
