@@ -188,6 +188,9 @@ Use the laptop that will drive the venue screen, connected to that screen, on th
    chatter without booming. **M** mutes the music; `&music=off` at the end of the address leaves it out altogether.
    **D** stops the trailer at any moment, and the panel comes back. If Windows has **Animation effects** turned off
    (Settings > Accessibility > Visual effects), the trailer keeps the watering can still; turn them on to see it pour.
+   Time it: from the press to the panel coming back takes about a minute and a quarter. A laptop too slow for the look
+   plays the trailer slower rather than skipping, so if it takes much longer than that (say over a minute and a half),
+   try the lighter looks below.
 
 If loading is slow, or the motion is jerky:
 
