@@ -355,18 +355,18 @@ const DRINK_B = shot(0, -0.03, 0.115, 1, 0.6);
 /** Over the big soft rose toward the doe, S17. */
 const OVER_ROSE = shot(0.2, 0.02, 0.29, 1, 0.75);
 
-/** The cut up to the montage (section 2.2 of the trailer's plan), visible picture from 0.8 s. */
+/** The cut up to the montage, the picture showing from 0.8 s. */
 const OPENING: readonly Segment[] = [
   {
     id: "S01",
     from: 0,
     to: 3.4,
     keys: [
-      [0, shot(0.1, -0.06, 0.22, 1, 0.8)],
-      [3.4, shot(0.06, -0.06, 0.19, 1, 0.8)],
+      [0, shot(0.1, 0.1, 0.2, 1, 0.8)],
+      [3.4, shot(0.06, 0.1, 0.17, 1, 0.8)],
     ],
     interp: "L",
-    lens: { shiftY: 0.1 },
+    lens: { shiftY: 0.04 },
     dof: { target: "seed", range: 0.18, bokeh: 1.4 },
     pollen: 0.3,
     fluff: 0.3,
@@ -1020,6 +1020,8 @@ const RIM = new Track([
 ]);
 /** The seed of light, brighter than the garden's own until the shoot has broken through. */
 const SEED_LIGHT = new Track([
+  [5.9, 2.6],
+  [6.0, 1.8],
   [12.6, 1.8],
   [13.2, 1],
 ]);
