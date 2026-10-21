@@ -99,15 +99,15 @@ export function PartyCamera() {
     apply(camera, placeShot(live.current, head, shot, wander, at, active ? trailerCam.lens : null, active));
 
     // The lens: the trailer's own while it drives the camera, at once; otherwise the panel's, whenever the panel shows
-    // or the trailer is still on (it has put the garden back under its black, and the panel is about to return), eased
-    // as the panel comes and goes, at once while the head snaps. The first frame takes it as it is.
+    // or the trailer is still on and the panel will return (it has put the garden back under its black), eased as the
+    // panel comes and goes, at once while the head snaps. The first frame takes it as it is.
     const s = shift.current;
     let wantX = 0;
     let wantY = 0;
     if (active) {
       wantX = trailerCam.lens.shiftX;
       wantY = trailerCam.lens.shiftY;
-    } else if (p.panel || trailer.get().phase !== "idle") {
+    } else if (p.panel || (trailer.get().phase !== "idle" && trailerCam.panelBack)) {
       wantX = p.shiftX;
       wantY = p.shiftY;
     }

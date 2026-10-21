@@ -8,7 +8,8 @@
 // opacity, slow): the store only says what is on, so the overlay renders a handful of times a trailer, and every
 // element stays mounted, so each fade runs from its resting state. The black is written by the director every frame,
 // or eased by CSS when the trailer opens and closes. Its own component with its own store, so nothing here re-renders
-// the party screen (and with it the canvas).
+// the party screen (and with it the canvas). A screen reader hears only what shows: every word, name, title and
+// tagline is hidden from it until it is on.
 //
 // The button that plays it shows only while the mouse is moving, like the cursor, so the unattended screen stays
 // clean; the D key plays and stops it too.
@@ -84,11 +85,11 @@ export function TrailerOverlay() {
           <TypeLine key={l.id} line={l} on={lineOn && line === l.id} groups={line === l.id ? lineGroups : 0} />
         ))}
         {NAMES.map((n, i) => (
-          <p key={i} className={`party-trailer-name${nameOn && name === n ? " party-trailer-on" : ""}`}>
+          <p key={i} className={`party-trailer-name${nameOn && name === n ? " party-trailer-on" : ""}`} aria-hidden={!(nameOn && name === n)}>
             {n}
           </p>
         ))}
-        <div className={`party-trailer-title${title ? " party-trailer-on" : ""}`}>
+        <div className={`party-trailer-title${title ? " party-trailer-on" : ""}`} aria-hidden={!title}>
           <TitleCrest alone={END_TITLE === null} />
           {END_TITLE !== null && (
             <p className="party-trailer-title-word">
@@ -100,7 +101,7 @@ export function TrailerOverlay() {
             </p>
           )}
         </div>
-        <p className="party-trailer-tagline">
+        <p className="party-trailer-tagline" aria-hidden={!tagline}>
           <span className={`party-trailer-tagline-text${tagline ? " party-trailer-on" : ""}`}>{TAGLINE}</span>
         </p>
       </div>
@@ -115,13 +116,14 @@ export function TrailerOverlay() {
  */
 function TypeLine({ line, on, groups }: { line: Line; on: boolean; groups: number }) {
   return (
-    <p className={`party-trailer-line${on ? " party-trailer-on" : ""}`}>
+    <p className={`party-trailer-line${on ? " party-trailer-on" : ""}`} aria-hidden={!on}>
       {line.groups.map((g, gi) =>
         g.words.map((word, wi) => (
           <Fragment key={`${gi}-${wi}`}>
             {(gi > 0 || wi > 0) && " "}
             <span
               className={`party-trailer-word${gi < groups ? " party-trailer-on" : ""}`}
+              aria-hidden={gi >= groups}
               style={v({ "--d": `${round(wi * WORD_STAGGER_S)}s` })}
             >
               {word}

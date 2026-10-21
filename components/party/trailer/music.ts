@@ -408,8 +408,11 @@ function strike(g: Graph, midi: number, when: number, vel: number, dur: number) 
   release(oscs, nodes);
 }
 
-/** A pad chord (up to eight notes): two detuned triangles a note through a soft low-pass, swelling in and fading out. Returns its fade. */
-function pad(g: Graph, midi: readonly number[], when: number, vel: number, dur: number): (at: number) => void {
+/**
+ * A pad chord (up to eight notes): two detuned triangles a note through a soft low-pass, swelling in and fading out.
+ * Returns its fade. An open-ended pad (the intro's) also lists its oscillators in `track`, so a teardown stops them.
+ */
+function pad(g: Graph, midi: readonly number[], when: number, vel: number, dur: number, track?: AudioScheduledSourceNode[]): (at: number) => void {
   const { ctx } = g;
   const filter = ctx.createBiquadFilter();
   filter.type = "lowpass";
@@ -429,6 +432,7 @@ function pad(g: Graph, midi: readonly number[], when: number, vel: number, dur: 
       osc.connect(filter);
       osc.start(when);
       oscs.push(osc);
+      track?.push(osc);
     }
   }
   release(oscs, [filter, env]);
@@ -994,7 +998,7 @@ export const music = {
       const now = context.currentTime;
       g.master.gain.setValueAtTime(0, now);
       g.master.gain.linearRampToValueAtTime(level(), now + 0.05);
-      introFade = pad(g, INTRO.pad, now + 0.05, INTRO.padVel, INTRO_HOLD_S);
+      introFade = pad(g, INTRO.pad, now + 0.05, INTRO.padVel, INTRO_HOLD_S, g.sources);
       for (const c of INTRO.clicks) click(g, now + c.at, c.vel);
       startBirds(g, now);
     } catch (error) {

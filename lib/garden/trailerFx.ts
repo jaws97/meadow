@@ -6,11 +6,15 @@
 // every frame while the trailer plays, and the trailer's control (components/party/trailer/control.ts) puts it back
 // whenever the trailer stops or ends. The scene reads it inside its own frame loops (never through React).
 //
-// Two fields are not multipliers. `heroHex` holds the Backdrop's flower colour for the whole trailer, so the gates
+// Three fields are not multipliers. `heroHex` holds the Backdrop's flower colour for the whole trailer, so the gates
 // that change the flower under black never rebuild the backdrop (it is the rose's own colour, so releasing it rebuilds
 // nothing either). `snap` is a counter the trailer bumps once when it puts the garden back under black: the flower and
 // its companions take the store's values at once instead of easing toward them, so the showcase rose is whole when the
-// black lifts.
+// black lifts. `focus` is where the trailer pulls the depth of field (the same point as env.focus while the trailer
+// plays), so the motes' and the backdrop's own fake bokeh follow the trailer's focus pulls; the garden's bloom card
+// sets env.focus for its photograph too, and its sprites keep focusing on the flower head, as they always have.
+
+import type { Vector3 } from "three";
 
 /** The scene multipliers and cues, as the trailer's script keys them. */
 export interface SceneFx {
@@ -24,6 +28,11 @@ export interface SceneFx {
   seedPulse: number;
   /** 0..1, the mound's hop (SeedMound: scale y × (1 + 0.5 bulge), x and z × (1 − 0.05 bulge)) */
   seedBulge: number;
+  /**
+   * metres the seed's light sits higher than its place just inside the mound's crest (SeedMound), so a close shot from
+   * above or from low down sees the light itself rather than the soil over it
+   */
+  seedRise: number;
   /** × on the pollen motes' opacity, and on their size uniform (Atmosphere POLLEN) */
   pollen: number;
   pollenSize: number;
@@ -44,6 +53,7 @@ export const FX_NEUTRAL: Readonly<SceneFx> = Object.freeze({
   seedLight: 1,
   seedPulse: 0,
   seedBulge: 0,
+  seedRise: 0,
   pollen: 1,
   pollenSize: 1,
   fluff: 1,
@@ -61,14 +71,18 @@ export const trailerFx: SceneFx & {
   heroHex: string | null;
   /** bumped once when the garden is put back under black: the flower and its companions take the store's values at once */
   snap: number;
-  /** every multiplier and cue back to neutral (heroHex and snap are left as they are) */
+  /** where the trailer pulls the depth of field, for the sprites' fake bokeh, or null for the flower head */
+  focus: Vector3 | null;
+  /** every multiplier and cue back to neutral, and the focus to the flower head (heroHex and snap are left as they are) */
   reset(): void;
 } = {
   ...FX_NEUTRAL,
   heroHex: null,
   snap: 0,
+  focus: null,
   reset() {
     applyFx(FX_NEUTRAL);
+    trailerFx.focus = null;
   },
 };
 
@@ -79,6 +93,7 @@ export function applyFx(v: Readonly<SceneFx>) {
   trailerFx.seedLight = v.seedLight;
   trailerFx.seedPulse = v.seedPulse;
   trailerFx.seedBulge = v.seedBulge;
+  trailerFx.seedRise = v.seedRise;
   trailerFx.pollen = v.pollen;
   trailerFx.pollenSize = v.pollenSize;
   trailerFx.fluff = v.fluff;

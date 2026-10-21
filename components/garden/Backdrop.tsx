@@ -433,7 +433,7 @@ export function Backdrop() {
     u.uDayColor.value.copy(env.sky.sun).lerp(GLINT_WARM, 0.35);
     u.uPixelRatio.value = state.gl.getPixelRatio();
     // focused with the real depth of field: the flower head, or where the party trailer pulls focus
-    focusScratch.copy(env.focus ?? env.headPos).applyMatrix4(state.camera.matrixWorldInverse);
+    focusScratch.copy(trailerFx.focus ?? env.headPos).applyMatrix4(state.camera.matrixWorldInverse);
     u.uFocus.value = Math.max(0.2, -focusScratch.z);
   });
   /* eslint-enable react-hooks/immutability */

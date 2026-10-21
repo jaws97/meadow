@@ -49,7 +49,7 @@ import { HERO_GROUND_Y } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { applyLook } from "@/lib/garden/look";
 import { garden } from "@/lib/garden/store";
-import { applyFx } from "@/lib/garden/trailerFx";
+import { applyFx, trailerFx } from "@/lib/garden/trailerFx";
 
 /** The clock's longest step (s): below about 20 frames a second the trailer slows rather than skips. */
 const MAX_STEP = 0.05;
@@ -87,32 +87,50 @@ const PREVIEW_SLOW: PreviewOptions = { holds: 1.5, rate: 0.7 };
 
 type Prep = "dip" | "prime" | "dawn";
 
-/** The clock's pace over its last frames: the steps it took against the frames' own time. */
+/** ...and over at least this many frames, so a device drawing a few frames a second still has a median to take. */
+const RATE_FRAMES = 9;
+const ascending = (a: number, b: number) => a - b;
+
+/**
+ * The clock's pace: the median, over its last frames, of each frame's step against that frame's own time. One long
+ * frame (a gate's first draw, a hitch) never moves a median, so the music is not slowed for the half second after it,
+ * while a device that is slow all along reads slow. It starts as if the last frames had all kept time.
+ */
 class Pace {
-  private readonly steps: number[] = [];
+  private readonly ratios: number[] = [];
   private readonly deltas: number[] = [];
-  private stepSum = 0;
-  private deltaSum = 0;
+  private readonly sorted: number[] = [];
+  private span = 0;
   rate = 1;
 
   reset() {
-    this.steps.length = 0;
+    this.ratios.length = 0;
     this.deltas.length = 0;
-    this.stepSum = 0;
-    this.deltaSum = 0;
+    this.span = 0;
+    for (let i = 0; i < RATE_FRAMES; i++) {
+      this.ratios.push(1);
+      this.deltas.push(RATE_WINDOW_S / RATE_FRAMES);
+    }
+    this.span = RATE_WINDOW_S;
     this.rate = 1;
   }
 
   add(step: number, delta: number) {
-    this.steps.push(step);
+    if (!(delta > 0)) return;
+    this.ratios.push(step / delta);
     this.deltas.push(delta);
-    this.stepSum += step;
-    this.deltaSum += delta;
-    while (this.deltas.length > 1 && this.deltaSum - this.deltas[0] >= RATE_WINDOW_S) {
-      this.stepSum -= this.steps.shift()!;
-      this.deltaSum -= this.deltas.shift()!;
+    this.span += delta;
+    while (this.ratios.length > RATE_FRAMES && this.span - this.deltas[0] >= RATE_WINDOW_S) {
+      this.span -= this.deltas.shift()!;
+      this.ratios.shift();
     }
-    this.rate = this.deltaSum > 0 ? Math.min(1, Math.max(RATE_MIN, this.stepSum / this.deltaSum)) : 1;
+    const s = this.sorted;
+    s.length = 0;
+    for (const r of this.ratios) s.push(r);
+    s.sort(ascending);
+    const n = s.length;
+    const median = n % 2 === 1 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+    this.rate = Math.min(1, Math.max(RATE_MIN, median));
   }
 }
 
@@ -142,6 +160,8 @@ interface Run {
   fullHead: THREE.Vector3;
   coda: CodaMatch;
   pace: Pace;
+  /** how dark it is for the music (the night's crickets hold through the end, after the garden is put back at HOME_AT) */
+  night: number;
 }
 
 const frame = blankFrame();
@@ -214,6 +234,8 @@ function write(r: Run) {
       resolve(d.from, d.fromPoint, focus);
       env.focus = focus.lerp(resolve(d.to, d.toPoint, focusTo), d.rack);
     } else env.focus = d.from === "head" ? null : resolve(d.from, d.fromPoint, focus);
+    // the motes and the backdrop's glints focus where the depth of field does
+    trailerFx.focus = env.focus;
   }
   trailerCues.doe = frame.doe;
   // the seed's first drink: the can's moment, played on the trailer's clock (components/garden/garden/canLive), from a
@@ -268,6 +290,7 @@ export function TrailerDirector() {
     fullHead: new THREE.Vector3(0, FULL_HEAD_Y, 0),
     coda: { x: 0, y: 0, screenX: 0.5 },
     pace: new Pace(),
+    night: 0,
   });
 
   // Dev-only: the trailer's clock, and its music rendered to a WAV, for checking them from the console.
@@ -278,7 +301,8 @@ export function TrailerDirector() {
       const f = blankFrame();
       return renderPreview(
         (t) => {
-          trailerAt(t, golden, f);
+          // the coda's night carries on under the fade after the garden is put back, as it does live
+          trailerAt(Math.min(t, HOME_AT - 1e-6), golden, f);
           const night = skyState(sunInfo(istDateAt(f.hour)).altitude, f.cloud, f.hour, f.rain).nightness;
           return { rain: f.rain, night };
         },
@@ -397,8 +421,10 @@ export function TrailerDirector() {
           r.t = crossed;
           if (crossed >= RESTORE_AT) {
             // the coda: the rose's own seed under the title, framed where the party's rose will stand
+            // (beside the panel, or centred when the operator hid it and it will not come back)
             const p = party.get();
-            codaShift(framingOf(size.width, size.height), size.width / Math.max(1, size.height), r.fullHead, { x: p.shiftX, y: p.shiftY }, r.coda);
+            const panel = trailerCam.panelBack ? { x: p.shiftX, y: p.shiftY } : { x: 0, y: 0 };
+            codaShift(framingOf(size.width, size.height), size.width / Math.max(1, size.height), r.fullHead, panel, r.coda);
             overlayRoot.setCodaX(r.coda.screenX);
             stageCoda(r.golden);
             write(r);
@@ -422,7 +448,8 @@ export function TrailerDirector() {
         putBack();
         r.predrawIn = HOME_PREDRAW_FRAMES;
       } else if (r.predrawIn > 0 && --r.predrawIn === 0) drawAll(gl, scene, camera);
-      music.play(r.t, frame, env.nightness, GATES.find((g) => g > r.t) ?? Infinity, r.pace.rate);
+      if (!frame.restored) r.night = env.nightness;
+      music.play(r.t, frame, r.night, GATES.find((g) => g > r.t) ?? Infinity, r.pace.rate);
       if (!r.returned && r.t >= RETURN_AT) {
         r.returned = true;
         returnPanel();

@@ -95,6 +95,7 @@ export function startTrailer(): boolean {
   if (!canPlay()) return false;
   const p = party.get();
   saved = { panel: p.panel, tour: p.tour };
+  trailerCam.panelBack = saved.panel;
   party.set({ panel: false, tour: false });
   release?.();
   release = visitorHold.acquire(HOLD_S * 1000);

@@ -345,8 +345,8 @@ export interface Segment {
 }
 
 /** The overhead over the mound, S02, and the same offsets over the open rose, S13 (the rhyme). */
-const OVER_A = shot(0.12, 0.8, 0.55, 1, 1);
-const OVER_B = shot(0.2, 0.8, 0.55, 1, 1);
+const OVER_A = shot(0.12, 0.8, 0.42, 1, 1);
+const OVER_B = shot(0.2, 0.8, 0.42, 1, 1);
 /** The golden wide, S09 and S14 (the same offsets). */
 const WIDE = shot(0, 0.04, 1.25, 0, 1.08);
 /** The drink's close-up, S05 (and the reduced-motion care beat). */
@@ -362,8 +362,8 @@ const OPENING: readonly Segment[] = [
     from: 0,
     to: 3.4,
     keys: [
-      [0, shot(0.1, 0.1, 0.2, 1, 0.8)],
-      [3.4, shot(0.06, 0.1, 0.17, 1, 0.8)],
+      [0, shot(0.08, 0.14, 0.13, 1, 0.75)],
+      [3.4, shot(0.06, 0.14, 0.115, 1, 0.75)],
     ],
     interp: "L",
     lens: { shiftY: 0.04 },
@@ -664,7 +664,7 @@ const CODA_SEGMENT: Segment = {
   id: "C1",
   from: RESTORE_AT,
   to: HOME_AT,
-  keys: [[RESTORE_AT, shot(0.1, -0.06, 0.2, 1, 0.8)]],
+  keys: [[RESTORE_AT, shot(0.08, 0.12, 0.15, 1, 0.8)]],
   interp: "L",
   lens: { coda: true },
   dof: { target: "seed", range: 0.18, bokeh: 1.4 },
@@ -1026,6 +1026,12 @@ const SEED_LIGHT = new Track([
   [13.2, 1],
 ]);
 const CODA_SEED_LIGHT = 1.8;
+/** The seed's light set in the mound's crown (m above its own place) while the close shots look at it. */
+const SEED_RISE = new Track([
+  [12.6, 0.014],
+  [13.2, 0],
+]);
+const CODA_SEED_RISE = 0.014;
 /** Scent sparkles lifting off the opening rose. */
 const SCENT = new Track([
   [30.2, 0],
@@ -1446,6 +1452,7 @@ export function trailerAt(
     fx.seedLight = coda ? CODA_SEED_LIGHT : SEED_LIGHT.at(t);
     fx.seedPulse = coda ? clamp01(linear(SEED_PULSE, t)) : 0;
     fx.seedBulge = coda && !options.reduced ? clamp01(SEED_BULGE.at(t)) : 0;
+    fx.seedRise = coda ? CODA_SEED_RISE : SEED_RISE.at(t);
     fx.pollen = seg?.pollen ?? 1;
     fx.pollenSize = seg?.pollenSize ?? 1;
     fx.fluff = seg?.fluff ?? 1;

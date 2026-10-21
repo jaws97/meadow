@@ -18,7 +18,7 @@
 //
 // Every field fakes its own depth of field: the vertex shader compares each
 // particle's view depth with the distance to the real DoF pass's focus (the
-// flower head, or whatever the party trailer pulls focus to through env.focus)
+// flower head, or whatever the party trailer pulls focus to: trailerFx.focus)
 // and grows the sprite into a dim bokeh disc as it leaves focus, so motes near
 // the lens and far behind the plant read as photography, not confetti. Which
 // field you see is decided by its opacity curve, read from the shared env and
@@ -575,7 +575,7 @@ function ParticleField({ spec, count }: { spec: FieldSpec; count: number }) {
     uniforms.uMaxSize.value = Math.min(maxSize, hardwareMax / pr);
     uniforms.uAspect.value = state.size.width / Math.max(1, state.size.height);
     // The real DoF focuses on the flower head, or where the trailer pulls it; the sprites agree with it.
-    focusScratch.copy(env.focus ?? env.headPos).applyMatrix4(state.camera.matrixWorldInverse);
+    focusScratch.copy(trailerFx.focus ?? env.headPos).applyMatrix4(state.camera.matrixWorldInverse);
     uniforms.uFocus.value = Math.max(0.2, -focusScratch.z);
     if (spec.tint) spec.tint(env, s, uniforms.uColor.value);
     if (spec.follow && points) points.position.copy(env.headPos);

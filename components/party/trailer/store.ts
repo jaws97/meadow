@@ -81,13 +81,16 @@ export function useTrailer<T>(selector: (s: TrailerState) => T): T {
  * The party camera's shot and lens while the trailer drives it (`active`); for `snapFrames` frames it takes the
  * flower's head as it stands rather than easing toward it (a cut, a new flower under a black dip, or the rose again at
  * the end). The lens (logic LensAim) pans toward `target` by `look`, shifts the picture by `shiftX`/`shiftY`, and with
- * `follow` takes the head as it stands every frame; at rest it is LENS_REST.
+ * `follow` takes the head as it stands every frame; at rest it is LENS_REST. `panelBack` says whether the panel comes
+ * back when the trailer ends (it showed when the trailer started), so the trailer's end is framed for the screen it
+ * hands back to: beside the panel, or centred when the operator had hidden it.
  */
-export const trailerCam: { active: boolean; shot: Shot; snapFrames: number; lens: LensAim } = {
+export const trailerCam: { active: boolean; shot: Shot; snapFrames: number; lens: LensAim; panelBack: boolean } = {
   active: false,
   shot: { ...HOME },
   snapFrames: 0,
   lens: { ...LENS_REST, target: { ...LENS_REST.target } },
+  panelBack: true,
 };
 
 /** Puts the trailer's lens back at rest (in place: the camera holds the object). */

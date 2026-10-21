@@ -7,8 +7,9 @@
 // from where the water lands, as the bed's mulch does, and the seed's light takes one deeper breath as it drinks.
 //
 // The party trailer opens on this seed and closes on a new one, through lib/garden/trailerFx: a multiplier on the
-// light (a brighter seed of light in the dawn close-ups), a pulse that swells it, and a bulge that lifts the mound, so
-// the seed hops twice to the tune's last two notes. At neutral (×1, no pulse, no bulge) it draws exactly as above.
+// light (a brighter seed of light in the dawn close-ups), a rise that sets the light in the mound's crown where a close
+// shot can see it, a pulse that swells it, and a bulge that lifts the mound, so the seed hops twice to the tune's last
+// two notes. At neutral (×1, no rise, no pulse, no bulge) it draws exactly as above.
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { HERO_GROUND_Y, withGardenLight } from "@/lib/garden/dressing";
@@ -161,7 +162,7 @@ export function SeedMound({ quality }: { quality: Quality }) {
       live.current.glow.opacity = here * (0.2 + 0.26 * breath) * (1 + 0.4 * drink) * seedLight * (1 + PULSE_LIGHT * pulse);
       const r = (0.038 + 0.014 * breath) * (1 + 0.15 * drink) * (1 + PULSE_SIZE * pulse);
       sp.scale.set(r, r, r);
-      const y = GLOW_Y * rise;
+      const y = GLOW_Y * rise + trailerFx.seedRise;
       if (sp.position.y !== y) sp.position.y = y;
     }
   });
