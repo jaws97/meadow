@@ -5,9 +5,10 @@ Grow a flower, gift your love: a living garden in the real Bangalore weather.
 Meadow is a return gift for the office birthday celebration on Tuesday 10 November 2026. At the party, colleagues scan
 a QR code on the big screen, choose a flower, give their garden a name and plant a seed. The seed grows in the real
 Bangalore weather: rain waters it, a hot dry afternoon dries the soil, and too much water rots the roots. Looked after
-a little each day, it blooms in about two weeks; neglected, it blooms later and smaller. Once it is in full bloom, its
-grower can send it to someone they love: a golden-hour picture card with their own message, and a link to the living
-flower. Everyone's flowers grow together in the shared Meadow, round a rose that is already in full bloom.
+a little each day, it blooms in about two weeks; neglected, it blooms later and smaller. A flower lasts a week, then
+its petals fall onto the soil and, while the plant is cared for, a new bud opens about ten days later, flower after
+flower. While a flower is in full bloom, its grower can send it to someone they love: a golden-hour picture card with
+their own message, and a link to the living flower. Everyone's flowers grow together in the shared Meadow, round a rose that is already in full bloom.
 
 Planting opened early, on 20 October; it is open to everyone, party link or not, and it never closes. Every planting
 on the live site is a real garden that keeps growing through the party and after it. A seed planted
@@ -44,7 +45,8 @@ analytics. The party code is never written into the code base: it lives in the `
   missing GPU, which opens on Auto (Auto picks for the device). The lantern cart drives on Rapier physics, with a gentle glide as the fallback.
 - **The plant model** (`lib/sim`): plain TypeScript with no framework, so the same code runs on the server, in the
   tests and in the browser. A soil water balance (FAO-56), growth from sunlight, and development in thermal time that
-  stress slows down; the lotus has its own pond model (`lib/sim/pond.ts`). It is deterministic and versioned.
+  stress slows down; the lotus has its own pond model (`lib/sim/pond.ts`). It is deterministic and versioned
+  (`SIM_VERSION`; version 8 brought the flowers that follow the first, `REBLOOM` in `lib/sim/model.ts`).
 - **Event-sourced state**: every care action is an event appended to the plant's log and never changed, weather hours
   are stored once and never rewritten, and a plant's state is the replay of its events against the weather, hour by
   hour, from its last checkpoint to now (`lib/server/catchup.ts`). Nothing runs on a timer: a garden catches up when

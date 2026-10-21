@@ -46,6 +46,7 @@ import {
   bloomedAt,
   diedAt,
   expectBloom,
+  flowerOpenedAt,
   hourIndexOf,
   isPondState,
   modelVersionOf,
@@ -277,7 +278,12 @@ export interface MeView {
     ripeH: number | null;
     bloomH: number | null;
     bloomedAt: string | null;
-    /** how far a bed flower has opened, 0 (the bud) to 1 (fully open; it never closes again); null for a lotus, whose flower opens and closes with its days */
+    /** when the flower now shown (or the last one) opened: bloomedAt for the first, then each later flower's (SIM_VERSION 8) */
+    flowerOpenedAt: string | null;
+    /**
+     * how far a bed flower's first flower has opened, 0 (the bud) to 1 (fully open, and 1 from then on: the flowers
+     * after it are the visual's); null for a lotus, whose flower opens and closes with its days
+     */
     open: number | null;
     diedH: number | null;
     fairyUsed: boolean;
@@ -325,7 +331,7 @@ function buildMe(plant: PlantRef, state: PlantState, pending: readonly RecordedE
   const nowH = hourIndexOf(now), clock = istClock(now);
   const visual = toVisual(state, null, clock);
   const pond = isPondState(state);
-  const bloomed = bloomedAt(state), ripe = ripeAt(state), died = diedAt(state);
+  const bloomed = bloomedAt(state), flowered = flowerOpenedAt(state), ripe = ripeAt(state), died = diedAt(state);
   // both models' "not yet" marks read right at negative hours too, so a plant planted before 10 Nov gets its forecast
   const forecast = bloomed === null ? expectBloom(state, null, { h: Math.max(nowH, state.h), climT: CLIM_T }) : null;
   const care = careStatus(state, pending, nowH);
@@ -342,6 +348,7 @@ function buildMe(plant: PlantRef, state: PlantState, pending: readonly RecordedE
       ripeH: ripe,
       bloomH: bloomed,
       bloomedAt: bloomed === null ? null : hourIso(bloomed),
+      flowerOpenedAt: flowered === null ? null : hourIso(flowered),
       open: isPondState(state) ? null : round(state.op, 2),
       diedH: died,
       fairyUsed: state.fairyUsed,

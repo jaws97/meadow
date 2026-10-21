@@ -83,7 +83,7 @@ const eventsAt = (sc: GoldenScenario, h: number) => (sc.events[String(h)] ?? [])
  * other field of the state is compared at every snapshot, all season long.
  */
 const NEWER_FIELDS = new Set(["v", "flN", "flH", "nb"]);
-const NEWER_VISUAL = new Set(["flowerDay"]);
+const NEWER_VISUAL = new Set(["flowerDay", "wither", "shed", "fallen", "rebud"]);
 const reblooming = (st: PlantState) => st.flN > 0 && Math.floor(st.h / 24) - Math.floor(st.flH / 24) >= REBLOOM.holdD - 1;
 
 function compareSnapshot(sc: GoldenScenario, want: GoldenScenario["snapshots"][number] | undefined, st: PlantState, bad: string[]): number {

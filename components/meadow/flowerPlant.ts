@@ -93,7 +93,8 @@ export function buildFlowerPlant(look: PlantLook, quality: { petals: Quality; le
   const chlorosis = look.chlorosis ?? 0;
 
   const leafMats = new Map<string, THREE.Material>();
-  const petalFade = quantize(fadeOf(look.health) * 0.85, 4);
+  // a sickly plant's petals fade, and so do a healthy flower's on its last day, as in the garden
+  const petalFade = quantize(Math.max(fadeOf(look.health), look.wither ?? 0) * 0.85, 4);
   const petalBurn = quantize(look.scorch, 3);
   const petalMats = Array.from({ length: VARIANTS }, (_, v) => petalMaterial(sp, petalFade, petalBurn, quality.petals, v));
   const budMat = budMaterial(sp);

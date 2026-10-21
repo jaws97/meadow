@@ -58,6 +58,7 @@ export {
   modelVersionOfState,
   isCurrentState,
   bloomedAt,
+  flowerOpenedAt,
   ripeAt,
   diedAt,
 } from "./plant";

@@ -24,7 +24,7 @@ import {
   stemEndTransform,
   stemPointAt,
 } from "@/lib/plant/geometry";
-import { droopOf, leafDropped, leafHealth, petalOpen } from "@/lib/plant/growth";
+import { droopOf, leafDropped, leafHealth, petalFallen, petalLoosen, petalOpen } from "@/lib/plant/growth";
 import { lerp, Rng, smoothstep } from "@/lib/plant/prng";
 import {
   BUD_SHOWN,
@@ -60,6 +60,14 @@ export interface PlantLook {
    * left out, every flower is drawn open (the Meadow's pictures, the rose on the dais).
    */
   opened?: number | null;
+  /**
+   * Flower after flower (the model's SIM_VERSION 8), as Plant.tsx draws them: a flower's petals fading and loosening on
+   * its last day (wither), the share let go from the head through its last evening (shed), and the next bud between
+   * flowers (rebud, 0 while a flower shows); left out, none of them.
+   */
+  wither?: number;
+  shed?: number;
+  rebud?: number;
 }
 
 /** How finely each part is built. */
@@ -152,6 +160,7 @@ export function posePlant<M>(look: PlantLook, detail: PoseDetail, mats: PartMate
   // the look says how long ago the first opened
   const raceme = racemeNodes(look.seed, sp, n);
   const opened = look.opened === undefined ? Infinity : look.opened;
+  const wither = look.wither ?? 0, shed = look.shed ?? 0, rebud = look.rebud ?? 0;
 
   // ---- geometry, as Plant.tsx builds it ----
   const own: THREE.BufferGeometry[] = [];
@@ -334,7 +343,8 @@ export function posePlant<M>(look: PlantLook, detail: PoseDetail, mats: PartMate
   let followed = heads[0];
   /** Dresses one head: the one flower (`node` null), or a lily's flower or tip bud on its own bud and clock. */
   const dressHead = (head: THREE.Group, node: RacemeNode | null) => {
-    const bud = node ? racemeBudGrowth(heroBudGrowth, g, node) : leadBud;
+    // between flowers the head is the next bud, as in Plant.tsx (a jasmine's closed tip buds stay as they are)
+    const bud = rebud > 0.001 && !node?.tipBud ? rebud : node ? racemeBudGrowth(heroBudGrowth, g, node) : leadBud;
     const eb = node ? leadEb * racemeOpen(node, opened) : leadEb;
     const petalsShown = bud > BUD_SHOWN;
     const shown = headShown && (!node || node.tipBud || petalsShown);
@@ -367,13 +377,19 @@ export function posePlant<M>(look: PlantLook, detail: PoseDetail, mats: PartMate
       if (petalsShown) {
         const layerDen = Math.max(1, L - 1);
         bp.petals.forEach((p) => {
+          // the petals a flower has let go of through its last evening
+          if (petalFallen(shed, p.phase, p.stagger)) return;
           const o = petalOpen(eb, p.stagger);
           const around = new THREE.Group();
           around.rotation.y = p.yaw;
           head.add(around);
           const pg = new THREE.Group();
           pg.position.set(0, (L - 1 - p.layer) * 0.006, c.radius * 0.35 + p.layer * 0.0055);
-          pg.rotation.set(o * p.openTarget - (1 - o) * (f.budClose ?? 0.18) + droop * 0.3 * (p.layer / layerDen), 0, f.layers[p.layer].lean ?? 0);
+          pg.rotation.set(
+            o * p.openTarget - (1 - o) * (f.budClose ?? 0.18) + droop * 0.3 * (p.layer / layerDen) + petalLoosen(wither, o, p.layer / layerDen),
+            0,
+            f.layers[p.layer].lean ?? 0,
+          );
           pg.scale.setScalar(lerp(f.budLength ?? 0.55, 1, o) * p.scale);
           around.add(pg);
           part(pg, petalGeo[p.layer][p.variant], mats.petal(p.variant), smoothstep(0.05, 0.95, o)).scale.setScalar(p.scale);

@@ -59,11 +59,17 @@ const weather = (over: Partial<WeatherNow> = {}): WeatherNow => ({
 
 /** A view at hour nowH with the state at stateH, for the helpers that read only a few fields. */
 function view(over: { nowH?: number; stateH?: number; alive?: boolean; fairyUsed?: boolean; revive?: boolean; replant?: boolean;
-  pending?: MeView["pending"]; bloomH?: number | null; forecastH?: number | null; shade?: boolean } = {}) {
+  pending?: MeView["pending"]; bloomH?: number | null; flowerH?: number | null; forecastH?: number | null; shade?: boolean;
+  visual?: Partial<MeView["visual"]> } = {}) {
   const nowH = over.nowH ?? 100;
+  const iso = (h: number | null | undefined) => (h == null ? null : dateOfHour(h).toISOString());
   return {
     now: { h: nowH, at: dateOfHour(nowH).toISOString(), clock: 10 },
-    state: { h: over.stateH ?? nowH, alive: over.alive ?? true, fairyUsed: over.fairyUsed ?? false, bloomH: over.bloomH ?? null },
+    state: {
+      h: over.stateH ?? nowH, alive: over.alive ?? true, fairyUsed: over.fairyUsed ?? false, bloomH: over.bloomH ?? null,
+      bloomedAt: iso(over.bloomH), flowerOpenedAt: iso(over.flowerH ?? over.bloomH),
+    },
+    visual: { ...over.visual },
     care: {
       water: { ready: true, nextH: null, nextAt: null }, feed: { ready: true, nextH: null, nextAt: null },
       revive: over.revive ?? false, replant: over.replant ?? false, shade: over.shade ?? false, cover: false,
@@ -161,6 +167,11 @@ describe("words", () => {
     expect(bloomText(view({ forecastH: 130 }))).toBe("About a day to bloom");
     expect(bloomText(view({ forecastH: 110 }))).toBe("Blooming very soon");
     expect(bloomText(view({ bloomH: 90 }))).toBe("In bloom");
+    // flower after flower: the next bud between them, then the next flower
+    expect(bloomText(view({ bloomH: 90, visual: { rebud: 0.3 } }))).toBe("New bud forming");
+    expect(bloomText(view({ bloomH: 90, flowerH: 90 + 24 * 17, visual: { rebud: 0 } }))).toBe("In bloom again");
+    // a lotus between its flowers keeps to "In bloom"
+    expect(bloomText(view({ bloomH: 90, flowerH: 90 + 24 * 9, visual: { medium: "pond" } as Partial<MeView["visual"]> }))).toBe("In bloom");
     expect(bloomText(view({ forecastH: null }))).toBeNull();
     expect(bloomText(view({ alive: false, forecastH: 300 }))).toBeNull();
   });
@@ -189,6 +200,11 @@ describe("words", () => {
     expect(day4.text).toBe("Day 4 · about 10 days to bloom");
     expect(day4.spoken).toBe("Day 4 since planting, about 10 days to bloom");
     expect(at(15 + 24 * 15, 15, null, 15 + 24 * 14).text).toBe("Day 15 · in bloom");
+    const between = outlookText(
+      { ...view({ nowH: 15 + 24 * 23, bloomH: 15 + 24 * 14, visual: { rebud: 0.4 } }), plant: { plantedAt: dateOfHour(15).toISOString() } } as MeView,
+      dateOfHour(15 + 24 * 23).getTime(),
+    );
+    expect(between.text).toBe("Day 23 · new bud forming");
   });
 
   it("lets one voice ask for water: the rain's, the seed's quiet line, else the plant's", () => {

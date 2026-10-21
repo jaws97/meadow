@@ -343,10 +343,10 @@ export function plantedText(plantedAt: string, nowMs: number): string {
 
 /**
  * The plant's day and its outlook in one short chip, so the payoff fits on a phone: "Planted today", "Day 4",
- * "Day 4 · about 10 days to bloom", "Day 15 · in bloom". Day N is N IST calendar days after planting, as the bloom
+ * "Day 4 · about 10 days to bloom", "Day 15 · in bloom", "Day 23 · new bud forming". Day N is N IST calendar days after planting, as the bloom
  * outlook counts (about 14 days when well kept). `spoken` is the same for screen readers.
  */
-export function outlookText(me: Pick<MeView, "plant" | "state" | "forecast" | "now">, nowMs: number): { text: string; spoken: string } {
+export function outlookText(me: Pick<MeView, "plant" | "state" | "forecast" | "now" | "visual">, nowMs: number): { text: string; spoken: string } {
   const days = istDay(nowMs) - istDay(Date.parse(me.plant.plantedAt));
   const day = days <= 0 ? "Planted today" : `Day ${days}`;
   const bloom = bloomText(me);
@@ -355,10 +355,18 @@ export function outlookText(me: Pick<MeView, "plant" | "state" | "forecast" | "n
   return { text: `${day} · ${lower}`, spoken: `${days <= 0 ? day : `Day ${days} since planting`}, ${lower}` };
 }
 
-/** "About 9 days to bloom" from the server's forecast (expectBloom), "In bloom" once it has, or null. */
-export function bloomText(me: Pick<MeView, "state" | "forecast" | "now">): string | null {
+/**
+ * "About 9 days to bloom" from the server's forecast (expectBloom), "In bloom" once it has, or null. A bed flower's
+ * later flowers are "In bloom again", and between one flower and the next it says "New bud forming" (a lotus's own
+ * flowers and pods keep to "In bloom").
+ */
+export function bloomText(me: Pick<MeView, "state" | "forecast" | "now" | "visual">): string | null {
   if (!me.state.alive) return null;
-  if (me.state.bloomH !== null) return "In bloom";
+  if (me.state.bloomH !== null) {
+    if (isPondVisual(me.visual)) return "In bloom";
+    if ((me.visual.rebud ?? 0) > 0) return "New bud forming";
+    return me.state.flowerOpenedAt && me.state.flowerOpenedAt !== me.state.bloomedAt ? "In bloom again" : "In bloom";
+  }
   const f = me.forecast;
   if (!f) return null;
   const days = (f.bloomH - me.now.h) / 24;
@@ -790,12 +798,12 @@ export function toggleShown(snap: Pick<PlantSnapshot, "me" | "meAt" | "local">, 
 
 const RENDER_KEYS = [
   "growth", "bloom", "health", "moisture", "scorch", "droop", "chlorosis", "rot", "pests", "mushrooms", "snails", "flowerSize",
-  "glow", "rain", "cloud", "wind", "shade", "cover",
+  "wither", "shed", "fallen", "rebud", "glow", "rain", "cloud", "wind", "shade", "cover",
 ] as const;
 type RenderKey = (typeof RENDER_KEYS)[number];
 export type RenderTarget = Record<RenderKey, number>;
-/** Keys a look remembered before they existed may lack; they read as 0 (folded away). */
-const OPTIONAL_KEYS: ReadonlySet<RenderKey> = new Set<RenderKey>(["shade", "cover"]);
+/** Keys a look remembered before they existed may lack; they read as 0 (folded away, or no flower after the first yet). */
+const OPTIONAL_KEYS: ReadonlySet<RenderKey> = new Set<RenderKey>(["shade", "cover", "wither", "shed", "fallen", "rebud"]);
 
 /**
  * Seconds each number takes to cover most of the way to a new value (0: it steps, as counts do, and the shade cloth and
@@ -803,7 +811,8 @@ const OPTIONAL_KEYS: ReadonlySet<RenderKey> = new Set<RenderKey>(["shade", "cove
  */
 const EASE_S: Record<RenderKey, number> = {
   growth: 8, bloom: 6, health: 10, moisture: 3, scorch: 10, droop: 5, chlorosis: 12, rot: 12, pests: 3,
-  mushrooms: 0, snails: 0, flowerSize: 10, glow: 1.5, rain: 6, cloud: 8, wind: 6, shade: 0, cover: 0,
+  mushrooms: 0, snails: 0, flowerSize: 10, wither: 10, shed: 6, fallen: 6, rebud: 8, glow: 1.5, rain: 6, cloud: 8, wind: 6,
+  shade: 0, cover: 0,
 };
 
 /**
@@ -832,6 +841,11 @@ export function renderTarget(
     mushrooms: v.mushrooms,
     snails: resting ? 0 : v.snails,
     flowerSize: flowerSizeOf(v, generation),
+    // a lotus draws its own flowers after the first (its pond's petals and pods)
+    wither: resting || !("wither" in v) ? 0 : v.wither,
+    shed: resting || !("shed" in v) ? 0 : v.shed,
+    fallen: !("fallen" in v) ? 0 : v.fallen,
+    rebud: resting || !("rebud" in v) ? 0 : v.rebud,
     glow: resting ? 0 : v.glow,
     rain: raining && w ? clamp(0.3 + w.rainMm / 6, 0.3, 0.95) : 0,
     cloud: raining && w ? clamp(0.7 + w.rainMm / 20, 0.7, 0.95) : 0.2,
@@ -1090,8 +1104,11 @@ interface Look {
   at: number;
   /** a lotus's pond (absent from looks remembered before the lotus, and for a soil flower) */
   pond?: PondShown | null;
-  /** when the flower opened, for a lily's later flowers (absent from looks remembered before the lily's stem of flowers) */
-  bloomedAt?: string | null;
+  /**
+   * when the flower now shown opened, for a lily's later flowers (absent from looks remembered before flowers followed
+   * one another, whose bloomedAt is left unread: /api/me sets the clock a moment later)
+   */
+  flowerOpenedAt?: string | null;
 }
 
 function readLook(): Look | null {
@@ -1107,21 +1124,21 @@ function readLook(): Look | null {
       l.target[k] = 0;
     }
     l.pond = isLotus(l.speciesId) ? validPond(l.pond) : null;
-    if (typeof l.bloomedAt !== "string") l.bloomedAt = null;
+    if (typeof l.flowerOpenedAt !== "string") l.flowerOpenedAt = null;
     return l;
   } catch {
     return null;
   }
 }
 
-function saveLook(speciesId: SpeciesId, seed: string, target: RenderTarget, pond: PondShown | null, bloomedAt: string | null) {
+function saveLook(speciesId: SpeciesId, seed: string, target: RenderTarget, pond: PondShown | null, flowerOpenedAt: string | null) {
   const now = Date.now();
   if (now - lookSavedAt < 60_000) return;
   lookSavedAt = now;
   try {
     // the pond's moments are this visit's only: a remembered look never replays a top-up or a planting
     const kept = pond ? { ...pond, topUpAt: 0, pinchAt: 0, plantedAt: 0 } : null;
-    window.localStorage.setItem(LOOK_KEY, JSON.stringify({ speciesId, seed, target, at: now, pond: kept, bloomedAt } satisfies Look));
+    window.localStorage.setItem(LOOK_KEY, JSON.stringify({ speciesId, seed, target, at: now, pond: kept, flowerOpenedAt } satisfies Look));
   } catch {
     // a convenience only: without it the garden opens on the owner's rose and swaps
   }
@@ -1154,7 +1171,7 @@ if (typeof window !== "undefined" && underVeil()) {
       seed: look.seed,
       ...gardenPatch(look.target),
       pond: look.pond ?? null,
-      opened: openedSince(look.bloomedAt, Date.now()),
+      opened: openedSince(look.flowerOpenedAt, Date.now()),
     });
     primed = true;
   }
@@ -1170,12 +1187,15 @@ let swapTimers: ReturnType<typeof setTimeout>[] = [];
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
+/** The opening a lily's flowers keep to: the flower now shown's (a view from before flowers followed one another: the first's). */
+const flowerClock = (me: MeView): string | null => me.state.flowerOpenedAt ?? me.state.bloomedAt;
+
 function currentTarget(me: MeView, now: number): { target: RenderTarget; pond: PondShown | null; opened: number | null } {
   const events = overlayEvents(me, snap.local);
   const v = withCare(me.visual, events, now);
   const target = renderTarget(v, me.plant.generation, snap.weather, { shade: toggleShown(snap, "shade"), cover: toggleShown(snap, "cover") });
   const pond = isPondVisual(me.visual) && isPondShown(v) ? pondShownOf(v, pondStamps(me.visual, events)) : null;
-  return { target, pond, opened: openedSince(me.state.bloomedAt, now) };
+  return { target, pond, opened: openedSince(flowerClock(me), now) };
 }
 
 /** Whether the store's bloom clock already reads `b`, to the minute (far finer than a lily's mornings). */
@@ -1315,7 +1335,7 @@ function bridgeStep() {
   // a pond eases from what is shown; a stage change (the jar to the pond) or a first pond steps straight in
   shownPond = pond && shownPond && shownPond.stage === pond.stage ? easePond(shownPond, pond, dt) : pond;
   writeTarget(shown, shownPond, opened);
-  saveLook(identity.speciesId, identity.seed, target, pond, me.state.bloomedAt);
+  saveLook(identity.speciesId, identity.seed, target, pond, flowerClock(me));
 }
 
 function startBridge() {

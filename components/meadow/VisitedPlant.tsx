@@ -116,8 +116,12 @@ export function VisitedPlant({ quality }: { quality: Quality }) {
             droop: v.droop,
             flower: v.flower,
             chlorosis: v.chlorosis,
-            // a lily's later flowers, open as its bloom clock says
-            opened: openedSince(friend.bloomedAt, Date.now()),
+            // a lily's later flowers, open as the clock of the flower now shown says
+            opened: openedSince(friend.flowerOpenedAt ?? friend.bloomedAt, Date.now()),
+            // a flower's last day, its petals letting go, and the next bud between flowers
+            wither: "wither" in v ? v.wither : 0,
+            shed: "shed" in v ? v.shed : 0,
+            rebud: "rebud" in v ? v.rebud : 0,
           },
           { petals: quality, leaves: "lite" },
         ),

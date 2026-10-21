@@ -108,11 +108,21 @@ export interface GardenState {
   snails: number;
   /** the flower against a full one: smaller after stress while budding, 0.7 for a second-chance sprout */
   flowerSize: number;
+  /**
+   * The flowers that follow the first (the model's SIM_VERSION 8), each 0..1: the petals paling on a flower's last day,
+   * the share of its petals gone from the head as they fall, the fallen petals on the soil, and the next bud between
+   * flowers (0 while a flower shows: the head is then the plant's own bud or flower)
+   */
+  wither: number;
+  shed: number;
+  fallen: number;
+  rebud: number;
   /** a soft extra glow for an hour after the plant is talked to, 0..1 */
   glow: number;
   /**
-   * Hours since the flower opened, for a lily's later flowers (lib/plant/raceme racemeOpen): null while it has not,
-   * Infinity for every flower shown open (the owner's rose, a development view). Stepped, never eased.
+   * Hours since the flower now shown opened (each flower after the first starts it again), for a lily's later flowers
+   * (lib/plant/raceme racemeOpen): null while none has, Infinity for every flower shown open (the owner's rose, a
+   * development view). Stepped, never eased.
    */
   opened: number | null;
   /** the shade cloth (1 up, 0 folded away) and the rain cover over the bed; the garden eases them in and out */
@@ -151,6 +161,10 @@ const initial: GardenState = {
   mushrooms: 0,
   snails: 0,
   flowerSize: 1,
+  wither: 0,
+  shed: 0,
+  fallen: 0,
+  rebud: 0,
   glow: 0,
   opened: Infinity,
   shade: 0,

@@ -132,6 +132,10 @@ export function syntheticFriend(plot: number, opts: SyntheticOptions): FriendGar
     headYaw: 0,
     petalDrop: 0,
     flowerDay: p.stage === "bloom" ? 1 : 0,
+    wither: 0,
+    shed: 0,
+    fallen: 0,
+    rebud: 0,
     glow: 0,
     mood: !alive ? "resting" : poorly ? "thirsty" : p.stage === "bloom" ? "blooming" : "content",
     says: !alive ? "gone to sleep" : poorly ? "a little thirsty" : p.stage === "bloom" ? "in bloom" : "happy",
@@ -141,6 +145,7 @@ export function syntheticFriend(plot: number, opts: SyntheticOptions): FriendGar
   };
   const visual: Visual = p.species === "lotus" ? lotusVisual(p, soil) : soil;
   const snapshot = syntheticSnapshot(opts);
+  const opened = p.stage === "bloom" ? new Date((snapshot.h - 72) * 3_600_000).toISOString() : null;
   return {
     v: 1,
     plot,
@@ -154,7 +159,8 @@ export function syntheticFriend(plot: number, opts: SyntheticOptions): FriendGar
     bloom: p.bloom,
     visual,
     // a made-up flower in bloom opened three days ago, so a lily's visit shows all its flowers, as its picture does
-    bloomedAt: p.stage === "bloom" ? new Date((snapshot.h - 72) * 3_600_000).toISOString() : null,
+    bloomedAt: opened,
+    flowerOpenedAt: opened,
     h: snapshot.h,
     at: snapshot.at,
   };

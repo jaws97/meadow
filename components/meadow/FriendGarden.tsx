@@ -56,15 +56,15 @@ function lotusLook(v: PondVisual, generation: number): Partial<GardenState> {
 type Loaded = { ok: true; friend: FriendGarden } | { ok: false; message: string };
 
 /**
- * The friend's plant in the garden store, for as long as this view is open; with `bloomedAt`, the hours since its flower
- * opened keep to the clock with the hour, so a lily's next flower opens while it is watched.
+ * The friend's plant in the garden store, for as long as this view is open; with `flowerOpenedAt`, the hours since the
+ * flower now shown opened keep to the clock with the hour, so a lily's next flower opens while it is watched.
  */
-function useFriendInStore(look: Partial<GardenState> | null, bloomedAt: string | null): boolean {
+function useFriendInStore(look: Partial<GardenState> | null, flowerOpenedAt: string | null): boolean {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     if (!look) return;
     const before = garden.get();
-    const clock = () => (bloomedAt ? { opened: openedSince(bloomedAt, Date.now()) } : {});
+    const clock = () => (flowerOpenedAt ? { opened: openedSince(flowerOpenedAt, Date.now()) } : {});
     // a friend's garden plays none of this device's own moments (the watering can stays where it stands)
     garden.set({ ...look, ...clock(), autoClock: false, hour: istNow(), canMoment: null });
     const id = window.setInterval(() => garden.set({ hour: istNow(), ...clock() }), 30_000);
@@ -85,6 +85,10 @@ function useFriendInStore(look: Partial<GardenState> | null, bloomedAt: string |
         rot: before.rot,
         pests: before.pests,
         flowerSize: before.flowerSize,
+        wither: before.wither,
+        shed: before.shed,
+        fallen: before.fallen,
+        rebud: before.rebud,
         glow: before.glow,
         opened: before.opened,
         pond: before.pond,
@@ -93,7 +97,7 @@ function useFriendInStore(look: Partial<GardenState> | null, bloomedAt: string |
         hour: before.hour,
       });
     };
-  }, [look, bloomedAt]);
+  }, [look, flowerOpenedAt]);
   return ready;
 }
 
@@ -120,18 +124,21 @@ export function FriendGardenView() {
   const [look, setLook] = useState<Partial<GardenState> | null>(null);
   useEffect(() => {
     let next: Partial<GardenState> | null = null;
-    if (which.kind === "rose") next = { speciesId: "rose", seed: OWNER_SEED, growth: 1, bloom: 1, health: 1, moisture: 0.6, scorch: 0, opened: Infinity, pond: null };
+    const between = { wither: 0, shed: 0, fallen: 0, rebud: 0 };
+    if (which.kind === "rose") next = { speciesId: "rose", seed: OWNER_SEED, growth: 1, bloom: 1, health: 1, moisture: 0.6, scorch: 0, opened: Infinity, pond: null, ...between };
     else if (loaded?.ok) {
       const f = loaded.friend, v = f.visual;
-      // a lily's later flowers stay closed unless its bloom clock says otherwise (useFriendInStore keeps it from bloomedAt)
-      next = { speciesId: f.species, seed: f.seed, growth: v.growth, bloom: v.bloom, health: v.health, moisture: v.moisture, scorch: v.scorch, opened: null, pond: null };
+      // a lily's later flowers stay closed unless its bloom clock says otherwise (useFriendInStore keeps it from
+      // flowerOpenedAt); a flower's last day, its fallen petals and the next bud between flowers come from its visual
+      next = { speciesId: f.species, seed: f.seed, growth: v.growth, bloom: v.bloom, health: v.health, moisture: v.moisture, scorch: v.scorch, opened: null, pond: null, ...between };
+      if ("rebud" in v) next = { ...next, wither: v.wither, shed: v.shed, fallen: v.fallen, rebud: v.rebud };
       if ("medium" in v && v.medium === "pond") next = { ...next, ...lotusLook(v, f.generation) };
     }
     if (!next) return;
     const id = window.setTimeout(() => setLook(next), 0);
     return () => window.clearTimeout(id);
   }, [which, loaded]);
-  const ready = useFriendInStore(look, loaded?.ok ? (loaded.friend.bloomedAt ?? null) : null);
+  const ready = useFriendInStore(look, loaded?.ok ? (loaded.friend.flowerOpenedAt ?? loaded.friend.bloomedAt ?? null) : null);
 
   const back = which.kind === "plot" ? `/meadow?plot=${which.plot}` : "/meadow";
   const friend = loaded?.ok ? loaded.friend : null;

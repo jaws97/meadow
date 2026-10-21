@@ -66,6 +66,11 @@ describe("the card's words", () => {
     // a lotus flowering again counts to today
     const again = me("2026-11-10T04:00:00.000Z", "2026-11-24T04:00:00.000Z", { medium: "pond", flowers: 2 });
     expect(grownDays(again, Date.parse("2026-12-08T04:00:00.000Z"))).toBe(28);
+    // and so does a bed flower's second flower; its first still counts to the day it bloomed
+    const rose = (flowerOpenedAt: string) =>
+      ({ plant: { plantedAt: "2026-11-10T04:00:00.000Z" }, state: { bloomedAt: "2026-11-24T00:30:00.000Z", flowerOpenedAt }, visual: { stage: "bloom" } }) as unknown as MeView;
+    expect(grownDays(rose("2026-12-11T00:30:00.000Z"), Date.parse("2026-12-12T04:00:00.000Z"))).toBe(32);
+    expect(grownDays(rose("2026-11-24T00:30:00.000Z"), Date.parse("2026-11-26T04:00:00.000Z"))).toBe(14);
     expect(grownWords(14)).toBe("grown in 14 days in the Meadow, Bangalore");
     expect(grownWords(1, false)).toBe("grown in a day in the Meadow");
   });

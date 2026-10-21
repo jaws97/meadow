@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { CLIM_T } from "./climate";
 import { BED, Bideal, REBLOOM, SIM_SPECIES, WX_FALLBACK, cleanWx, createPlant, expectBloom, fOf, hodOf, openWindow, step, thetaOf, toVisual } from "./model";
 import type { HourWeather, LooseWeather, PlantState, SimEvent } from "./model";
+import { bloomedAt, flowerOpenedAt } from "./plant";
 import { IDS, MEAN, NH, PARTY, W, YEARS, at, goodCare, inOwnPart, mulberry32, randomPolicy, rowsFor, simulate } from "./__fixtures__/harness";
 
 /** 10 Dec 23:00 IST, the last hour of the prototype's planting window: planting has never closed since 21 Oct. */
@@ -71,7 +72,7 @@ describe("state and visual invariants", () => {
         for (const key of ["W", "L", "B", "D", "Dw", "Ds", "R", "O", "Qd", "Qc", "Qr", "Ns", "Np", "turgor", "aba", "op", "fDev"] as const)
           if (!Number.isFinite(x.s[key]) || x.s[key] < 0) bad.push(`${x.h} state.${key} ${x.s[key]}`);
         if (x.s.alive && x.v.health <= 0) bad.push(`${x.h} health 0 while alive`);
-        if (!x.s.alive && (x.v.health > 0 || x.v.flower > 0 || x.v.bloom > 0 || x.v.flowerDay > 0)) bad.push(`${x.h} shows life when gone`);
+        if (!x.s.alive && (x.v.health > 0 || x.v.flower > 0 || x.v.bloom > 0 || x.v.flowerDay > 0 || x.v.rebud > 0 || x.v.wither > 0)) bad.push(`${x.h} shows life when gone`);
       }
     }
     expect(bad.slice(0, 10)).toEqual([]);
@@ -334,13 +335,21 @@ describe("the flowers that follow the first (SIM_VERSION 8)", () => {
       const r = simulate({ spId: id, plantH: PARTY, endH: NH, policy: goodCare(), wxAt: mean });
       const first = r.rec.find((x) => x.s.flN === 1)!;
       const last = day(first.s.flH) + REBLOOM.holdD - 1;
-      expect(atH(r, W(last, 12)).v.bloom, `${id} last noon`).toBeGreaterThan(0.5);
-      expect(atH(r, W(last, 12)).v.says).toBe("my flower will fade this evening; a new bud will follow");
-      expect(atH(r, W(last, 20)).v.petalDrop, `${id} last evening`).toBeGreaterThan(0);
-      expect(atH(r, W(last, 20)).v.says).toBe("my petals are falling; a new bud will follow");
+      const noon = atH(r, W(last, 12)).v, evening = atH(r, W(last, 20)).v;
+      expect(noon.bloom, `${id} last noon`).toBeGreaterThan(0.5);
+      expect(noon.wither, `${id} paling on its last day`).toBeGreaterThan(0.2);
+      expect(noon.says).toBe("my flower will fade this evening; a new bud will follow");
+      // the petals fall while the flower stays open, and lie on the soil
+      expect(evening).toMatchObject({ says: "my petals are falling; a new bud will follow" });
+      expect(evening.shed, `${id} last evening`).toBeGreaterThan(0.3);
+      expect(evening.bloom).toBeGreaterThan(0.5);
+      expect(evening.fallen).toBe(evening.shed);
       const after = atH(r, W(last + 1, 12)).v;
       expect(after.bloom, `${id} the day after`).toBe(0);
-      expect(after.flower, `${id} a new bud`).toBeGreaterThan(0);
+      expect(after.rebud, `${id} a small new bud`).toBeGreaterThan(0.1);
+      expect(after.rebud).toBeLessThan(0.4);
+      expect(after.fallen, `${id} petals still on the soil`).toBeGreaterThan(0.5);
+      expect(atH(r, W(last + 4, 12)).v.fallen, `${id} withered away`).toBe(0);
       // the plant says so whenever it is not asking for a drink
       expect(r.rec.some((x) => day(x.h) === last + 1 && x.v.says === "a new bud is forming"), `${id} says a bud forms`).toBe(true);
       const second = r.rec.find((x) => x.s.flN === 2);
@@ -348,10 +357,16 @@ describe("the flowers that follow the first (SIM_VERSION 8)", () => {
       const gap = (second!.s.flH - W(last + 1, 0)) / 24;
       expect(gap, `${id} days from the fall to the next flower`).toBeGreaterThan(7);
       expect(gap).toBeLessThan(13);
-      expect(atH(r, W(day(second!.s.flH), 12)).v).toMatchObject({ mood: "blooming", says: "in bloom again" });
+      expect(atH(r, W(day(second!.s.flH), 12)).v).toMatchObject({ mood: "blooming", says: "in bloom again", rebud: 0, flowerDay: 1 });
+      // the bud was nearly full size by the morning it opened
+      expect(atH(r, second!.s.flH - 1).v.rebud).toBeGreaterThan(0.9);
       // every field the prototype has is untouched: the first flower's own marks stay
       expect(second!.s.bloomH).toBe(first.s.bloomH);
       expect(second!.s.op).toBe(1);
+      // the opening a lily's later flowers keep to: none before the first, then the first's bloom hour, then the second's
+      expect(flowerOpenedAt(r.rec[0].s)).toBeNull();
+      expect(flowerOpenedAt(first.s)).toBe(bloomedAt(first.s));
+      expect(flowerOpenedAt(second!.s)).toBe(second!.s.flH);
     }
   });
 
@@ -368,7 +383,10 @@ describe("the flowers that follow the first (SIM_VERSION 8)", () => {
     const first = r.rec.find((x) => x.s.flN === 1)!;
     const last = day(first.s.flH) + REBLOOM.holdD - 1;
     expect(atH(r, W(last, 22)).v.bloom).toBeGreaterThan(0.5);
-    expect(toVisual(atH(r, W(last + 1, 6)).s, SIM_SPECIES.jasmine, 6.75).petalDrop).toBeGreaterThan(0);
+    const dawn = toVisual(atH(r, W(last + 1, 6)).s, SIM_SPECIES.jasmine, 6.75);
+    expect(dawn.petalDrop).toBeGreaterThan(0);
+    expect(dawn.shed).toBeGreaterThan(0);
+    expect(dawn.fallen).toBeGreaterThan(0);
     expect(atH(r, W(last + 1, 22)).v).toMatchObject({ bloom: 0, says: "a new bud is forming" });
     expect(r.rec.some((x) => x.s.flN === 2)).toBe(true);
   });

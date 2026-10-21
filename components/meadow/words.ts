@@ -10,7 +10,7 @@
 // top-up."); its friend's own garden says them as they are.
 import type { FriendGarden, MeadowPlot } from "@/lib/server/meadow";
 import { SPECIES, type SpeciesId } from "@/lib/plant/species";
-import type { PondLine, PondVisual, Visual } from "@/lib/sim";
+import type { PondLine, PondVisual, SoilVisual, Visual } from "@/lib/sim";
 
 export function speciesName(id: SpeciesId): string {
   return SPECIES[id].name;
@@ -154,9 +154,15 @@ export function moodLine(f: Pick<FriendGarden, "species" | "stage" | "visual" | 
       // a flower open now reads as one, whatever its bloom hour says
       if (f.visual.bloom >= 0.2) return "In full bloom.";
       return "A bud is forming. The flower is on its way.";
-    case "bloom":
+    case "bloom": {
+      // flower after flower: a flower's last day and its falling petals, then the next bud between flowers
+      const v = f.visual as Partial<SoilVisual>;
+      if ((v.shed ?? 0) > 0) return "Its petals are falling. A new bud will follow.";
+      if ((v.rebud ?? 0) > 0) return "A new bud is forming. The next flower is on its way.";
       if (f.visual.bloom < 0.2) return opensAtDusk(f.species) ? "In bloom. The petals open at dusk." : "In bloom. The petals open with the morning light.";
-      return "In full bloom.";
+      if ((v.wither ?? 0) > 0) return "In bloom, its last day. The petals fall this evening.";
+      return f.visual.says === "in bloom again" ? "In full bloom again." : "In full bloom.";
+    }
   }
   return "Growing quietly.";
 }
@@ -198,7 +204,8 @@ export function stageWord(p: Pick<MeadowPlot, "stage" | "bloom" | "species">, v?
     case "bud":
       return "in bud";
     case "bloom":
-      return "in bloom";
+      // between one flower and the next, a visit's visual knows the new bud
+      return ((v as Partial<SoilVisual> | null | undefined)?.rebud ?? 0) > 0 ? "a new bud" : "in bloom";
     case "resting":
       return "resting";
   }

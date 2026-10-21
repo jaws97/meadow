@@ -433,10 +433,7 @@ export interface Visual {
   pests: number;
   size: number;
   turgor: number;
-  /**
-   * flower head: 0 until buds form (D 0.64), full size by D 0.95, smaller after stress while budding, capped after a
-   * replant; between flowers, the next bud, on nb (SIM_VERSION 8)
-   */
+  /** flower head: 0 until buds form (D 0.64), full size by D 0.95, smaller after stress while budding, capped after a replant */
   flower: number;
   puddle: 0 | 1;
   /** 0..5 */
@@ -453,6 +450,17 @@ export interface Visual {
    * a flower's petals begin to fall on its last evening (SIM_VERSION 8; a lotus's PondVisual has its own)
    */
   flowerDay: number;
+  /**
+   * The flowers that follow (SIM_VERSION 8), as the garden draws them, each 0..1: the petals paling through a flower's
+   * last day (wither), the share of the head's petals gone as they fall (shed: a morning flower's from 17:00 on its last
+   * day, the jasmine's at its last dawn), the fallen petals on the soil (they gather as they fall and wither away over
+   * three days), and the next bud between flowers (rebud: small as the petals go, full as it is about to open; 0 while
+   * a flower shows)
+   */
+  wither: number;
+  shed: number;
+  fallen: number;
+  rebud: number;
   glow: 0 | 1;
   mood: PlantMood;
   says: PlantLine;
@@ -934,11 +942,15 @@ export function toVisual(s: PlantState, sp?: SimSpecies | null, clock?: number):
   // grows (nb), and a flower after the first opens whole at its hour
   const fday = s.flN > 0 ? Math.floor(s.h / 24) - Math.floor(s.flH / 24) : -1, lastDay = REBLOOM.holdD - 1;
   const flowering = s.flN === 0 || fday <= lastDay || (!!sp.nightBloom && fday === lastDay + 1 && t < 7.5);
+  // a morning flower's petals pale through its last day and fall from 17:00 to midnight, staying open as they go; the
+  // jasmine's last flowers fall at its last dawn, as they do every dawn
   const fall = !sp.nightBloom && s.flN > 0 && fday === lastDay ? clamp01((t - 17) / 7) : 0;
-  const rhythm = flowering ? (sp.nightBloom ? jasmineRhythm(t) : 1) * (1 - fall) : 0, Q = clamp01(1 - 2 * s.budS);
+  const lastDawn = !!sp.nightBloom && s.flN > 0 && fday === lastDay + 1 && t >= 6 ? clamp01((t - 6) / 1.5) : 0;
+  const rhythm = flowering ? (sp.nightBloom ? jasmineRhythm(t) : 1) : 0, Q = clamp01(1 - 2 * s.budS);
   const bloom = s.alive ? (s.flN > 1 ? 1 : smooth(0, 1, s.op)) * rhythm * (0.55 + 0.45 * s.turgor) * (0.6 + 0.4 * Q) : 0;
-  // the flower head grows from the bud: the first on D (0.64 to 0.95), the next ones on nb, on the same scale
-  const headD = flowering ? D : 0.64 + 0.31 * s.nb;
+  // the fallen petals on the soil: they gather as they fall and wither away over the three days after
+  const fellAt = 24 * (Math.floor(s.flH / 24) + REBLOOM.holdD) + (sp.nightBloom ? 7.5 : 0), sinceFell = s.h + (t - s.hod) - fellAt;
+  const fallen = !s.alive || s.flN === 0 || fday > lastDay + 4 ? 0 : sinceFell < 0 ? Math.max(fall, lastDawn) : clamp01(1 - sinceFell / 72);
   const nDef = clamp01((0.9 - s.NNI) / 0.4);
   // health reaches 0 only at death (Dd + R = 1); salt, pests, nitrogen and black spot scale what is left
   const health = s.alive ? Math.max(0.01, (1 - Dd - s.R) * (1 - 0.4 * s.Dsalt) * (1 - 0.3 * s.Dpest) * (1 - 0.25 * nDef) * (1 - 0.2 * s.BS)) : 0;
@@ -1019,11 +1031,15 @@ export function toVisual(s: PlantState, sp?: SimSpecies | null, clock?: number):
     // makes it smaller, a stunted plant a little smaller (flower size is far less plastic than plant mass, so a cloudy
     // fortnight that halves the plant costs the flower about a tenth); a second-chance sprout's flower is capped at
     // replantCap. Nothing about the planting date enters.
-    flower: !s.alive || D < 0.64 ? 0 : s.cap * (0.3 + 0.7 * smooth(0.64, 0.95, headD)) * (0.6 + 0.4 * Q) * (0.8 + 0.2 * clamp01((size - 0.5) / 0.5)),
+    flower: !s.alive || D < 0.64 ? 0 : s.cap * (0.3 + 0.7 * smooth(0.64, 0.95, D)) * (0.6 + 0.4 * Q) * (0.8 + 0.2 * clamp01((size - 0.5) / 0.5)),
     puddle: theta > 0.38 ? 1 : 0, mushrooms: Math.round(5 * clamp01((s.M - 0.4) / 0.5)),
     snails: night ? Math.round(3 * s.Ps) : 0, aphids: s.Pa, mites: s.Pm, blackSpot: s.BS,
-    headYaw: yaw, petalDrop: sp.nightBloom ? (s.op > 0 && flowering && t >= 6 && t < 7.5 ? (t - 6) / 1.5 : 0) : fall,
+    headYaw: yaw, petalDrop: sp.nightBloom && s.op > 0 && flowering && t >= 6 && t < 7.5 ? (t - 6) / 1.5 : 0,
     flowerDay: s.alive && s.flN > 0 && flowering && fall === 0 ? Math.min(REBLOOM.holdD, fday + 1) : 0,
+    wither: s.alive && !sp.nightBloom && s.flN > 0 && fday === lastDay ? clamp01(0.75 * smooth(8, 17, t) + 0.25 * fall) : 0,
+    shed: s.alive ? Math.max(fall, lastDawn) : 0,
+    fallen,
+    rebud: s.alive && !flowering ? 0.15 + 0.85 * smooth(0, 1, s.nb) : 0,
     glow: s.glowH > 0 ? 1 : 0, mood: mood, says: says, alive: s.alive,
     canAdvice: !s.alive ? "ok" : damp ? "damp" : thirsty ? "thirsty" : ready ? "ready" : "ok",
     feedAdvice: s.alive && nRich(s) ? "rich" : "ok",

@@ -62,11 +62,13 @@ export function beyondLatin(s: string): boolean {
 
 /**
  * How many days the flower took: from the day it was planted to the day it bloomed, in Bangalore's calendar days (the
- * "Day N" its care card showed that day). A lotus flowering again counts to today. Never less than one.
+ * "Day N" its care card showed that day). A flower after the first (a lotus's, or a bed flower's) counts to today.
+ * Never less than one.
  */
 export function grownDays(me: Pick<MeView, "plant" | "state" | "visual">, nowMs: number): number {
   const planted = istDayOf(Date.parse(me.plant.plantedAt));
-  const again = isPondVisual(me.visual) && me.visual.flowers > 1;
+  const later = me.state.flowerOpenedAt;
+  const again = isPondVisual(me.visual) ? me.visual.flowers > 1 : !!later && later !== me.state.bloomedAt;
   const until = !again && me.state.bloomedAt ? Date.parse(me.state.bloomedAt) : nowMs;
   return Math.max(1, istDayOf(until) - planted);
 }

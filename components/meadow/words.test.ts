@@ -1,8 +1,9 @@
-// What the Meadow says of a lotus: its stages in its own words, and its own lines said of it.
+// What the Meadow says of a lotus (its stages in its own words, and its own lines said of it) and of a bed flower's
+// flowers, one after another.
 import { describe, expect, it } from "vitest";
 import { syntheticFriend, syntheticSnapshot } from "@/components/meadow/lod/synthetic";
 import { moodLine, stageWord } from "@/components/meadow/words";
-import { POND_LINES, type PondVisual } from "@/lib/sim";
+import { POND_LINES, type PondVisual, type SoilVisual } from "@/lib/sim";
 import type { FriendGarden } from "@/lib/server/meadow";
 
 /** The first made-up lotus at `stage` (and health) in a Meadow of 720. */
@@ -14,6 +15,14 @@ function lotusAt(stage: FriendGarden["stage"], health?: FriendGarden["health"]):
 }
 
 const NOON = Date.UTC(2026, 10, 12, 6, 30);
+
+/** The first made-up bed flower of `species` in bloom, in a Meadow of 720. */
+function soilAt(species: FriendGarden["species"]): FriendGarden & { visual: SoilVisual } {
+  const opts = { count: 720 };
+  const p = syntheticSnapshot(opts, 0).plots.find((q) => q.species === species && q.stage === "bloom" && q.health !== "poorly");
+  if (!p) throw new Error(`no made-up ${species} in bloom`);
+  return syntheticFriend(p.plot, opts)! as FriendGarden & { visual: SoilVisual };
+}
 
 describe("stageWord", () => {
   it("names a lotus's stages as a lotus grows them", () => {
@@ -38,6 +47,24 @@ describe("stageWord", () => {
     expect(stageWord({ species: "rose", stage: "sprout", bloom: 0 })).toBe("a sprout");
     expect(stageWord({ species: "jasmine", stage: "leafy", bloom: 0 })).toBe("growing");
     expect(stageWord({ species: "marigold", stage: "bloom", bloom: 0 })).toBe("in bloom");
+  });
+
+  it("knows a bed flower's new bud between flowers from a visit", () => {
+    const rose = soilAt("rose");
+    expect(stageWord({ species: "rose", stage: "bloom", bloom: 0 }, { ...rose.visual, bloom: 0, rebud: 0.3 } as SoilVisual)).toBe("a new bud");
+    expect(stageWord({ species: "rose", stage: "bloom", bloom: 3 }, rose.visual)).toBe("in bloom");
+  });
+});
+
+describe("moodLine for a bed flower, flower after flower", () => {
+  it("says its last day, its falling petals, the next bud and the next flower", () => {
+    const rose = soilAt("rose");
+    const at = (v: Partial<SoilVisual>) => moodLine({ ...rose, visual: { ...(rose.visual as SoilVisual), ...v } }, NOON);
+    expect(at({ bloom: 1, wither: 0, shed: 0, rebud: 0 })).toBe("In full bloom.");
+    expect(at({ bloom: 1, wither: 0.5 })).toBe("In bloom, its last day. The petals fall this evening.");
+    expect(at({ bloom: 0.9, wither: 0.9, shed: 0.4 })).toBe("Its petals are falling. A new bud will follow.");
+    expect(at({ bloom: 0, rebud: 0.2 })).toBe("A new bud is forming. The next flower is on its way.");
+    expect(at({ bloom: 1, says: "in bloom again" })).toBe("In full bloom again.");
   });
 });
 

@@ -57,6 +57,19 @@ export function petalOpen(bloom: number, stagger: number): number {
   return easeOutBack(clamp01((bloom - stagger * 0.35) / 0.65));
 }
 
+/**
+ * Whether a petal has let go of its flower by `shed` (the share of its petals gone from the head through its last
+ * evening, 0..1): here and there round the head, the outer petals a little sooner (`phase`, `stagger`: the petal's own).
+ */
+export function petalFallen(shed: number, phase: number, stagger: number): boolean {
+  return shed > 0.001 && shed > 0.05 + 0.9 * (0.7 * ((phase / 6.2832) % 1) + 0.3 * Math.min(1, stagger / 0.85));
+}
+
+/** How far a petal of a flower on its last day loosens outward (radians): with its `open`, the outer whorls the most (`out` 0..1). */
+export function petalLoosen(wither: number, open: number, out: number): number {
+  return wither * 0.4 * open * (0.5 + 0.5 * out);
+}
+
 /** 0 upright .. 1 fully wilted. Thirst and sickness both drag the plant down. */
 export function droopOf(v: PlantVisual): number {
   const thirst = 1 - smoothstep(0.08, 0.42, v.moisture);

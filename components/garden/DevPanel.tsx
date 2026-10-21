@@ -12,7 +12,19 @@ import { garden, useGarden, type CanSoil, type GardenState, type Quality } from 
 import { SPECIES_LIST } from "@/lib/plant/species";
 import { STAGES, stageOf } from "@/lib/plant/growth";
 
-type SliderKey = "growth" | "bloom" | "health" | "moisture" | "scorch" | "wind" | "cloud" | "rain";
+type SliderKey =
+  | "growth"
+  | "bloom"
+  | "health"
+  | "moisture"
+  | "scorch"
+  | "wither"
+  | "shed"
+  | "fallen"
+  | "rebud"
+  | "wind"
+  | "cloud"
+  | "rain";
 
 const SLIDERS: ReadonlyArray<{ key: SliderKey; label: string }> = [
   { key: "growth", label: "Growth" },
@@ -20,9 +32,23 @@ const SLIDERS: ReadonlyArray<{ key: SliderKey; label: string }> = [
   { key: "health", label: "Health" },
   { key: "moisture", label: "Moisture" },
   { key: "scorch", label: "Scorch" },
+  // a flower's last day and the next bud (the model's SIM_VERSION 8)
+  { key: "wither", label: "Petals paling" },
+  { key: "shed", label: "Petals fallen from the head" },
+  { key: "fallen", label: "Petals on the soil" },
+  { key: "rebud", label: "Next bud" },
   { key: "wind", label: "Wind" },
   { key: "cloud", label: "Cloud" },
   { key: "rain", label: "Rain" },
+];
+
+/** A flower's last days and the next one, as the model draws them (lib/sim/model.ts REBLOOM). */
+const REBLOOM_PRESETS: ReadonlyArray<{ label: string; patch: Partial<GardenState> }> = [
+  { label: "Last day", patch: { growth: 1, bloom: 1, wither: 0.75, shed: 0, fallen: 0, rebud: 0 } },
+  { label: "Petals falling", patch: { growth: 1, bloom: 1, wither: 1, shed: 0.55, fallen: 0.55, rebud: 0 } },
+  { label: "Fallen", patch: { growth: 1, bloom: 0, wither: 0, shed: 0, fallen: 1, rebud: 0.15 } },
+  { label: "New bud", patch: { growth: 1, bloom: 0, wither: 0, shed: 0, fallen: 0.2, rebud: 0.65 } },
+  { label: "Bloom again", patch: { growth: 1, bloom: 1, wither: 0, shed: 0, fallen: 0, rebud: 0 } },
 ];
 
 const QUALITIES: ReadonlyArray<Quality> = ["cinematic", "balanced", "lite"];
@@ -458,6 +484,16 @@ export function DevPanel() {
           <Section title="Presets">
             <div className="flex flex-wrap gap-1.5">
               {PRESETS.map((p) => (
+                <button key={p.label} type="button" onClick={() => garden.set(p.patch)} className={smallButtonClass}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </Section>
+
+          <Section title="Flower after flower">
+            <div className="flex flex-wrap gap-1.5">
+              {REBLOOM_PRESETS.map((p) => (
                 <button key={p.label} type="button" onClick={() => garden.set(p.patch)} className={smallButtonClass}>
                   {p.label}
                 </button>

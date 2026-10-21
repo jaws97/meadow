@@ -42,7 +42,7 @@ import {
   stemEndTransform,
   stemPointAt,
 } from "@/lib/plant/geometry";
-import { droopOf, fadeOf, leafDropped, leafHealth, petalOpen, quantize, type PlantVisual } from "@/lib/plant/growth";
+import { droopOf, fadeOf, leafDropped, leafHealth, petalFallen, petalLoosen, petalOpen, quantize, type PlantVisual } from "@/lib/plant/growth";
 import { lerp, Rng, smoothstep } from "@/lib/plant/prng";
 import {
   BUD_SHOWN,
@@ -166,6 +166,13 @@ interface PlantRefs {
   glow: THREE.PointLight | null;
   /** the petal materials (one per colour variant) in use, so the frame loop can drive their emissive */
   petalMats: THREE.MeshPhysicalMaterial[];
+  /** the fallen petals on the soil (FallenPetals), in the order they come down, and where each lies (plant's frame) */
+  fallen: (THREE.Group | null)[];
+  fallenAt: THREE.Vector3[];
+  /** the few petals seen drifting down from the head while a flower lets go of its petals */
+  drift: (THREE.Group | null)[];
+  /** the plant's own frame (HERO_SCALE), to bring the head's world position into it */
+  root: THREE.Group | null;
 }
 
 interface PlantContextValue {
@@ -183,6 +190,11 @@ interface HeroVisual extends PlantVisual {
   flower: number;
   glow: number;
   rot: number;
+  /** a flower's last day and the next bud (the store's wither, shed, fallen and rebud) */
+  wither: number;
+  shed: number;
+  fallen: number;
+  rebud: number;
 }
 
 interface Stamen {
@@ -209,6 +221,7 @@ const qTilt = new THREE.Quaternion();
 const qSway = new THREE.Quaternion();
 const qHead = new THREE.Quaternion();
 const euler = new THREE.Euler();
+const driftFrom = new THREE.Vector3();
 
 const PETAL_TESS: Record<Quality, [number, number]> = {
   cinematic: [16, 28],
@@ -236,6 +249,10 @@ function emptyRefs(): PlantRefs {
     heads: [],
     glow: null,
     petalMats: [],
+    fallen: [],
+    fallenAt: [],
+    drift: [],
+    root: null,
   };
 }
 
@@ -431,7 +448,8 @@ function FlowerHead({ index }: { index: number }) {
   // where the receptacle (or a jasmine's tube) and the sepals sit
   const base = receptacleShape(f);
 
-  const petalFade = useGarden((s) => quantize(fadeOf(s.health) * 0.85, 4));
+  // a sickly plant's petals fade, and so do a healthy flower's on its last day (the store's wither)
+  const petalFade = useGarden((s) => quantize(Math.max(fadeOf(s.health), s.wither) * 0.85, 4));
   const petalBurn = useGarden((s) => quantize(s.scorch, 3));
   // the cached materials, so every head of a lily or a jasmine wears the same ones
   const petalMats = useMemo(
@@ -610,6 +628,94 @@ function FlowerHead({ index }: { index: number }) {
           position={[0, 0.05, 0]}
         />
       ) : null}
+    </group>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Fallen petals
+
+/** The most petals that lie on the soil at once, and how many are seen drifting down at a time. */
+const FALLEN_MAX = 18;
+const DRIFT_COUNT = 3;
+/** Seconds a drifting petal takes from the head to the soil. */
+const DRIFT_S = 5.5;
+
+/**
+ * The petals a flower has dropped, lying on the soil round the plant (the store's fallen: they gather as they fall on
+ * the flower's last evening, the jasmine's at its last dawn, and wither away one by one over the three days after),
+ * and, while it lets them go (the store's shed), a few seen drifting down from the head to where they come to rest.
+ * Faded petals of the flower's own shapes, curled as they were when they fell, mostly on the open soil toward the
+ * camera, each placed once from the plant's seed so they never jump about between visits.
+ */
+function FallenPetals() {
+  const { bp, geo, refs, quality } = usePlant();
+  const sp = bp.species;
+  const burn = useGarden((s) => quantize(s.scorch, 3));
+  const mats = useMemo(
+    () => Array.from({ length: VARIANTS }, (_, v) => petalMaterial(sp, 0.85, burn, quality, v)),
+    [sp, burn, quality],
+  );
+  const lay = useMemo(() => {
+    const rng = new Rng(bp.seed + "|fallen");
+    const n = Math.min(FALLEN_MAX, Math.max(6, bp.petals.length));
+    return Array.from({ length: n }, (_, j) => {
+      const p = bp.petals[j % bp.petals.length];
+      const a = rng.range(-1.3, 1.3);
+      const r = rng.range(0.05, 0.17);
+      return {
+        layer: p.layer,
+        variant: p.variant,
+        scale: p.scale * rng.range(0.8, 0.95),
+        x: Math.sin(a) * r,
+        z: Math.cos(a) * r,
+        yaw: rng.range(0, Math.PI * 2),
+        tilt: rng.range(-0.25, 0.25),
+        lift: rng.range(0.003, 0.007),
+      };
+    });
+  }, [bp.seed, bp.petals]);
+  useEffect(() => {
+    refs.fallenAt = lay.map((l) => new THREE.Vector3(l.x, l.lift, l.z));
+  }, [lay, refs]);
+  const setters = useMemo(
+    () =>
+      lay.map((_, j) => (g: THREE.Group | null) => {
+        refs.fallen[j] = g;
+      }),
+    [lay, refs],
+  );
+  const driftSetters = useMemo(
+    () =>
+      Array.from({ length: DRIFT_COUNT }, (_, j) => (g: THREE.Group | null) => {
+        refs.drift[j] = g;
+      }),
+    [refs],
+  );
+  // curled open, as a petal is when it lets go
+  const curl = useCallback((m: THREE.Mesh | null) => {
+    if (!m) return;
+    m.updateMorphTargets();
+    if (m.morphTargetInfluences) m.morphTargetInfluences[0] = 1;
+  }, []);
+
+  return (
+    <group>
+      {lay.map((l, j) => (
+        <group key={j} ref={setters[j]} name="fallen-petal" position={[l.x, l.lift, l.z]} rotation-y={l.yaw} visible={false}>
+          <group rotation-x={-Math.PI / 2 + l.tilt}>
+            <mesh ref={curl} geometry={geo.petals[l.layer][l.variant]} material={mats[l.variant]} scale={l.scale} receiveShadow />
+          </group>
+        </group>
+      ))}
+      {driftSetters.map((setDrift, j) => {
+        const l = lay[(j * 5) % lay.length];
+        return (
+          <group key={`drift${j}`} ref={setDrift} visible={false}>
+            <mesh ref={curl} geometry={geo.petals[l.layer][l.variant]} material={mats[l.variant]} scale={l.scale} castShadow />
+          </group>
+        );
+      })}
     </group>
   );
 }
@@ -827,7 +933,17 @@ export function Plant() {
     let v = vis.current;
     if (!v) {
       const base = { growth: s.growth, bloom: s.bloom, health: s.health, moisture: s.moisture, scorch: s.scorch };
-      v = { ...base, droop: s.droop ?? droopOf(base), flower: s.flowerSize, glow: s.glow, rot: s.rot };
+      v = {
+        ...base,
+        droop: s.droop ?? droopOf(base),
+        flower: s.flowerSize,
+        glow: s.glow,
+        rot: s.rot,
+        wither: s.wither,
+        shed: s.shed,
+        fallen: s.fallen,
+        rebud: s.rebud,
+      };
       vis.current = v;
     } else {
       v.growth += (s.growth - v.growth) * k;
@@ -840,6 +956,10 @@ export function Plant() {
       v.flower += (s.flowerSize - v.flower) * k;
       v.glow += (s.glow - v.glow) * k;
       v.rot += (s.rot - v.rot) * k;
+      v.wither += (s.wither - v.wither) * k;
+      v.shed += (s.shed - v.shed) * k;
+      v.fallen += (s.fallen - v.fallen) * k;
+      v.rebud += (s.rebud - v.rebud) * k;
     }
 
     const t = env.time;
@@ -953,7 +1073,10 @@ export function Plant() {
       const e = heads[h];
       if (!e) continue;
       const node = e.node;
-      const bud = node ? racemeBudGrowth(heroBudGrowth, v.growth, node) : leadBud;
+      // between flowers the head is the next bud (the store's rebud): small as the last petals go, full as it opens; a
+      // jasmine's closed tip buds stay as they are
+      const rebudding = v.rebud > 0.001 && !node?.tipBud;
+      const bud = rebudding ? v.rebud : node ? racemeBudGrowth(heroBudGrowth, v.growth, node) : leadBud;
       const ebH = node ? eb * racemeOpen(node, opened) : eb;
       const petalsShown = bud > BUD_SHOWN;
       let shown = headShown;
@@ -994,14 +1117,16 @@ export function Plant() {
       for (let j = 0; j < petals.length; j++) {
         const pe = petals[j];
         if (!pe || !pe.group) continue;
-        pe.group.visible = petalsShown;
         const p = pe.node;
+        // on a flower's last evening its petals let go here and there, the outer ones a little sooner (the store's shed)
+        pe.group.visible = petalsShown && !petalFallen(v.shed, p.phase, p.stagger);
         const o = petalOpen(ebH, p.stagger);
-        // Closed petals lean a little inward so the bud closes to a teardrop.
+        // Closed petals lean a little inward so the bud closes to a teardrop; a fading flower's petals loosen, the outer most.
         pe.group.rotation.x =
           o * p.openTarget -
           (1 - o) * (f.budClose ?? 0.18) +
           droop * 0.3 * (p.layer / layerDen) +
+          petalLoosen(v.wither, o, p.layer / layerDen) +
           windAmp * 0.04 * Math.sin(t * 2.2 + p.phase) * (0.3 + 0.7 * o);
         pe.group.scale.setScalar(lerp(f.budLength ?? 0.55, 1, o) * p.scale);
         const inf = pe.mesh ? pe.mesh.morphTargetInfluences : undefined;
@@ -1031,6 +1156,14 @@ export function Plant() {
         stamens.visible = ebH > 0.6;
         stamens.scale.setScalar(Math.max(0.001, ebH));
       }
+    }
+
+    // the fallen petals: as many as have come down, and fewer as they wither away
+    const fallen = R.fallen;
+    const lying = Math.round(fallen.length * Math.min(1, v.fallen * 1.1));
+    for (let j = 0; j < fallen.length; j++) {
+      const g = fallen[j];
+      if (g) g.visible = j < lying;
     }
 
     // emissive and glow, held against the tone-mapping exposure: the lite tier
@@ -1070,12 +1203,40 @@ export function Plant() {
     else if (crown) crown.getWorldPosition(env.crownPos);
     cardShot.head = head;
     cardShot.headBody = followed?.headBody ?? null;
+
+    // while a flower lets go of its petals, a few are seen drifting down from the head to where they come to rest,
+    // swaying and tumbling in the air and settling flat
+    const drift = R.drift, landing = R.fallenAt, root = R.root;
+    const letting = v.shed > 0.02 && v.shed < 0.98 && head !== null && root !== null && landing.length > 0 && !card;
+    if (letting) root.worldToLocal(driftFrom.copy(env.headPos));
+    for (let j = 0; j < drift.length; j++) {
+      const g = drift[j];
+      if (!g) continue;
+      g.visible = letting;
+      if (!letting) continue;
+      const phase = (t / DRIFT_S + j / drift.length) % 1;
+      const down = phase * phase * (3 - 2 * phase);
+      const air = Math.sin(Math.PI * phase);
+      g.position.lerpVectors(driftFrom, landing[(j * 5) % landing.length], down);
+      g.position.x += 0.06 * air * Math.sin(t * 1.3 + j * 2.1);
+      g.position.z += 0.04 * air * Math.cos(t * 1.1 + j);
+      g.rotation.set(
+        lerp(1.2 * Math.sin(t * 1.7 + j), -Math.PI / 2, down),
+        t * 0.9 + j * 2,
+        0.8 * air * Math.cos(t * 1.4 + j),
+      );
+    }
   });
 
+  const setRoot = useCallback((g: THREE.Group | null) => {
+    refs.current.root = g;
+  }, []);
+
   return (
-    <group key={key} scale={HERO_SCALE}>
+    <group key={key} ref={setRoot} scale={HERO_SCALE}>
       <PlantCtx value={ctx}>
         <Segment i={0} />
+        <FallenPetals />
       </PlantCtx>
     </group>
   );

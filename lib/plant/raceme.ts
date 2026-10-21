@@ -3,8 +3,9 @@
 // later and the third a day after that, each on its own short stalk round the stem, with the youngest bud at the tip
 // and, in a cluster, a few more young buds among the flowers, which stay closed. Laid out once per plant from its seed
 // and shared by the garden's hero (components/garden/Plant.tsx) and the posed plant (components/meadow/lod/pose.ts), so
-// a plant in the Meadow is the plant of its owner's garden. The model knows one flower (its bloom); the later flowers
-// only follow the clock from the hour it opened, so nothing here touches the simulation.
+// a plant in the Meadow is the plant of its owner's garden. The model knows one flower at a time (its bloom); the
+// stem's later flowers only follow the clock from the hour that flower opened (each flower after the first starts the
+// clock again), so nothing here touches the simulation.
 import { lerp, Rng, smoothstep } from "./prng";
 import type { Species } from "./species";
 
@@ -167,11 +168,12 @@ export function racemeOpen(node: RacemeNode, opened: number | null): number {
 }
 
 /**
- * The bloom clock for racemeOpen: the hours from `bloomedAt` (the model's bloom hour as an ISO time, null before the
- * flower opens) to `now` (epoch ms), or null while it has not opened. Read straight off the clock, never eased.
+ * The bloom clock for racemeOpen: the hours from `openedAt` (when the flower now shown opened as an ISO time, a view's
+ * flowerOpenedAt; null before the first opens) to `now` (epoch ms), or null while it has not opened. Read straight off
+ * the clock, never eased.
  */
-export function openedSince(bloomedAt: string | null | undefined, now: number): number | null {
-  if (!bloomedAt) return null;
-  const at = Date.parse(bloomedAt);
+export function openedSince(openedAt: string | null | undefined, now: number): number | null {
+  if (!openedAt) return null;
+  const at = Date.parse(openedAt);
   return Number.isFinite(at) ? (now - at) / 3_600_000 : null;
 }

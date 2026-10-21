@@ -298,7 +298,8 @@ export type KoiAdvice = "hungry" | "ready" | "plenty" | "fed";
 export type PondFeedAdvice = "ok" | "young" | "rich" | "hungry";
 
 /** What the renderer and the UI need for a lotus: every soil Visual key (with pond meanings), plus the pond's own. */
-export interface PondVisual extends Omit<SoilVisual, "says" | "feedAdvice"> {
+// (a lotus draws its own flowers after the first, petals and pods: the bed flowers' rebloom fields are not its)
+export interface PondVisual extends Omit<SoilVisual, "says" | "feedAdvice" | "wither" | "shed" | "fallen" | "rebud"> {
   medium: "pond";
   says: PondLine;
   feedAdvice: PondFeedAdvice;

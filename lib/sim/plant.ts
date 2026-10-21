@@ -78,6 +78,8 @@ export function isCurrentState(s: PlantState): boolean {
 const markOf = (s: PlantState, h: number): number | null => (isPondState(s) ? (h === POND_NONE ? null : h) : h >= s.plantedH ? h : null);
 /** The hour the flower opened (op 0.5), or null. */
 export function bloomedAt(s: PlantState): number | null { return markOf(s, s.bloomH); }
+/** The hour the flower now shown (or the last one) opened: the first's bloom hour, then each later flower's; or null. */
+export function flowerOpenedAt(s: PlantState): number | null { return s.flN > 0 ? markOf(s, s.flH) : markOf(s, s.bloomH); }
 /** The hour the bud matured, or null. */
 export function ripeAt(s: PlantState): number | null { return markOf(s, s.ripeH); }
 /** The hour the plant went to sleep (its last death), or null. */

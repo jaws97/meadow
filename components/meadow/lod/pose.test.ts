@@ -1,6 +1,8 @@
 // The posed plant (pose.ts) carries a lily's stem of flowers as the garden draws it (components/garden/Plant.tsx): the
 // three flowers and the tip bud, the later flowers opening on the bloom clock (every one open when the look has none),
-// and the head it reports is the lead flower's, below the tip. A flower that grows alone keeps its one head.
+// and the head it reports is the lead flower's, below the tip. A flower that grows alone keeps its one head. Flower
+// after flower, the petals let go through a flower's last evening and the next bud starts small.
+import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { lodDetail } from "@/components/meadow/lod/bake";
 import { posePlant, type PartMaterials, type PlantLook } from "@/components/meadow/lod/pose";
@@ -119,3 +121,29 @@ describe("a jasmine's cluster, posed", () => {
   });
 });
 
+describe("flower after flower, posed as the garden draws it", () => {
+  const rose = (look: Partial<PlantLook>) => {
+    const posed = pose({ speciesId: "rose", seed: "typical-78", ...look });
+    for (const g of posed.own) g.dispose();
+    return posed.parts;
+  };
+
+  it("lets the petals go through a flower's last evening", () => {
+    const all = count(rose({}), "petal");
+    const half = count(rose({ shed: 0.5 }), "petal");
+    expect(half).toBeGreaterThan(0);
+    expect(half).toBeLessThan(all);
+    expect(count(rose({ shed: 1 }), "petal")).toBe(0);
+  });
+
+  it("shows the next bud small between flowers, swelling as it grows", () => {
+    const budSize = (rebud: number) => {
+      const core = rose({ bloom: 0, rebud }).find((p) => p.material === "bud");
+      return core ? new THREE.Vector3().setFromMatrixScale(core.matrix).x : 0;
+    };
+    expect(budSize(0.2)).toBeGreaterThan(0);
+    expect(budSize(0.2)).toBeLessThan(budSize(0.7));
+    // with no next bud, the grown plant's own full bud
+    expect(budSize(0.7)).toBeLessThan(budSize(0));
+  });
+});
