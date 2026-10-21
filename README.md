@@ -58,7 +58,8 @@ analytics. The party code is never written into the code base: it lives in the `
 - **Sound**: the garden's live soundscape and the sound tiles are in `lib/sound` and `public/garden/sounds`.
 - **Search and link previews**: each public page's title and description, the short introduction that search engines
   and screen readers read where the canvas has no words, and the garden's schema.org data are in `app/seo.tsx`; the
-  preview picture is `app/opengraph-image.jpg`, and `app/sitemap.ts` lists `/garden` and `/meadow`.
+  preview picture is `app/opengraph-image.jpg`, and `app/sitemap.ts` lists `/garden` and `/meadow`. Bing hears of new
+  pages through IndexNow (`scripts/indexnow.mjs`, its key in `public/`); Google through Search Console.
 
 Where things are:
 
@@ -133,6 +134,7 @@ file. Those that remove or move people's gardens or sessions (`clear-rehearsals`
 | `seed-meadow-rehearsal.mjs` | fills a local Meadow with rehearsal plantings to look at, and clears them |
 | `prune-identity.mjs` | removes device sessions and garden links a month after they stopped working |
 | `bake-meadow-plants.mjs` | redraws the Meadow's far-plant pictures in `public/meadow` (no database needed) |
+| `indexnow.mjs` | tells Bing (and the other IndexNow search engines) to crawl the sitemap's pages, with the key in `public/` (no database needed) |
 | `convert-early-gardens.mjs` | a one-off from 20 October that turned the first practice plantings into real gardens |
 
 `scripts/lib` lets these scripts run `lib/sim`'s TypeScript directly, so they never keep their own copy of the model.
