@@ -47,7 +47,7 @@ export async function keepPlanting(q: Queryable, token: string, subject: Buffer,
 export interface LoginStatus {
   /** Google sign-in is on here (env.ts googleSignIn) */
   available: boolean;
-  /** a seed planted without the party link needs it */
+  /** a seed needs it: never (since 22 Oct); kept for pages from before, which read it */
   required: boolean;
   /** the device's garden is kept on an account */
   kept: boolean;
@@ -60,7 +60,7 @@ export async function loginStatus(personId: string | null, loginToken: string | 
   if (!googleSignIn()) return { available: false, required: false, kept: false, pending: false };
   const kept = personId ? await personKept(db(), personId) : false;
   const pending = personId ? false : (await loginStartSubject(db(), loginToken)) !== null;
-  return { available: true, required: true, kept, pending };
+  return { available: true, required: false, kept, pending };
 }
 
 export interface SignInDone {

@@ -6,10 +6,9 @@
 // with the new plant's view. A retry with the same clientEventId, name and species within half an hour returns the
 // same planting (200, replay: true) instead of planting twice; a device that already holds a garden gets 409
 // already_planted. A name already in the Meadow (names are unique, ignoring case) gets 409 name_taken, and a name that
-// may not stand on a sign 400 name_unkind, both with field firstName. Once Google sign-in is on, a seed without the
-// party code needs the account signed in on this device (its meadow_login cookie, lib/server/login.ts): 403
-// sign_in_needed without one, and 409 account_has_garden when that account keeps a garden already; the new garden is
-// kept on the account and the cookie is dropped. A seed without the party code, after many seeds in the past hour or
+// may not stand on a sign 400 name_unkind, both with field firstName. When a Google account is signed in on this device
+// (its meadow_login cookie, lib/server/login.ts), the new garden is kept on it and the cookie is dropped, and 409
+// account_has_garden answers an account that keeps a garden already; signing in is never required. A seed without the party code, after many seeds in the past hour or
 // day, gets 429 meadow_resting for the person to read. Under MEADOW_PLANTING=party a missing or
 // old party code gets 403 party_code_required / party_code_wrong. A burst beyond the planting throttle gets 429
 // busy_planting and a busy database 503 busy, both with Retry-After: the UI retries those two by itself with the same

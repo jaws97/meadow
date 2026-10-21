@@ -86,15 +86,12 @@ describe("what a sign-in does on its return", () => {
 });
 
 describe("who may plant", () => {
-  it("lets the party link plant as before, and asks anyone else to sign in once sign-in is on", () => {
-    expect(plantingNeeds("party", true, false, false)).toBe("go");
-    expect(plantingNeeds("open", false, false, false)).toBe("go");
-    expect(plantingNeeds("open", true, false, false)).toBe("sign_in");
-    expect(plantingNeeds("open", true, true, false)).toBe("go");
+  it("never asks anyone to sign in first", () => {
+    expect(plantingNeeds(false, false)).toBe("go");
+    expect(plantingNeeds(true, false)).toBe("go");
   });
 
-  it("gives each account one garden, with the party link too", () => {
-    expect(plantingNeeds("open", true, true, true)).toBe("has_garden");
-    expect(plantingNeeds("party", true, true, true)).toBe("has_garden");
+  it("gives each account one garden", () => {
+    expect(plantingNeeds(true, true)).toBe("has_garden");
   });
 });

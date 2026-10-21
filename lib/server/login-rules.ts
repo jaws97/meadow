@@ -8,12 +8,12 @@
 // - "garden", from a device that holds no garden (the gift's first step): an account that keeps a garden opens it here;
 //   an account with none starts a planting, held for an hour by an httpOnly cookie (meadow_login), so the seed planted
 //   next on this device is kept on that account;
-// - "keep", from a garden (the name pill's menu): this garden is kept on the account, so signing in on any other device
-//   opens it. Each account keeps one garden, and each garden is kept on one account.
+// - "keep", from a garden (the name pill's menu, or right after planting): this garden is kept on the account, so
+//   signing in on any other device opens it. Each account keeps one garden, and each garden is kept on one account.
 //
-// Since Google sign-in is on (env.ts googleSignIn), a seed planted without the party link needs a signed-in Google
-// account that keeps no garden yet: one garden for each account, so strangers cannot crowd the Meadow. A seed with the
-// party link plants as before, and is kept on an account too when one was signed in on the device.
+// Signing in is a choice, never a gate (since 22 Oct): anyone may plant without it, party link or not, and keep their
+// garden by its personal link instead. A seed planted on a device where an account is signed in is kept on that
+// account, so an account that keeps a garden already cannot plant a second one.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { CookieSpec } from "./session-rules";
 
@@ -153,11 +153,9 @@ export function resultOf(outcome: SignInOutcome): SignInResult {
 }
 
 /**
- * Whether a seed may go in: with the party link, always (the limits are its own, party.ts); without it, once Google
- * sign-in is on, only for a signed-in account (`signedIn`) that keeps no garden yet (`accountHasGarden`).
+ * Whether a seed may go in as far as Google sign-in goes: always, unless the account signed in on the device
+ * (`signedIn`) keeps a garden already (`accountHasGarden`). Signing in is never required (since 22 Oct).
  */
-export function plantingNeeds(pass: "party" | "open", signInOn: boolean, signedIn: boolean, accountHasGarden: boolean): "go" | "sign_in" | "has_garden" {
-  if (signedIn && accountHasGarden) return "has_garden";
-  if (pass === "open" && signInOn && !signedIn) return "sign_in";
-  return "go";
+export function plantingNeeds(signedIn: boolean, accountHasGarden: boolean): "go" | "has_garden" {
+  return signedIn && accountHasGarden ? "has_garden" : "go";
 }

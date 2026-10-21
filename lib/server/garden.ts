@@ -478,9 +478,9 @@ function accountHasGardenError(): ApiError {
 
 /**
  * Plants a seed for a new person: checks who may plant, gives them the next plot, and creates the person, their
- * garden, the plant and its first checkpoint, a session and a personal garden link, all in one transaction. Once Google
- * sign-in is on, a seed without the party link needs the device's login cookie (`loginToken`, login.ts): the account
- * it holds keeps the new garden, and a seed with the party link is kept on such an account too.
+ * garden, the plant and its first checkpoint, a session and a personal garden link, all in one transaction. When a
+ * Google account is signed in on the device (its login cookie, `loginToken`, login.ts), the new garden is kept on it;
+ * signing in is never required.
  */
 export async function plantSeed(input: SeedInput, opts: { sessionPersonId: string | null; loginToken?: string; now?: Date }): Promise<PlantResult> {
   const now = opts.now ?? new Date();
@@ -498,14 +498,11 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
     }
   }
 
-  // without the party link, a seed needs a Google account that keeps no garden yet, once sign-in is on (login-rules.ts)
-  const signInOn = googleSignIn() !== null;
-  const subject = signInOn ? await loginStartSubject(db(), opts.loginToken) : null;
-  const needs = plantingNeeds(pass, signInOn, subject !== null, subject !== null && (await accountPerson(db(), subject)) !== null);
-  if (needs === "sign_in") {
-    throw new ApiError(403, "sign_in_needed", "Continue with Google to plant your seed, so your garden opens on all your devices.");
+  // a Google account signed in on this device keeps the new garden; one that keeps a garden already plants no second
+  const subject = googleSignIn() !== null ? await loginStartSubject(db(), opts.loginToken) : null;
+  if (plantingNeeds(subject !== null, subject !== null && (await accountPerson(db(), subject)) !== null) === "has_garden") {
+    throw accountHasGardenError();
   }
-  if (needs === "has_garden") throw accountHasGardenError();
 
   const species = input.species;
   // the live site plants real gardens; a dev server or a Preview, practice ones
