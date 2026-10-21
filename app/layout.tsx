@@ -28,6 +28,9 @@ export const metadata: Metadata = {
   applicationName: "Meadow",
   openGraph: { type: "website", siteName: "Meadow", locale: "en_IN" },
   twitter: { card: "summary_large_image" },
+  // Google Search Console's ownership check for https://growmyflower.vercel.app/ (public by design; the root answers
+  // Google's verifier itself rather than forwarding it to /garden, next.config.ts)
+  verification: { google: "nq4l6IXczP3_y1YkauM8P9Xd5NqG5blPpzpqh6xK8vQ" },
 };
 
 // A full-screen dark canvas: match the browser chrome to it and let the

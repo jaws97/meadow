@@ -23,7 +23,14 @@ const nextConfig: NextConfig = {
         destination: `${PUBLIC_ORIGIN}${source}`,
         permanent: true,
       })),
-      { source: "/", destination: "/garden", permanent: false },
+      // The root forwards to the garden, except for Google's site verifier, which looks for Search Console's tag
+      // (app/layout.tsx) on the property's own home page; it gets the root's plain page, which carries the tag.
+      {
+        source: "/",
+        missing: [{ type: "header" as const, key: "user-agent", value: ".*Google-Site-Verification.*" }],
+        destination: "/garden",
+        permanent: false,
+      },
       // The Lantern Cart's old test bed grew into the real Meadow. The query (e.g. ?mover=) carries over on its own.
       { source: "/meadow-spike", destination: "/meadow", permanent: true },
     ];
