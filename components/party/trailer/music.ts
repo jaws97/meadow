@@ -4,7 +4,7 @@
 // slow to swell and to fade) and the bass go into a `music` bus at the levels the garden's music box shares; the
 // trailer's own voices (a soft sub boom with tanh harmonics, a heartbeat pulse, a reversed swell, a whoosh and a riser
 // of filtered noise, the title's glass shimmer, the wind-up clicks, the lantern's fwoomp, the seed's pft) go into an
-// `fx` bus, and the recordings into a `beds` bus. Two halls are made on the spot from seeded noise (today's 3.4 s and
+// `fx` bus, and the recordings into a `beds` bus. Two halls are made on the spot from seeded noise (a 3.4 s hall and
 // a 5.5 s long hall for the title). Every bus and both halls feed one `choke`, so a silence in the score silences the
 // tails too; then `master`, which M, the closing fade and a stop act on, so they cover everything; then a gentle glue
 // compressor, a limiter and a tanh safety clipper before the speakers, so the venue's PA never hears a clip.
@@ -80,9 +80,13 @@ const INTRO_HOLD_S = 600;
 /** The black at the start of the trailer is about this long before its clock starts (s), and each gate holds this long, for the offline preview. */
 const PREVIEW_INTRO_S = 5;
 const PREVIEW_HOLD_S = 0.35;
-/** The offline preview renders at the recordings' own rate (Hz), and lights its frames for a golden hour about this (h). */
+/** The offline preview renders at the recordings' own rate (Hz). */
 const PREVIEW_RATE = 48000;
-const PREVIEW_GOLDEN = 17.45;
+/**
+ * A pad or a bass note held past a gate sounds at least this much longer than written (s) until the trailer's clock
+ * reaches its end and lets it go: a gate's hold (at most 3 s) cannot cut it short under the picture it belongs to.
+ */
+const HELD_MARGIN_S = 4;
 /** The slowest pace the scheduling follows (the director's measure is clamped to 0.5..1). */
 const RATE_MIN = 0.5;
 /** Everything scheduled starts earlier by the output's latency, up to this (s), so it meets the picture. */
@@ -364,7 +368,7 @@ function fxOut(g: Graph, send: number, hall: AudioNode = g.hall): GainNode[] {
   return [out, s];
 }
 
-/** A stretch of the noise buffer, from a seeded place in it. */
+/** A source over the shared noise buffer; started at noiseAt(g), it plays from a seeded place in it. */
 function noiseSource(g: Graph, loop = false): AudioBufferSourceNode {
   const src = g.ctx.createBufferSource();
   src.buffer = g.noise;
@@ -451,19 +455,28 @@ function pad(g: Graph, midi: readonly number[], when: number, vel: number, dur: 
   return fade;
 }
 
-/** A bass note: a sine, swelling in and fading. */
-function low(g: Graph, midi: number, when: number, vel: number, dur: number) {
+/** A bass note: a sine, swelling in and fading. Returns its fade. */
+function low(g: Graph, midi: number, when: number, vel: number, dur: number): (at: number) => void {
   const { ctx } = g;
   const osc = ctx.createOscillator();
   osc.frequency.value = hz(midi);
   const env = ctx.createGain();
   env.gain.setValueAtTime(0, when);
   env.gain.setTargetAtTime(vel, when, 0.2);
-  env.gain.setTargetAtTime(0, when + dur, 0.7);
   osc.connect(env).connect(g.bass);
   osc.start(when);
-  osc.stop(when + dur + 3.5);
   release([osc], [env]);
+  const fade = (at: number) => {
+    env.gain.cancelScheduledValues(at);
+    env.gain.setTargetAtTime(0, at, 0.7);
+    try {
+      osc.stop(at + 3.5);
+    } catch {
+      // an earlier stop stands
+    }
+  };
+  fade(when + dur);
+  return fade;
 }
 
 /** Noise and a chord's tones each feed the swell this much (the tones shared between them by √n). */
@@ -708,18 +721,20 @@ function duck(g: Graph, when: number, d: Duck, dur: number) {
   if (d.beds !== undefined) dip(g.bedDuck.gain, d.beds);
 }
 
-/** One note of the score at `when` (s, audio clock), its held times stretched by `stretch` (1 / the trailer's pace). */
-function sound(g: Graph, note: Note, when: number, stretch: number) {
+/**
+ * One note of the score at `when` (s, audio clock), its held times stretched by `stretch` (1 / the trailer's pace); a
+ * pad or a bass note is held `extra` seconds longer besides, and returns its fade, for a release on the trailer's clock.
+ */
+function sound(g: Graph, note: Note, when: number, stretch: number, extra = 0): ((at: number) => void) | void {
   const v = note.vel;
   const dur = note.dur * stretch;
   switch (note.voice) {
     case "bell":
       return strike(g, note.midi[0], when, v, dur);
     case "pad":
-      pad(g, note.midi, when, v, dur);
-      return;
+      return pad(g, note.midi, when, v, dur + extra);
     case "bass":
-      return low(g, note.midi[0], when, v, dur);
+      return low(g, note.midi[0], when, v, dur + extra);
     case "swell":
       return swell(g, note.midi, when, v, dur);
     case "shimmer":
@@ -925,6 +940,8 @@ let enabled = true;
 let muted = false;
 /** This run's can's last drips (s, from their nominal times; script pickCanPress), or null until the can is pressed. */
 let dripOffsets: readonly number[] | null = null;
+/** Pads and bass notes held past a gate: each is let go once the trailer's clock is scheduling its written end. */
+const held: { end: number; fade: (at: number) => void }[] = [];
 const mixed = blankMix();
 
 const level = () => (muted ? 0 : MASTER);
@@ -995,6 +1012,7 @@ export const music = {
       nextCall = 0;
       fading = false;
       dripOffsets = null;
+      held.length = 0;
       const now = context.currentTime;
       g.master.gain.setValueAtTime(0, now);
       g.master.gain.linearRampToValueAtTime(level(), now + 0.05);
@@ -1014,10 +1032,6 @@ export const music = {
    */
   drips(offsets: readonly number[]) {
     dripOffsets = offsets;
-  },
-  /** The drip offsets last set (empty until the can is pressed). */
-  get dripOffsets(): readonly number[] {
-    return dripOffsets ?? [];
   },
 
   /**
@@ -1044,7 +1058,17 @@ export const music = {
       if (note.t + (shift ?? 0) > upTo) break;
       next++;
       if (shift === null || note.t + shift < t - LATE_S) continue;
-      sound(g, note, now + Math.max(0, (note.t + shift - t) / r - lead), 1 / r);
+      // a chord held past the next gate is let go on the trailer's clock, after the gate, not at an audio time fixed now
+      const end = note.t + note.dur;
+      const across = (note.voice === "pad" || note.voice === "bass") && end > gate;
+      const fade = sound(g, note, now + Math.max(0, (note.t + shift - t) / r - lead), 1 / r, across ? HELD_MARGIN_S : 0);
+      if (across && fade) held.push({ end, fade });
+    }
+    for (let i = held.length - 1; i >= 0; i--) {
+      const h = held[i];
+      if (h.end > upTo) continue;
+      h.fade(now + Math.max(0, (h.end - t) / r - lead));
+      held.splice(i, 1);
     }
     while (nextCall < CALLS.length && CALLS[nextCall].t <= upTo) {
       const c = CALLS[nextCall++];
@@ -1068,6 +1092,7 @@ export const music = {
     if (!g) return;
     graph = null;
     introFade = null;
+    held.length = 0;
     const now = g.ctx.currentTime;
     g.master.gain.cancelScheduledValues(now);
     g.master.gain.setTargetAtTime(0, now, Math.max(0.05, seconds / 4));
@@ -1093,11 +1118,11 @@ function startBirds(g: Graph, now: number) {
  * voices and mix: the first black (`options.intro`, PREVIEW_INTRO_S by default) with the wind-up and the dawn birds,
  * then the trailer from its first frame at `options.rate` (1 by default) with each gate held `options.holds`
  * (PREVIEW_HOLD_S by default), the recordings included (fetched and decoded first if they have not been) and the
- * sky's nightness from `sky(t)`. Every random number is seeded, so two renders are the same. Returns the 16-bit
+ * sky's nightness from `night(t)`. A pad or a bass note held past a gate is held through the gate's hold, as live. Every random number is seeded, so two renders are the same. Returns the 16-bit
  * stereo WAV with its peak before the WAV's clamp (and the limiter's, before the safety clipper).
  */
 export async function renderPreview(
-  sky: (t: number) => { rain: number; night: number },
+  night: (t: number) => number,
   length: number,
   options: PreviewOptions = {},
 ): Promise<PreviewResult> {
@@ -1126,13 +1151,17 @@ export async function renderPreview(
   pad(g, INTRO.pad, 0.05, INTRO.padVel, intro + 0.45);
   for (const c of INTRO.clicks) click(g, c.at, c.vel);
   startBirds(g, 0);
-  for (const note of SCORE) sound(g, note, at(note.t), 1 / rate);
+  for (const note of SCORE) {
+    const chord = note.voice === "pad" || note.voice === "bass";
+    sound(g, note, at(note.t), chord ? (at(note.t + note.dur) - at(note.t)) / note.dur : 1 / rate);
+  }
   for (const c of CALLS) call(g, c, at(c.t));
   const frame = blankFrame();
   const m = blankMix();
   for (let t = 0; t < length; t += MIX_S * rate) {
-    trailerAt(t, PREVIEW_GOLDEN, frame);
-    applyMix(g, mix(t + MIX_S * rate, frame, sky(t).night, m), at(t), t);
+    // (only the frame's wind and rain are read, and neither depends on the day's light)
+    trailerAt(t, 0, frame);
+    applyMix(g, mix(t + MIX_S * rate, frame, night(t), m), at(t), t);
   }
   g.master.gain.setTargetAtTime(0, at(FADE_FROM), FADE_S / 4);
 

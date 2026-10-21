@@ -4,6 +4,7 @@
 // the scene's and the look's channels (in bounds, never flashing, neutral once the garden is the party's), the coda's
 // match to the party's rose, and the reduced-motion and no-doe versions.
 import { describe, expect, it } from "vitest";
+import { heroStemFraction } from "@/components/garden/garden/heroGrowth";
 import { CAN, varyOf } from "@/components/garden/garden/canMoment";
 import { codaShift, DRIFT_REST, HOME, LENS_REST, placed, placeShot, project, type LensAim, type XYZ } from "@/components/party/logic";
 import { framingFor, type Framing } from "@/lib/garden/layout";
@@ -133,8 +134,6 @@ describe("the trailer", () => {
     expect(beats).toEqual([...beats].sort((a, b) => a - b));
     expect(new Set(beats).size).toBe(beats.length);
     expect(Math.abs(TRAILER_S - 70)).toBeLessThan(1e-9);
-    expect(TRAILER_S).toBeGreaterThan(64);
-    expect(TRAILER_S).toBeLessThan(75);
   });
 
   it("gives the seed its first drink from the can in true slow motion, and dries it with the passing day", () => {
@@ -322,12 +321,12 @@ describe("the trailer", () => {
 
 // ---- the cut --------------------------------------------------------------------------------------------------------
 
-/** The rose's head along its growth (Plant: the stem's height grows on an eased curve), and each montage flower's. */
+/** The rose's head along its growth (Plant: its cane's eased height, the head shown once it is up), and each montage flower's. */
 const SEED_Y = POINTS.seed[1];
-const stem = (g: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, (g - 0.03) / 0.9)), 1.4);
 function headOf(f: TrailerFrame): XYZ {
   if (f.species !== "rose") return { x: 0, y: SEED_Y + 1.09 * SPECIES[f.species].stem.height, z: 0 };
-  return { x: 0, y: f.growth < 0.035 ? SEED_Y : SEED_Y + 1.09 * stem(f.growth), z: 0 };
+  const cane = heroStemFraction(f.growth);
+  return { x: 0, y: cane > 0.005 ? SEED_Y + 1.09 * cane : SEED_Y, z: 0 };
 }
 
 const ASPECTS = [16 / 9, 16 / 10] as const;

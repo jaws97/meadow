@@ -1,6 +1,7 @@
 // The film look the party trailer grades the picture with: one plain mutable object (like env), holding a value for
-// every post-processing lever the trailer moves. Idle, it holds exactly the constants components/garden/Effects.tsx
-// draws with today, so a screen that writes it every frame draws as before whenever no trailer plays. The party
+// every post-processing lever the trailer moves. Idle, it holds the garden's own post constants (LOOK_IDLE, which
+// components/garden/Effects.tsx builds its chain from), so a screen that writes it every frame draws as it always
+// does whenever no trailer plays. The party
 // trailer's director (components/party/trailer/Director.tsx) fills it every frame while the trailer plays, and the
 // trailer's control (components/party/trailer/control.ts) resets it whenever the trailer stops or ends. Effects reads
 // it only when PartyScene asks it to (its `trailerLook` prop), so the personal garden never sees it. It lives in
@@ -44,7 +45,7 @@ export interface LookValues {
 /** The identity mixer: each channel as it is. */
 export const MIXER_IDENTITY: readonly number[] = Object.freeze([1, 0, 0, 0, 1, 0, 0, 0, 1]);
 
-/** Today's constants (components/garden/Effects.tsx), which the look holds whenever no trailer plays. */
+/** The garden's own post constants: Effects.tsx builds its chain from them, and the look holds them whenever no trailer plays. */
 export const LOOK_IDLE: Readonly<Omit<LookValues, "mixer">> & { readonly mixer: readonly number[] } = Object.freeze({
   exposure: 1,
   bloomIntensity: 0.85,
@@ -63,7 +64,10 @@ export const LOOK_IDLE: Readonly<Omit<LookValues, "mixer">> & { readonly mixer: 
 /** The lowest bloom threshold a full tier is given, and the lowest lite is given (its true light sources only). */
 export const FULL_THRESHOLD_MIN = 0.72;
 export const LITE_THRESHOLD_MIN = 0.95;
-/** Lite's own idle bloom (Effects.tsx): the intensity and threshold the full tiers' idle values map to. */
+/**
+ * Lite's own idle bloom, which the full tiers' idle values map to: a gentler intensity, and a threshold above the
+ * brightest lit petal, so only the true light sources (the candle, the halo, the fireflies) bloom on a phone.
+ */
 const LITE_INTENSITY = 0.65;
 const LITE_THRESHOLD = 1.0;
 
@@ -82,11 +86,11 @@ export function liteBloomThreshold(v: number): number {
   return Math.max(LITE_THRESHOLD_MIN, LITE_THRESHOLD - (LOOK_IDLE.bloomThreshold - v) / 2);
 }
 
-/** The look Effects draws with: the trailer's values while it plays, today's constants otherwise. */
+/** The look Effects draws with: the trailer's values while it plays, LOOK_IDLE otherwise. */
 export const filmLook: LookValues & { reset(): void } = {
   ...LOOK_IDLE,
   mixer: [...MIXER_IDENTITY],
-  /** Back to today's constants (the trailer stopped or ended); Effects writes them on its next frame. */
+  /** Back to LOOK_IDLE (the trailer stopped or ended); Effects writes it on its next frame. */
   reset() {
     applyLook(LOOK_IDLE);
   },
@@ -94,16 +98,26 @@ export const filmLook: LookValues & { reset(): void } = {
 
 /** Copies `v` into filmLook in place (the mixer included), so readers holding filmLook.mixer keep a live array. */
 export function applyLook(v: Readonly<Omit<LookValues, "mixer">> & { readonly mixer: readonly number[] }) {
-  filmLook.exposure = v.exposure;
-  filmLook.bloomIntensity = v.bloomIntensity;
-  filmLook.bloomThreshold = v.bloomThreshold;
-  filmLook.vignetteDarkness = v.vignetteDarkness;
-  filmLook.vignetteOffset = v.vignetteOffset;
-  filmLook.saturation = v.saturation;
-  filmLook.contrast = v.contrast;
-  filmLook.grain = v.grain;
-  filmLook.ca = v.ca;
-  filmLook.dofRange = v.dofRange;
-  filmLook.bokeh = v.bokeh;
-  for (let i = 0; i < 9; i++) filmLook.mixer[i] = v.mixer[i];
+  copyLook(filmLook, v);
+}
+
+/** The grade's levers (exposure, bloom, vignette, saturation and contrast, grain, aberration) of `v` into `out`. */
+export function copyGrade(out: LookValues, v: Readonly<Omit<LookValues, "mixer" | "dofRange" | "bokeh">>) {
+  out.exposure = v.exposure;
+  out.bloomIntensity = v.bloomIntensity;
+  out.bloomThreshold = v.bloomThreshold;
+  out.vignetteDarkness = v.vignetteDarkness;
+  out.vignetteOffset = v.vignetteOffset;
+  out.saturation = v.saturation;
+  out.contrast = v.contrast;
+  out.grain = v.grain;
+  out.ca = v.ca;
+}
+
+/** Every value of `v` into `out`, the mixer in place (so a reader holding out.mixer keeps a live array). */
+export function copyLook(out: LookValues, v: Readonly<Omit<LookValues, "mixer">> & { readonly mixer: readonly number[] }) {
+  copyGrade(out, v);
+  out.dofRange = v.dofRange;
+  out.bokeh = v.bokeh;
+  for (let i = 0; i < 9; i++) out.mixer[i] = v.mixer[i];
 }

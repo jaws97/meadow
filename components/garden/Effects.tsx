@@ -67,6 +67,7 @@ import {
   fullBloomThreshold,
   liteBloomIntensity,
   liteBloomThreshold,
+  LOOK_IDLE,
   MIXER_IDENTITY,
 } from "@/lib/garden/look";
 import { useLayerFrame, useLayerLive, useTier } from "@/components/garden/TierLayers";
@@ -87,10 +88,14 @@ const EXPOSURE = BASE_EXPOSURE;
  */
 const LITE_NIGHT_EXPOSURE = 1.25;
 /**
- * Lite's bloom threshold: above the brightest lit petal, so only the true
- * light sources (the candle, the halo, the fireflies) bloom on a phone.
+ * The grade, bloom, vignette and grain the chain is built with (the film
+ * look's idle values, lib/garden/look), and lite's gentler bloom from them:
+ * its threshold above the brightest lit petal, so only the true light
+ * sources (the candle, the halo, the fireflies) bloom on a phone.
  */
-const LITE_BLOOM_THRESHOLD = 1.0;
+const IDLE = LOOK_IDLE;
+const LITE_BLOOM_THRESHOLD = liteBloomThreshold(IDLE.bloomThreshold);
+const LITE_BLOOM_INTENSITY = liteBloomIntensity(IDLE.bloomIntensity);
 /** World metres either side of the flower head that stay sharp. */
 const FOCUS_RANGE = LAYOUT.camera.focusRange;
 /** A hair of lens colour fringing, strongest toward the corners. */
@@ -320,12 +325,12 @@ export function Effects({ trailerLook = false }: { trailerLook?: boolean }) {
           ref={trailerLook ? attachBloom : undefined}
           luminanceThreshold={LITE_BLOOM_THRESHOLD}
           luminanceSmoothing={0.3}
-          intensity={0.65}
+          intensity={LITE_BLOOM_INTENSITY}
           mipmapBlur
         />
         <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
         {trailerLook ? <Sepia ref={attachSepia} /> : null}
-        <Vignette ref={trailerLook ? attachVignette : undefined} offset={0.25} darkness={0.4} />
+        <Vignette ref={trailerLook ? attachVignette : undefined} offset={IDLE.vignetteOffset} darkness={IDLE.vignetteDarkness} />
       </EffectComposer>
     );
   }
@@ -351,9 +356,9 @@ export function Effects({ trailerLook = false }: { trailerLook?: boolean }) {
       />
       <Bloom
         ref={trailerLook ? attachBloom : undefined}
-        luminanceThreshold={0.85}
+        luminanceThreshold={IDLE.bloomThreshold}
         luminanceSmoothing={0.35}
-        intensity={0.85}
+        intensity={IDLE.bloomIntensity}
         mipmapBlur
         radius={0.72}
         levels={7}
@@ -369,10 +374,10 @@ export function Effects({ trailerLook = false }: { trailerLook?: boolean }) {
       <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
       {trailerLook ? <Sepia ref={attachSepia} /> : null}
       {/* barely any saturation lift: the greens are already rich, and more turns them to paint-box lime */}
-      <HueSaturation ref={trailerLook ? attachHue : undefined} saturation={0.02} />
-      <BrightnessContrast ref={trailerLook ? attachContrast : undefined} brightness={0.0} contrast={0.06} />
-      <Vignette ref={trailerLook ? attachVignette : undefined} offset={0.25} darkness={0.4} />
-      <Noise ref={trailerLook ? attachNoise : undefined} opacity={0.03} blendFunction={BlendFunction.SOFT_LIGHT} />
+      <HueSaturation ref={trailerLook ? attachHue : undefined} saturation={IDLE.saturation} />
+      <BrightnessContrast ref={trailerLook ? attachContrast : undefined} brightness={0.0} contrast={IDLE.contrast} />
+      <Vignette ref={trailerLook ? attachVignette : undefined} offset={IDLE.vignetteOffset} darkness={IDLE.vignetteDarkness} />
+      <Noise ref={trailerLook ? attachNoise : undefined} opacity={IDLE.grain} blendFunction={BlendFunction.SOFT_LIGHT} />
     </EffectComposer>
   );
 }

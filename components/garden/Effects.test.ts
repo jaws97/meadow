@@ -17,24 +17,24 @@ import {
   VignetteEffect,
 } from "postprocessing";
 import { applyFilmLook, mixerRows, setMixer, type LookTargets } from "@/components/garden/Effects";
-import { applyLook, filmLook, LOOK_IDLE, MIXER_IDENTITY, type LookValues } from "@/lib/garden/look";
+import { applyLook, filmLook, liteBloomIntensity, liteBloomThreshold, LOOK_IDLE, MIXER_IDENTITY, type LookValues } from "@/lib/garden/look";
 import { LAYOUT } from "@/lib/garden/layout";
 
 type Tier = "lite" | "balanced" | "cinematic";
 
-/** The chain's effects for a tier, with the values Effects.tsx's JSX gives them. */
+/** The chain's effects for a tier, with the values Effects.tsx's JSX gives them (the look's idle values). */
 function chain(tier: Tier) {
   const lite = tier === "lite";
   const bloom = new BloomEffect({
-    luminanceThreshold: lite ? 1.0 : 0.85,
+    luminanceThreshold: lite ? liteBloomThreshold(LOOK_IDLE.bloomThreshold) : LOOK_IDLE.bloomThreshold,
     luminanceSmoothing: lite ? 0.3 : 0.35,
     mipmapBlur: true,
     ...(lite ? {} : { radius: 0.72, levels: 7 }),
   });
-  bloom.intensity = lite ? 0.65 : 0.85;
+  bloom.intensity = lite ? liteBloomIntensity(LOOK_IDLE.bloomIntensity) : LOOK_IDLE.bloomIntensity;
   const vignette = new VignetteEffect();
-  vignette.offset = 0.25;
-  vignette.darkness = 0.4;
+  vignette.offset = LOOK_IDLE.vignetteOffset;
+  vignette.darkness = LOOK_IDLE.vignetteDarkness;
   const sepia = new SepiaEffect();
   const mixer = mixerRows(sepia);
   if (mixer) setMixer(mixer, MIXER_IDENTITY);
@@ -42,11 +42,11 @@ function chain(tier: Tier) {
   let dof: DepthOfFieldEffect | null = null;
   if (!lite) {
     t.hue = new HueSaturationEffect();
-    t.hue.saturation = 0.02;
+    t.hue.saturation = LOOK_IDLE.saturation;
     t.contrast = new BrightnessContrastEffect();
-    t.contrast.contrast = 0.06;
+    t.contrast.contrast = LOOK_IDLE.contrast;
     t.noise = new NoiseEffect({ blendFunction: BlendFunction.SOFT_LIGHT });
-    t.noise.blendMode.opacity.value = 0.03;
+    t.noise.blendMode.opacity.value = LOOK_IDLE.grain;
     dof = new DepthOfFieldEffect(new THREE.PerspectiveCamera());
     dof.cocMaterial.focusRange = LAYOUT.camera.focusRange;
     dof.bokehScale = tier === "cinematic" ? 3.4 : 2.4;
@@ -98,6 +98,27 @@ const TIERS: Tier[] = ["lite", "balanced", "cinematic"];
 afterEach(() => filmLook.reset());
 
 describe("the trailer's film look on the post chain", () => {
+  test("the garden's own grade, bloom, vignette and grain are the ones it has always drawn with", () => {
+    expect({ ...LOOK_IDLE, dofRange: undefined, mixer: undefined }).toEqual({
+      exposure: 1,
+      bloomIntensity: 0.85,
+      bloomThreshold: 0.85,
+      vignetteDarkness: 0.4,
+      vignetteOffset: 0.25,
+      saturation: 0.02,
+      contrast: 0.06,
+      grain: 0.03,
+      ca: 1,
+      dofRange: undefined,
+      bokeh: 1,
+      mixer: undefined,
+    });
+    expect(LOOK_IDLE.dofRange).toBe(LAYOUT.camera.focusRange);
+    // a phone's gentler bloom, exactly
+    expect(liteBloomIntensity(LOOK_IDLE.bloomIntensity)).toBe(0.65);
+    expect(liteBloomThreshold(LOOK_IDLE.bloomThreshold)).toBe(1);
+  });
+
   test("the idle look is the chain's own constants on every tier: nothing changes", () => {
     for (const tier of TIERS) {
       const { t, dof } = chain(tier);

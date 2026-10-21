@@ -25,7 +25,7 @@
 // channel is the party screen's own.
 import { CAN, varyOf } from "@/components/garden/garden/canMoment";
 import { HOME, type Shot, type XYZ } from "@/components/party/logic";
-import { LOOK_IDLE, MIXER_IDENTITY, type LookValues } from "@/lib/garden/look";
+import { copyGrade, copyLook, LOOK_IDLE, MIXER_IDENTITY, type LookValues } from "@/lib/garden/look";
 import { FX_NEUTRAL, type SceneFx } from "@/lib/garden/trailerFx";
 import { SPECIES, type SoilSpeciesId } from "@/lib/plant/species";
 
@@ -151,7 +151,7 @@ export const TRAILER_S = RETURN_AT + 2;
 /** The black is full after the montage's last flower, through the silence and the title. */
 const END_BLACK_AT = END_AT + 0.4;
 
-/** The first night frame's weather snap (lantern, wet stones) happens here, under the chapter's black. */
+/** The first night frame's weather snap (the night's lantern lit, the stones dry) happens here, under the chapter's black. */
 export const WEATHER_SNAP_AT = 44.7;
 
 /** The growth below which the rose shows no head yet (Plant: heroStemFraction above 0.005). */
@@ -915,16 +915,16 @@ export const WIND_REST = 0.5;
  * time through the carry and the tip, true slow motion as the water falls and lands, real time again until the can is
  * still, then hurried on with the time-lapse, so the wet it left dries as the day passes.
  */
-const WATER_RATE: readonly Key[] = [
-  [WATER_AT, 1],
-  [8.7, 1],
-  [8.9, 0.3],
-  [10.3, 0.3],
-  [10.7, 1],
-];
 /** The slowest the can's moment runs (moment s per trailer s), and how much faster than real time once it is still. */
 export const WATER_SLOWEST = 0.3;
 const WATER_HURRY = 8;
+const WATER_RATE: readonly Key[] = [
+  [WATER_AT, 1],
+  [8.7, 1],
+  [8.9, WATER_SLOWEST],
+  [10.3, WATER_SLOWEST],
+  [10.7, 1],
+];
 /** The moment (s) reached at each rate key, for integrating the straight-line rate. */
 const WATER_MOMENTS: readonly number[] = WATER_RATE.map((_, i) =>
   WATER_RATE.slice(0, i).reduce((m, [t0, r0], j) => m + ((WATER_RATE[j + 1][0] - t0) * (r0 + WATER_RATE[j + 1][1])) / 2, 0),
@@ -1020,7 +1020,7 @@ const RIM = new Track([
 ]);
 /** The seed of light, brighter than the garden's own until the shoot has broken through. */
 const SEED_LIGHT = new Track([
-  [5.9, 2.6],
+  [5.999, 2.6],
   [6.0, 1.8],
   [12.6, 1.8],
   [13.2, 1],
@@ -1356,18 +1356,6 @@ function lensAtRest(l: FrameLens) {
   l.coda = false;
 }
 
-function setLook(out: LookValues, v: Readonly<Omit<LookValues, "mixer" | "dofRange" | "bokeh">>) {
-  out.exposure = v.exposure;
-  out.bloomIntensity = v.bloomIntensity;
-  out.bloomThreshold = v.bloomThreshold;
-  out.vignetteDarkness = v.vignetteDarkness;
-  out.vignetteOffset = v.vignetteOffset;
-  out.saturation = v.saturation;
-  out.contrast = v.contrast;
-  out.grain = v.grain;
-  out.ca = v.ca;
-}
-
 /**
  * The trailer at time `t` (s), lit for a day whose golden hour is `golden`, played with `options`. Fills and returns
  * `out`. For RESTORE_AT <= t < HOME_AT it gives the coda's values; from HOME_AT every channel is the party screen's own.
@@ -1464,12 +1452,9 @@ export function trailerAt(
   // the film look
   const look = out.look;
   if (home) {
-    setLook(look, LOOK_IDLE);
-    look.dofRange = LOOK_IDLE.dofRange;
-    look.bokeh = LOOK_IDLE.bokeh;
-    for (let i = 0; i < 9; i++) look.mixer[i] = MIXER_IDENTITY[i];
+    copyLook(look, LOOK_IDLE);
   } else {
-    if (coda) setLook(look, CODA_LOOK);
+    if (coda) copyGrade(look, CODA_LOOK);
     else {
       look.exposure = EXPOSURE.at(t);
       look.bloomIntensity = BLOOM_INTENSITY.at(t);

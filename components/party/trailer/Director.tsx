@@ -76,9 +76,11 @@ const PREDRAW_GROUPS = 1;
 const HOME_PREDRAW_FRAMES = 2;
 /**
  * The trailer's pace against the wall clock (the clock's steps over the frames' time) is measured over about this long
- * (s), and taken as no slower than RATE_MIN, for the music's scheduling.
+ * (s) and at least this many frames (so a device drawing a few frames a second still has a median to take), and taken
+ * as no slower than RATE_MIN, for the music's scheduling.
  */
 const RATE_WINDOW_S = 0.5;
+const RATE_FRAMES = 9;
 const RATE_MIN = 0.5;
 /** The full-grown rose's head until the trailer has seen its own (as the party camera starts it). */
 const FULL_HEAD_Y = HERO_GROUND_Y + 1.12;
@@ -87,8 +89,6 @@ const PREVIEW_SLOW: PreviewOptions = { holds: 1.5, rate: 0.7 };
 
 type Prep = "dip" | "prime" | "dawn";
 
-/** ...and over at least this many frames, so a device drawing a few frames a second still has a median to take. */
-const RATE_FRAMES = 9;
 const ascending = (a: number, b: number) => a - b;
 
 /**
@@ -106,7 +106,6 @@ class Pace {
   reset() {
     this.ratios.length = 0;
     this.deltas.length = 0;
-    this.span = 0;
     for (let i = 0; i < RATE_FRAMES; i++) {
       this.ratios.push(1);
       this.deltas.push(RATE_WINDOW_S / RATE_FRAMES);
@@ -303,8 +302,7 @@ export function TrailerDirector() {
         (t) => {
           // the coda's night carries on under the fade after the garden is put back, as it does live
           trailerAt(Math.min(t, HOME_AT - 1e-6), golden, f);
-          const night = skyState(sunInfo(istDateAt(f.hour)).altitude, f.cloud, f.hour, f.rain).nightness;
-          return { rain: f.rain, night };
+          return skyState(sunInfo(istDateAt(f.hour)).altitude, f.cloud, f.hour, f.rain).nightness;
         },
         TRAILER_S,
         options,

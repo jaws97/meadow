@@ -1,10 +1,10 @@
 // The party trailer's hand on the shared scene: a plain mutable object (like env and lib/garden/look), holding a
 // multiplier or a small cue for each scene part the trailer leans on, the flower's glow, the golden-hour rim light, the
 // seed's light and its two hops, the motes, the dandelion fluff, the fireflies, the scent sparkles and the lantern.
-// Every value's neutral is today's behaviour (a multiplier of 1, a cue of 0), so the personal garden and the idle party
-// screen draw exactly as before: only the trailer's director (components/party/trailer/Director.tsx) ever writes it,
-// every frame while the trailer plays, and the trailer's control (components/party/trailer/control.ts) puts it back
-// whenever the trailer stops or ends. The scene reads it inside its own frame loops (never through React).
+// Every value's neutral leaves the scene as the garden draws it on its own (a multiplier of 1, a cue of 0), so the
+// personal garden and the idle party screen draw exactly as before: only the trailer's director
+// (components/party/trailer/Director.tsx) ever writes it, every frame while the trailer plays, and the trailer's
+// control (components/party/trailer/control.ts) puts it back whenever the trailer stops or ends. The scene reads it inside its own frame loops (never through React).
 //
 // Three fields are not multipliers. `heroHex` holds the Backdrop's flower colour for the whole trailer, so the gates
 // that change the flower under black never rebuild the backdrop (it is the rose's own colour, so releasing it rebuilds
@@ -46,7 +46,7 @@ export interface SceneFx {
   lamp: number;
 }
 
-/** Each multiplier and cue at rest: today's scene. */
+/** Each multiplier and cue at rest: the scene as the garden draws it without the trailer. */
 export const FX_NEUTRAL: Readonly<SceneFx> = Object.freeze({
   glow: 1,
   rim: 1,
