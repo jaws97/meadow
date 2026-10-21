@@ -15,6 +15,7 @@
 import type { BedKey } from "@/components/party/trailer/beds";
 import {
   BLOOM_AT,
+  CODA_AT,
   END_AT,
   FLOWERS_AT,
   GATES,
@@ -229,19 +230,20 @@ function compose(): Note[] {
   choke(28.95, -18);
   choke(29.39, 0);
 
-  // the payoff, on the cut to the opening petals: home, wide, with the low D, one soft boom and phrase A in octaves
-  pad(29.4, CHORD.D.pad, 1, 5);
-  pad(29.4, [69, 74, 78], 0.45, 5);
-  bass(29.4, 26, 0.6, 5);
+  // the payoff, on the cut to the opening petals: home, wide, with the low D, one soft boom and phrase A in octaves;
+  // the chord gives way as the rhyme's own comes in, so the bloom is a swell and the title stays the loudest moment
+  pad(29.4, CHORD.D.pad, 1, 2.6);
+  pad(29.4, [69, 74, 78], 0.38, 2.6);
+  bass(29.4, 26, 0.6, 2.6);
   event(29.4, "boom", 0.3, 2.2);
   octave(29.4, 78, 0.6, 5);
   duck(29.4, 29.55, { beds: -6, tauIn: 0.01, tauOut: 0.8 });
-  octave(29.9, 81, 0.6, 0.9);
-  octave(30.4, 83, 0.64, 1.8);
-  pad(31.6, CHORD.Gmaj7.pad, 0.7, 1.2);
-  octave(31.6, 81, 0.56, 1.4);
-  octave(32.1, 78, 0.52, 0.9);
-  octave(32.6, 76, 0.5, 2.4);
+  octave(29.9, 81, 0.55, 0.9);
+  octave(30.4, 83, 0.58, 1.8);
+  pad(31.6, CHORD.Gmaj7.pad, 0.55, 1.2);
+  octave(31.6, 81, 0.48, 1.4);
+  octave(32.1, 78, 0.45, 0.9);
+  octave(32.6, 76, 0.44, 2.4);
   pad(32.6, CHORD.Asus4.pad, 0.5, 1);
 
   // the visitor: the theme solo over a high pad, no bass; phrase A slower, phrase B as she arrives
@@ -307,12 +309,13 @@ function compose(): Note[] {
   bell(61.9, 84, 0.47, 1.2);
   bell(62.2, 88, 0.5, 1.2);
 
-  // true silence, then the title's sting as one event, before the restore gate can split it
-  choke(END_AT + 0.4, -30);
+  // true silence, then the title's sting as one event, before the restore gate can split it; its chord is held only
+  // while the title shows, so the coda's music box has the room to itself
+  choke(END_AT + 0.4, -40);
   choke(TITLE_AT - 0.01, 0);
-  pad(TITLE_AT, CHORD.Dwide.pad, 0.9, 4);
-  bass(TITLE_AT, CHORD.Dwide.root, 0.55, 4);
-  event(TITLE_AT, "boom", 0.32, 2.2);
+  pad(TITLE_AT, CHORD.Dwide.pad, 1, CODA_AT - TITLE_AT);
+  bass(TITLE_AT, CHORD.Dwide.root, 0.6, CODA_AT - TITLE_AT);
+  event(TITLE_AT, "boom", 0.35, 2.2);
   for (const midi of [74, 78, 81, 86]) bell(TITLE_AT, midi, 0.3, 3);
   event(TITLE_AT, "shimmer", 0.12, 4, [86]);
   duck(TITLE_AT, TITLE_AT + 2, { beds: -6, tauIn: 0.05, tauOut: 0.8 });
@@ -431,7 +434,7 @@ export const BED_CUES: readonly BedCue[] = [
     ],
     keys: [
       [30.8, 0],
-      [31.4, 0.18],
+      [31.4, 0.14],
       [33.6, 0.06],
       [44.2, 0.06],
       [44.45, 0],
