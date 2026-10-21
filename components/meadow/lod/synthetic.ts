@@ -131,6 +131,7 @@ export function syntheticFriend(plot: number, opts: SyntheticOptions): FriendGar
     blackSpot: 0,
     headYaw: 0,
     petalDrop: 0,
+    flowerDay: p.stage === "bloom" ? 1 : 0,
     glow: 0,
     mood: !alive ? "resting" : poorly ? "thirsty" : p.stage === "bloom" ? "blooming" : "content",
     says: !alive ? "gone to sleep" : poorly ? "a little thirsty" : p.stage === "bloom" ? "in bloom" : "happy",

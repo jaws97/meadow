@@ -5,9 +5,9 @@
 // than the cans supplied, and the bloom forecast never runs off the climate table.
 import { describe, expect, it } from "vitest";
 import { CLIM_T } from "./climate";
-import { BED, Bideal, SIM_SPECIES, WX_FALLBACK, cleanWx, createPlant, expectBloom, fOf, hodOf, openWindow, step, thetaOf, toVisual } from "./model";
+import { BED, Bideal, REBLOOM, SIM_SPECIES, WX_FALLBACK, cleanWx, createPlant, expectBloom, fOf, hodOf, openWindow, step, thetaOf, toVisual } from "./model";
 import type { HourWeather, LooseWeather, PlantState, SimEvent } from "./model";
-import { IDS, PARTY, W, YEARS, at, goodCare, inOwnPart, mulberry32, randomPolicy, rowsFor, simulate } from "./__fixtures__/harness";
+import { IDS, MEAN, NH, PARTY, W, YEARS, at, goodCare, inOwnPart, mulberry32, randomPolicy, rowsFor, simulate } from "./__fixtures__/harness";
 
 /** 10 Dec 23:00 IST, the last hour of the prototype's planting window: planting has never closed since 21 Oct. */
 const LAST_OLD_WINDOW_H = 743;
@@ -65,13 +65,13 @@ describe("state and visual invariants", () => {
       for (const x of r.rec) {
         for (const [key, val] of Object.entries(x.v)) {
           if (typeof val !== "number") continue;
-          const hi = key === "size" ? 1.1 : key === "headYaw" ? 360 : key === "mushrooms" ? 5 : key === "snails" ? 3 : 1;
+          const hi = key === "size" ? 1.1 : key === "headYaw" ? 360 : key === "mushrooms" ? 5 : key === "snails" ? 3 : key === "flowerDay" ? REBLOOM.holdD : 1;
           if (!Number.isFinite(val) || val < 0 || val > hi) bad.push(`${x.h} ${key} ${val}`);
         }
         for (const key of ["W", "L", "B", "D", "Dw", "Ds", "R", "O", "Qd", "Qc", "Qr", "Ns", "Np", "turgor", "aba", "op", "fDev"] as const)
           if (!Number.isFinite(x.s[key]) || x.s[key] < 0) bad.push(`${x.h} state.${key} ${x.s[key]}`);
         if (x.s.alive && x.v.health <= 0) bad.push(`${x.h} health 0 while alive`);
-        if (!x.s.alive && (x.v.health > 0 || x.v.flower > 0 || x.v.bloom > 0)) bad.push(`${x.h} shows life when gone`);
+        if (!x.s.alive && (x.v.health > 0 || x.v.flower > 0 || x.v.bloom > 0 || x.v.flowerDay > 0)) bad.push(`${x.h} shows life when gone`);
       }
     }
     expect(bad.slice(0, 10)).toEqual([]);
@@ -321,5 +321,60 @@ describe("the flush that feeds the rot", () => {
         expect(x.s.wCx).toBeLessThanOrEqual(Math.max(0, x.s.W - 1000 * BED.tfc * x.s.Zr) + 1.5);
       }
     }
+  });
+});
+
+describe("the flowers that follow the first (SIM_VERSION 8)", () => {
+  const mean = (h: number) => MEAN[h];
+  const atH = (r: ReturnType<typeof simulate>, h: number) => r.rec.find((x) => x.h === h)!;
+  const day = (h: number) => Math.floor(h / 24);
+
+  it("a cared-for flower lasts a week, falls on its last evening, and a new bud opens about ten days later", () => {
+    for (const id of ["rose", "marigold", "lily", "magnolia"] as const) {
+      const r = simulate({ spId: id, plantH: PARTY, endH: NH, policy: goodCare(), wxAt: mean });
+      const first = r.rec.find((x) => x.s.flN === 1)!;
+      const last = day(first.s.flH) + REBLOOM.holdD - 1;
+      expect(atH(r, W(last, 12)).v.bloom, `${id} last noon`).toBeGreaterThan(0.5);
+      expect(atH(r, W(last, 12)).v.says).toBe("my flower will fade this evening; a new bud will follow");
+      expect(atH(r, W(last, 20)).v.petalDrop, `${id} last evening`).toBeGreaterThan(0);
+      expect(atH(r, W(last, 20)).v.says).toBe("my petals are falling; a new bud will follow");
+      const after = atH(r, W(last + 1, 12)).v;
+      expect(after.bloom, `${id} the day after`).toBe(0);
+      expect(after.flower, `${id} a new bud`).toBeGreaterThan(0);
+      // the plant says so whenever it is not asking for a drink
+      expect(r.rec.some((x) => day(x.h) === last + 1 && x.v.says === "a new bud is forming"), `${id} says a bud forms`).toBe(true);
+      const second = r.rec.find((x) => x.s.flN === 2);
+      expect(second, `${id} blooms again before 20 Dec`).toBeDefined();
+      const gap = (second!.s.flH - W(last + 1, 0)) / 24;
+      expect(gap, `${id} days from the fall to the next flower`).toBeGreaterThan(7);
+      expect(gap).toBeLessThan(13);
+      expect(atH(r, W(day(second!.s.flH), 12)).v).toMatchObject({ mood: "blooming", says: "in bloom again" });
+      // every field the prototype has is untouched: the first flower's own marks stay
+      expect(second!.s.bloomH).toBe(first.s.bloomH);
+      expect(second!.s.op).toBe(1);
+    }
+  });
+
+  it("a plant left thirsty grows its next bud later", () => {
+    const cared = simulate({ spId: "rose", plantH: PARTY, endH: NH, policy: goodCare(), wxAt: mean });
+    const last = day(cared.rec.find((x) => x.s.flN === 1)!.s.flH) + REBLOOM.holdD - 1;
+    const dry = simulate({ spId: "rose", plantH: PARTY, endH: NH, policy: goodCare({ pause: [W(last + 1, 0), W(last + 5, 0)] }), wxAt: mean });
+    const next = (r: ReturnType<typeof simulate>) => r.rec.find((x) => x.s.flN === 2)?.s.flH ?? Infinity;
+    expect(next(dry)).toBeGreaterThan(next(cared));
+  });
+
+  it("the Night Jasmine flowers a week of nights, drops its last petals at dawn, then grows a new bud", () => {
+    const r = simulate({ spId: "jasmine", plantH: PARTY, endH: NH, policy: goodCare(), wxAt: mean });
+    const first = r.rec.find((x) => x.s.flN === 1)!;
+    const last = day(first.s.flH) + REBLOOM.holdD - 1;
+    expect(atH(r, W(last, 22)).v.bloom).toBeGreaterThan(0.5);
+    expect(toVisual(atH(r, W(last + 1, 6)).s, SIM_SPECIES.jasmine, 6.75).petalDrop).toBeGreaterThan(0);
+    expect(atH(r, W(last + 1, 22)).v).toMatchObject({ bloom: 0, says: "a new bud is forming" });
+    expect(r.rec.some((x) => x.s.flN === 2)).toBe(true);
+  });
+
+  it("a replanted sprout counts its flowers afresh", () => {
+    const gone = { ...createPlant("rose", PARTY, "me"), alive: false, fairyUsed: true, flN: 3, flH: 400, nb: 0.6 };
+    expect(step(gone, { h: 900, wx: WX }, [{ kind: "replant" }])).toMatchObject({ gen: 2, alive: true, flN: 0, nb: 0 });
   });
 });

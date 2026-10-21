@@ -1,5 +1,5 @@
-// The Meadow plant model, SIM_VERSION 7: a line-for-line TypeScript port of the locked scratch prototype
-// (sim/model.js). One step() is one real hour of a seedling-scale plant (grams, not a shrub) in a raised bed in
+// The Meadow plant model, SIM_VERSION 8: a line-for-line TypeScript port of the locked scratch prototype
+// (sim/model.js, SIM_VERSION 7), with the flowers that follow the first (SIM_VERSION 8, below). One step() is one real hour of a seedling-scale plant (grams, not a shrub) in a raised bed in
 // Bangalore. Water, weather, damage, pests, nitrogen and biomass run in real time.
 //
 // Development runs in thermal time with a broad optimum plateau (17 degC up to each species' Topt, as crop phenology
@@ -36,6 +36,15 @@
 // exactly as before (SIM_VERSION 7's fingerprint in lib/server/sim-version.test.ts still holds) and no stored state needs
 // rebuilding. The lily's numbers are held by a fingerprint of their own there and by the target sweeps.
 //
+// SIM_VERSION 8 (after 7, 21 Oct): flowers bloom again. A flower lasts REBLOOM.holdD days from the day it opened, its
+// petals falling through the last evening (the jasmine's at the last dawn); then, while the plant has water and is not
+// badly hurt, a new bud develops on REBLOOM.reTT of the first bud's thermal time (about ten days under good care) and
+// opens at the flower's own hour, flower after flower, as the lotus's already do (pond.ts). Every field the prototype
+// has steps exactly as under SIM_VERSION 7, the first flower's op and bloomH included: three new fields count the flowers
+// (flN, flH, nb), and toVisual draws the ones after the first. Stored SIM_VERSION 7 checkpoints are rebuilt from their
+// plantings and events (lib/server/catchup.ts), and the parity test still replays golden-v7 for every older field, and
+// for the visuals until the first flower's last day.
+//
 // Pure and deterministic: no Date, no Math.random, no module state, and inputs are never mutated, so a state can be
 // stored as JSON and stepped on any server. The equations, their order and every constant match the prototype (the
 // lily's row aside); the parity test replays the prototype's golden file (golden-v7.json) to 1e-9. Change a number here
@@ -54,7 +63,7 @@ import { TWIN } from "./twin";
 export { TWIN };
 export type { TwinEntry } from "./twin";
 
-export const SIM_VERSION = 7;
+export const SIM_VERSION = 8;
 /** h = 0: 10 Nov 2026 00:00 IST, the day of the party. */
 export const GAME_START = "2026-11-10T00:00+05:30";
 /**
@@ -107,6 +116,13 @@ export const BED = Object.freeze({
                                                  // by itself (as much as a can) and so counts as heavy
 });
 export type Bed = typeof BED;
+
+/**
+ * The flowers that follow the first (SIM_VERSION 8), kept apart from BED, which holds exactly the prototype's numbers:
+ * each flower lasts holdD days from the day it opened, and the next bud then develops on reTT of the first bud's thermal
+ * time (about ten days under good care), as the lotus's do (pond.ts reTT).
+ */
+export const REBLOOM = Object.freeze({ holdD: 7, reTT: 0.75 });
 
 // ---- species ---------------------------------------------------------------------------------------------------------
 
@@ -314,6 +330,13 @@ export interface PlantState {
   lastFeedH: number;
   /** flower cap: 1, or replantCap for a second-chance sprout */
   cap: number;
+  /**
+   * the flowers so far (0 until the first opens), the hour the one now showing opened (or the "not yet" mark), and the
+   * next bud's development 0..1 once that flower has passed (SIM_VERSION 8, REBLOOM)
+   */
+  flN: number;
+  flH: number;
+  nb: number;
   /** hours since the last hour with rain falling (cover or not), at most 99 */
   dryH: number;
   /** rain and care water that reached the bed (mm, 12 h memory) */
@@ -364,7 +387,10 @@ export const PLANT_LINES = [
   "recovering; new leaves will replace the yellow ones",
   "drooping in the afternoon heat",
   "a little thirsty",
+  "my petals are falling; a new bud will follow",
+  "my flower will fade this evening; a new bud will follow",
   "in bloom; a smaller second-chance flower",
+  "in bloom again",
   "in bloom",
   "my petals are opening",
   "my petals will finish opening with the morning light",
@@ -374,6 +400,7 @@ export const PLANT_LINES = [
   "my bud will open at dusk",
   "my bud will open at dusk; a smaller flower this time",
   "ready for a drink",
+  "a new bud is forming",
   "growing slowly in the shade",
   "a second-chance sprout; my flower will be smaller",
   "happy",
@@ -406,7 +433,10 @@ export interface Visual {
   pests: number;
   size: number;
   turgor: number;
-  /** flower head: 0 until buds form (D 0.64), full size by D 0.95, smaller after stress while budding, capped after a replant */
+  /**
+   * flower head: 0 until buds form (D 0.64), full size by D 0.95, smaller after stress while budding, capped after a
+   * replant; between flowers, the next bud, on nb (SIM_VERSION 8)
+   */
   flower: number;
   puddle: 0 | 1;
   /** 0..5 */
@@ -418,6 +448,11 @@ export interface Visual {
   blackSpot: number;
   headYaw: number;
   petalDrop: number;
+  /**
+   * the day of the flower showing, 1 to REBLOOM.holdD, or 0: before the first opens, between flowers, and from the moment
+   * a flower's petals begin to fall on its last evening (SIM_VERSION 8; a lotus's PondVisual has its own)
+   */
+  flowerDay: number;
   glow: 0 | 1;
   mood: PlantMood;
   says: PlantLine;
@@ -552,6 +587,7 @@ export function createPlant(speciesId: SoilSpeciesId, plantedAtIndex: number, ow
     Ps: 0, Pa: 0, Pm: 0, Dpest: 0, M: 0, Lw: 0, BS: 0,
     daySpr: 0, givers: [], budDropDay: Math.min(-1, Math.floor(plantedAtIndex / 24) - 1), glowH: 0, richH: 0, lastCanH: never, lastFeedH: never,
     cap: 1,
+    flN: 0, flH: none, nb: 0,
     dryH: 99,
     wR: 0, wC: 0,
     wCx: 0,
@@ -772,6 +808,15 @@ export function step(state: PlantState, hour: HourInput, events?: readonly SimEv
     if (s.op < 1 && openWindow(sp, hod) && (s.op > 0 || hod === sp.openHod)) s.op = Math.min(1, s.op + smooth(0.3, 0.7, s.turgor) / sp.openDur);
     if (s.op >= 0.5 && s.bloomH < s.plantedH) s.bloomH = h + 1;
   }
+  // 12b. the flowers that follow (SIM_VERSION 8): a flower lasts REBLOOM.holdD days from the day it opened; then, while
+  // the plant has water and is not badly hurt, the next bud develops and opens at the flower's own hour (toVisual draws it)
+  if (s.bloomH >= s.plantedH) {
+    if (s.flN === 0) { s.flN = 1; s.flH = s.bloomH; }
+    if (Math.floor((h + 1) / 24) - Math.floor(s.flH / 24) >= REBLOOM.holdD) {
+      if (Kse > 0.9 && s.Dw + s.Ds < 0.3) s.nb = Math.min(1, s.nb + ttHour(sp, w.T) * s.fDev / (sp.TT * REBLOOM.reTT));
+      if (s.nb >= 1 && hod === sp.openHod && s.turgor > 0.5) { s.flN++; s.flH = h + 1; s.nb = 0; }
+    }
+  }
 
   // 13. death
   s.Dd = s.Dw + s.Ds;
@@ -884,8 +929,16 @@ export function toVisual(s: PlantState, sp?: SimSpecies | null, clock?: number):
   sp = sp || SIM_SPECIES[s.sp];
   const t = clock === undefined ? s.hod : clock, D = s.D, theta = thetaOf(s), f = fOf(s), Dd = s.Dw + s.Ds;
   const growth = 0.9 * Math.min(D, 0.85) / 0.85 + 0.1 * Math.max(0, D - 0.85) / 0.15;
-  const rhythm = sp.nightBloom ? jasmineRhythm(t) : 1, Q = clamp01(1 - 2 * s.budS);
-  const bloom = s.alive ? smooth(0, 1, s.op) * rhythm * (0.55 + 0.45 * s.turgor) * (0.6 + 0.4 * Q) : 0;
+  // the flower showing (SIM_VERSION 8): the first, or one after it. Each lasts REBLOOM.holdD days from the day it opened:
+  // a morning flower's petals fall through its last evening, the jasmine's at its last dawn; between flowers the next bud
+  // grows (nb), and a flower after the first opens whole at its hour
+  const fday = s.flN > 0 ? Math.floor(s.h / 24) - Math.floor(s.flH / 24) : -1, lastDay = REBLOOM.holdD - 1;
+  const flowering = s.flN === 0 || fday <= lastDay || (!!sp.nightBloom && fday === lastDay + 1 && t < 7.5);
+  const fall = !sp.nightBloom && s.flN > 0 && fday === lastDay ? clamp01((t - 17) / 7) : 0;
+  const rhythm = flowering ? (sp.nightBloom ? jasmineRhythm(t) : 1) * (1 - fall) : 0, Q = clamp01(1 - 2 * s.budS);
+  const bloom = s.alive ? (s.flN > 1 ? 1 : smooth(0, 1, s.op)) * rhythm * (0.55 + 0.45 * s.turgor) * (0.6 + 0.4 * Q) : 0;
+  // the flower head grows from the bud: the first on D (0.64 to 0.95), the next ones on nb, on the same scale
+  const headD = flowering ? D : 0.64 + 0.31 * s.nb;
   const nDef = clamp01((0.9 - s.NNI) / 0.4);
   // health reaches 0 only at death (Dd + R = 1); salt, pests, nitrogen and black spot scale what is left
   const health = s.alive ? Math.max(0.01, (1 - Dd - s.R) * (1 - 0.4 * s.Dsalt) * (1 - 0.3 * s.Dpest) * (1 - 0.25 * nDef) * (1 - 0.2 * s.BS)) : 0;
@@ -945,9 +998,13 @@ export function toVisual(s: PlantState, sp?: SimSpecies | null, clock?: number):
     : s.richH > 0 ? "my bed is already rich"
     : s.Ds > 0.075 ? (f > 0.4 ? "thirsty; a few lower leaves yellowing" : "recovering; new leaves will replace the yellow ones")
     : s.turgor < 0.9 && f > 0.3 ? "drooping in the afternoon heat" : f > 0.4 ? "a little thirsty"
-    : bloomNow ? (second ? "in bloom; a smaller second-chance flower" : "in bloom")
+    : fall > 0 ? "my petals are falling; a new bud will follow"
+    : bloomNow && !sp.nightBloom && fday === lastDay ? "my flower will fade this evening; a new bud will follow"
+    : bloomNow ? (second ? "in bloom; a smaller second-chance flower" : s.flN > 1 ? "in bloom again" : "in bloom")
     : opening ? (openWindow(sp, t) ? "my petals are opening" : paused) : budReady ? bud
+    : !flowering && s.nb >= 0.93 ? bud
     : ready ? "ready for a drink"
+    : !flowering ? "a new bud is forming"
     : s.shade && !night ? "growing slowly in the shade" : second && s.bloomH < s.plantedH ? "a second-chance sprout; my flower will be smaller" : "happy";
   let yaw = 90;
   if (sp.id === "sundrop" && D < 0.85 && t >= 6 && t <= 18) yaw = 105 + (t - 6) * 12.5;
@@ -962,10 +1019,11 @@ export function toVisual(s: PlantState, sp?: SimSpecies | null, clock?: number):
     // makes it smaller, a stunted plant a little smaller (flower size is far less plastic than plant mass, so a cloudy
     // fortnight that halves the plant costs the flower about a tenth); a second-chance sprout's flower is capped at
     // replantCap. Nothing about the planting date enters.
-    flower: !s.alive || D < 0.64 ? 0 : s.cap * (0.3 + 0.7 * smooth(0.64, 0.95, D)) * (0.6 + 0.4 * Q) * (0.8 + 0.2 * clamp01((size - 0.5) / 0.5)),
+    flower: !s.alive || D < 0.64 ? 0 : s.cap * (0.3 + 0.7 * smooth(0.64, 0.95, headD)) * (0.6 + 0.4 * Q) * (0.8 + 0.2 * clamp01((size - 0.5) / 0.5)),
     puddle: theta > 0.38 ? 1 : 0, mushrooms: Math.round(5 * clamp01((s.M - 0.4) / 0.5)),
     snails: night ? Math.round(3 * s.Ps) : 0, aphids: s.Pa, mites: s.Pm, blackSpot: s.BS,
-    headYaw: yaw, petalDrop: sp.nightBloom && s.op > 0 && t >= 6 && t < 7.5 ? (t - 6) / 1.5 : 0,
+    headYaw: yaw, petalDrop: sp.nightBloom ? (s.op > 0 && flowering && t >= 6 && t < 7.5 ? (t - 6) / 1.5 : 0) : fall,
+    flowerDay: s.alive && s.flN > 0 && flowering && fall === 0 ? Math.min(REBLOOM.holdD, fday + 1) : 0,
     glow: s.glowH > 0 ? 1 : 0, mood: mood, says: says, alive: s.alive,
     canAdvice: !s.alive ? "ok" : damp ? "damp" : thirsty ? "thirsty" : ready ? "ready" : "ok",
     feedAdvice: s.alive && nRich(s) ? "rich" : "ok",

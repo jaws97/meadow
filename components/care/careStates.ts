@@ -181,11 +181,12 @@ export function lotusFeedQuestion(v: Pick<ShownPondVisual, "stage" | "feedAdvice
 export const POND_FULL_LEAVE = "The pond is at its line. It will ask when it could use a top-up.";
 
 /**
- * The flower is in full bloom, and can be sent as a card (BloomSheet). A bed flower once it has fully opened (it never
- * closes again: the server's `open`; a server from before it said so counts three hours from the bloom, when even a
- * magnolia is open), however the hour, its thirst or a jasmine's daytime rest draw it just now. A lotus on its three
- * flower days, through their afternoons' closing too, until its petals begin to fall. Never a plant that has gone to
- * sleep.
+ * The flower is in full bloom, and can be sent as a card (BloomSheet). A bed flower once its first flower has fully
+ * opened (the server's `open`; a server from before it said so counts three hours from the bloom, when even a magnolia
+ * is open), on the days of the flower showing (the visual's flowerDay: a week each, until its petals begin to fall on
+ * the last evening, then none until the next bud opens), however the hour, its thirst or a jasmine's daytime rest draw it
+ * just now. A lotus on its three flower days, through their afternoons' closing too, until its petals begin to fall.
+ * Never a plant that has gone to sleep.
  */
 export function fullBloom(me: Pick<MeView, "state" | "visual" | "now">): boolean {
   if (!me.state.alive) return false;
@@ -193,7 +194,9 @@ export function fullBloom(me: Pick<MeView, "state" | "visual" | "now">): boolean
   if (isPondVisual(me.visual)) return me.visual.flowerDay >= 1 && !(me.visual.petalDrop > 0);
   if (me.state.bloomH === null) return false;
   const open = me.state.open ?? (me.now.h - me.state.bloomH >= 3 ? 1 : 0);
-  return open >= 0.99;
+  // a server from before the flowers that follow the first (SIM_VERSION 8) sends no flowerDay: its flower stays
+  const flowerDay = (me.visual as Partial<typeof me.visual>).flowerDay ?? 1;
+  return open >= 0.99 && flowerDay >= 1;
 }
 
 /** The tucked-away card's tab (CareLayer): a few words for how the plant is, its mood's dot, and whether it asks. */

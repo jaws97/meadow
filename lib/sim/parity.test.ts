@@ -13,7 +13,7 @@ import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { SoilSpeciesId as SpeciesId } from "@/lib/plant/species";
 import { CLIM_T } from "./climate";
-import { BED, GAME_START, PLANT_OPEN_H, SIM_SPECIES, SIM_VERSION, TWIN, createPlant, expectBloom, rainSoon, step, toVisual } from "./model";
+import { BED, GAME_START, PLANT_OPEN_H, REBLOOM, SIM_SPECIES, SIM_VERSION, TWIN, createPlant, expectBloom, rainSoon, step, toVisual } from "./model";
 import type { ForecastRow, HourWeather, PlantState, SimEvent } from "./model";
 import { catchUp, type TimedEvent } from "./replay";
 
@@ -76,12 +76,23 @@ function wxAt(w: GoldenWeather, h: number): HourWeather {
 // validate them itself, so they go in exactly as recorded
 const eventsAt = (sc: GoldenScenario, h: number) => (sc.events[String(h)] ?? []) as unknown as SimEvent[];
 
+/**
+ * SIM_VERSION 8 is SIM_VERSION 7 with the flowers that follow the first (model.ts REBLOOM): its three new fields, the
+ * version mark and the visual's flowerDay are left out of the comparison, and the visuals are compared until the first
+ * flower's last day, from which the prototype's flower stays open for ever while ours fades and a new bud follows. Every
+ * other field of the state is compared at every snapshot, all season long.
+ */
+const NEWER_FIELDS = new Set(["v", "flN", "flH", "nb"]);
+const NEWER_VISUAL = new Set(["flowerDay"]);
+const reblooming = (st: PlantState) => st.flN > 0 && Math.floor(st.h / 24) - Math.floor(st.flH / 24) >= REBLOOM.holdD - 1;
+
 function compareSnapshot(sc: GoldenScenario, want: GoldenScenario["snapshots"][number] | undefined, st: PlantState, bad: string[]): number {
   if (!want || want.h !== st.h) { bad.push(`${sc.id}: snapshot expected at h ${want?.h}, got h ${st.h}`); return 0; }
   const got = { state: st as unknown as Record<string, unknown>, visual: toVisual(st, SIM_SPECIES[sc.sp]) as unknown as Record<string, unknown> };
   let n = 0;
-  for (const part of ["state", "visual"] as const) {
-    const keys = new Set([...Object.keys(want[part]), ...Object.keys(got[part])]);
+  for (const part of reblooming(st) ? (["state"] as const) : (["state", "visual"] as const)) {
+    const newer = part === "state" ? NEWER_FIELDS : NEWER_VISUAL;
+    const keys = new Set([...Object.keys(want[part]), ...Object.keys(got[part])].filter((k) => !newer.has(k)));
     for (const key of keys) {
       n++;
       if (!same(got[part][key], want[part][key])) bad.push(`${sc.id} h ${st.h} ${part}.${key}: got ${JSON.stringify(got[part][key])}, want ${JSON.stringify(want[part][key])}`);
@@ -103,7 +114,9 @@ const goldenOnly = <T,>(table: Readonly<Record<SpeciesId, T>>) => Object.fromEnt
 
 describe("golden-v7 parity with the prototype", () => {
   it("is the file this port targets", () => {
-    expect(G.simVersion).toBe(SIM_VERSION);
+    // SIM_VERSION 8 is 7 with the flowers that follow the first (compareSnapshot above)
+    expect(G.simVersion).toBe(7);
+    expect(SIM_VERSION).toBe(8);
     expect(G.gameStart).toBe(GAME_START);
     expect(G.scenarios).toHaveLength(20);
     expect(new Set(G.scenarios.map((s) => s.sp))).toEqual(new Set(GOLDEN_SPECIES));

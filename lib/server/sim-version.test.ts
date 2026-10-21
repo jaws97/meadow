@@ -36,11 +36,14 @@ const FINGERPRINTS: Record<number, string> = {
   6: "0ec8fe9b4900e8d449081d8ea104ff98430c3f77322fba29c8695a2e3e8bb001",
   // rename only: the "island" key in each state; with that key and v read back as 6's, the hash is 6's exactly
   7: "bc62cfb50ce85539441ed4448fae024d1d8eec6c5f9f59bb5e1c8cfb1582bc02",
+  // the flowers that follow the first (model.ts REBLOOM): three new fields; every older one steps as under 7 (parity.test.ts)
+  8: "7bba51050d00d85fb54ac64ddd72401333928e703631f011aa83e90f36feafbd",
 };
 
 /** The Pink Lily's season, by SIM_VERSION (fitted under 7; see the header). */
 const LILY_FINGERPRINTS: Record<number, string> = {
   7: "ca90a22262b654c3ba577c8a8edbdb1d4c1817fe7119828d7515307bec9d73d9",
+  8: "3f891a6c27ad18dec5d45e449d95d3c4106207022101a92cf67167eb64798bb7",
 };
 
 const POND_FINGERPRINTS: Record<number, string> = {
