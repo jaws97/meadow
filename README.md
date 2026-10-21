@@ -15,6 +15,10 @@ on the live site is a real garden that keeps growing through the party and after
 from the party link is spared the limits that keep a flood of strangers out of the Meadow and off the big screen: a
 seed without it waits after 60 new seeds in an hour or 300 in a day. Names are unique in the Meadow, so each person
 plants once, under their own name, and a name with an offensive word in it is turned away (`lib/server/unkind.ts`).
+Once Google sign-in is on, a seed planted without the party link needs a Google account first (one garden for each
+account), and the garden then opens on every device signed in with it; a party guest can keep their garden on Google
+later, from the name menu. Of the account, Meadow keeps only its Google number, scrambled with a key of its own
+(`lib/server/login.ts`, `/privacy`).
 
 Live at **https://growmyflower.vercel.app**. The first address, meadow-phi.vercel.app, forwards its pages there, and a
 device that already holds a garden at the old address is carried across with it, through a fresh personal link
@@ -27,6 +31,7 @@ device that already holds a garden at the old address is carried across with it,
 | `/garden` | Everyone's first stop. Without a garden it offers the seed (or, should planting ever ask for the party link again, the rose in bloom); on a device that holds a garden it opens that garden, with its care card and its sounds. The party link (`/garden?code=...`) opens it too. |
 | `/meadow` | The shared Meadow: rings of beds and a slow river round the rose. Ride the lantern cart (or glide), visit a friend's flower, leave a sprinkle, find someone by name. |
 | `/meadow/garden?plot=N` | A friend's garden, to look at only. |
+| `/privacy` | What Meadow keeps about a garden, and what it never keeps (linked from Google sign-in). |
 | `/party?code=...` | The big screen for the party: the rose, the QR code that carries the party link, new seeds as they are planted, and a seventy-second trailer played in the live garden (below). |
 
 There are eight flowers to choose from: Enchanted Rose, Sundrop, Magnolia, Marigold, Island Bloom, Night Jasmine, Pink
@@ -100,6 +105,8 @@ marked as a rehearsal: kept on the outer plots, hidden from the live Meadow, and
 | `POSTGRES_CA_CERT`, `POSTGRES_TLS` | optional TLS overrides (by default the Supabase root certificate in `db/` is checked) |
 | `MEADOW_PARTY_CODE` | the party code, on Production only: a seed planted with it is spared the limits on strangers' plantings |
 | `MEADOW_PLANTING` | leave unset so anyone can plant; `party` asks for the party link again, should strangers ever need keeping out (redeploy after changing it) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | the Google Cloud web client for Google sign-in (redirect address `https://growmyflower.vercel.app/api/login/google/callback`, and `http://localhost:3000/...` for development); while unset, anyone plants without signing in |
+| `MEADOW_LOGIN_KEY` | Production only: the key each Google account's number is scrambled with before it is stored (32 characters or more; never change it, or every garden kept on Google loses its account) |
 | `OPEN_METEO_API_KEY` | optional, for Open-Meteo's paid service |
 
 Checks to run before a commit:

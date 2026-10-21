@@ -1954,3 +1954,116 @@
     opacity: 1;
   }
 }
+
+/* ---- Google sign-in (GoogleButton) ------------------------------------------------------------ */
+
+/* Google's own door, drawn as its branding asks: the G on white, a hairline border, its words in Roboto's weight */
+.gift-google-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gift-google {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 54px;
+  padding: 0 24px;
+  border-radius: 999px;
+  font-family: Roboto, "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: #1f1f1f;
+  text-decoration: none;
+  background: #ffffff;
+  border: 1px solid #747775;
+  box-shadow: 0 12px 30px -14px rgba(0, 0, 0, 0.55);
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease,
+    opacity 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gift-google svg {
+  flex: none;
+}
+
+.gift-google:active {
+  transform: scale(0.985);
+}
+
+.gift-google:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .gift-google:not(:disabled):hover {
+    background: #f4f6f8;
+  }
+}
+
+/* what Meadow keeps of the account, under the button */
+.gift-google-kept {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--gift-ink-3);
+}
+
+.gift-google-kept a {
+  color: var(--gift-gold);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* inside another app's browser, where Google signs no one in: the way out */
+.gift-google-away {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--gift-ink-2);
+}
+
+.gift-google-away strong {
+  font-weight: 600;
+  color: var(--gift-ink);
+}
+
+/* signed in with Google, on the name step after the return */
+.gift-signed {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 5px 12px 5px 8px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--gift-ink-2);
+  background: rgba(255, 240, 215, 0.07);
+  border: 1px solid var(--gift-line);
+}
+
+/* the name pill's menu: this garden is kept on a Google account */
+.gift-id-kept {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  font-size: 13.5px;
+  color: var(--gift-ink-3);
+}
+
+.gift-id-item-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--gift-ink-3);
+}

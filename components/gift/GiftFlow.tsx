@@ -16,12 +16,18 @@
 // site is a real garden. The welcome step reminds anyone who has planted already that their personal garden link opens
 // their garden on this device, so nobody plants twice.
 //
+// Once Google sign-in is on (lib/server/login.ts), someone without the party link continues with Google from the
+// welcome step (GoogleButton): an account that keeps a garden opens it, and one that keeps none comes back to the name
+// step (startAt), signed in, and the seed planted then is kept on the account, so it opens on every device they sign in
+// on. The party link plants as before, without signing in.
+//
 // Names are unique in the Meadow (ignoring case), so a friend finds the right flower: the name step says so, asks the
 // server whether the name is free before the seeds appear (this tab's own planting whose answer was lost does not
 // count, so planting again returns that garden), and a name taken in the meantime brings the person back to the name
 // step with the server's words. An answer that arrives after the name was changed, or the step left, is dropped.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { GiftSheet } from "@/components/gift/GiftSheet";
+import { GoogleButton, GoogleG } from "@/components/gift/GoogleButton";
 import { ArrowLeft, Sparkle } from "@/components/gift/icons";
 import { LinkPanel } from "@/components/gift/LinkPanel";
 import { PlantingMoment } from "@/components/gift/PlantingMoment";
@@ -68,11 +74,17 @@ function signLength(text: string): "mid" | "long" | undefined {
 
 export function GiftFlow({
   partyCode,
+  signIn = { needed: false, pending: false },
+  startAt = "welcome",
   onPlanted,
   onEnterGarden,
   onAlreadyPlanted,
 }: {
   partyCode: string | null;
+  /** needed: this seed goes in only after Google sign-in (no party link); pending: an account is signed in, for this seed */
+  signIn?: { needed: boolean; pending: boolean };
+  /** "name" when the person has just come back from signing in */
+  startAt?: "welcome" | "name";
   /** the seed is in and this device now holds its session (the care layer can be fetched, ready for the garden) */
   onPlanted: (result: SeedResult) => void;
   onEnterGarden: (result: SeedResult) => void;
@@ -81,7 +93,7 @@ export function GiftFlow({
 }) {
   // The sheet only ever renders in the browser (the door decides after load), so the kept request can seed the state.
   const [kept] = useState(pendingSeed);
-  const [step, setStep] = useState<Step>("welcome");
+  const [step, setStep] = useState<Step>(startAt);
   const [name, setName] = useState(kept?.firstName ?? "");
   const [friend, setFriend] = useState(kept ? !kept.showName : false);
   const [species, setSpecies] = useState<SpeciesId | null>(kept?.species ?? null);
@@ -226,11 +238,15 @@ export function GiftFlow({
           blooms in about two weeks.
         </p>
         <p className="gift-note" style={{ marginTop: 12 }}>
-          Planted a seed already? Open your personal garden link on this device to see your flower.
+          {signIn.needed
+            ? "Sign in with Google so your garden opens on all your devices. Planted already? Signing in opens your garden here."
+            : "Planted a seed already? Open your personal garden link on this device to see your flower."}
         </p>
       </div>
     );
-    foot = (
+    foot = signIn.needed ? (
+      <GoogleButton forWhat="garden" />
+    ) : (
       <button type="button" className="gift-primary" onClick={() => setStep("name")}>
         Receive your seed
       </button>
@@ -249,6 +265,12 @@ export function GiftFlow({
           void submitName();
         }}
       >
+        {signIn.pending && (
+          <p className="gift-signed">
+            <GoogleG size={16} />
+            Signed in with Google
+          </p>
+        )}
         <h2 ref={heading} tabIndex={-1} className="gift-title gift-title-sm">
           What is your first name?
         </h2>
@@ -424,6 +446,8 @@ function FailedActions({
   onBack: () => void;
   onHome: () => void;
 }) {
+  // without the party link: sign in first, or open the garden the account keeps already
+  if (problem.code === "sign_in_needed" || problem.code === "account_has_garden") return <GoogleButton forWhat="garden" />;
   if (problem.code === "already_planted") {
     const who = typeof problem.body.firstName === "string" ? problem.body.firstName : null;
     return (

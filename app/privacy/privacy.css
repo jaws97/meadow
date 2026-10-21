@@ -1,0 +1,117 @@
+/*
+ * The privacy page (app/privacy/page.tsx): one calm sheet of reading on the garden's night, in the gift sheet's warm
+ * inks and its Fraunces headings. Prefixed class names: every .css file is global here (gift.css says why).
+ */
+
+.privacy {
+  --privacy-ink: #f6ead6;
+  --privacy-ink-2: rgba(246, 234, 214, 0.8);
+  --privacy-ink-3: rgba(246, 234, 214, 0.56);
+  --privacy-gold: #f2cd8e;
+  --privacy-line: rgba(255, 236, 200, 0.12);
+  min-height: 100%;
+  padding: max(28px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+  color: var(--privacy-ink);
+  background:
+    radial-gradient(120% 70% at 50% 0%, rgba(64, 86, 66, 0.35) 0%, rgba(6, 8, 15, 0) 60%),
+    #06080f;
+}
+
+.privacy-sheet {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 28px 22px 26px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(17, 21, 33, 0.9), rgba(10, 13, 21, 0.95));
+  border: 1px solid var(--privacy-line);
+  box-shadow: 0 30px 80px -40px rgba(0, 0, 0, 0.8);
+}
+
+@media (min-width: 640px) {
+  .privacy-sheet {
+    padding: 40px 44px 34px;
+  }
+}
+
+.privacy-eyebrow {
+  margin: 0 0 6px;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--privacy-gold);
+}
+
+.privacy-title {
+  margin: 0;
+  font-family: var(--font-display), "Iowan Old Style", Georgia, serif;
+  font-size: 34px;
+  font-weight: 400;
+  line-height: 1.15;
+  font-variation-settings: "SOFT" 50, "opsz" 60;
+}
+
+.privacy-lead {
+  margin: 14px 0 0;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--privacy-ink-2);
+}
+
+.privacy-h2 {
+  margin: 30px 0 10px;
+  font-family: var(--font-display), "Iowan Old Style", Georgia, serif;
+  font-size: 21px;
+  font-weight: 400;
+  line-height: 1.25;
+  color: var(--privacy-ink);
+  font-variation-settings: "SOFT" 50, "opsz" 30;
+}
+
+.privacy-p,
+.privacy-list {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.65;
+  color: var(--privacy-ink-2);
+}
+
+.privacy-p + .privacy-p {
+  margin-top: 10px;
+}
+
+.privacy-list {
+  padding-left: 1.15em;
+  list-style: disc outside;
+}
+
+.privacy-list li + li {
+  margin-top: 8px;
+}
+
+.privacy-list li::marker {
+  color: var(--privacy-gold);
+}
+
+.privacy-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 34px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--privacy-line);
+  font-size: 14px;
+  color: var(--privacy-ink-3);
+}
+
+.privacy-foot a {
+  color: var(--privacy-gold);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.privacy :focus-visible {
+  outline: 2px solid #ffd99a;
+  outline-offset: 3px;
+}

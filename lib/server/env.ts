@@ -71,3 +71,43 @@ export function partyCodes(): string[] {
 export function plantingOpenToAll(): boolean {
   return (process.env.MEADOW_PLANTING ?? "").trim().toLowerCase() !== "party";
 }
+
+/** Google sign-in's settings: the web client from Google Cloud, and the key that scrambles each account's number. */
+export interface GoogleSignIn {
+  clientId: string;
+  clientSecret: string;
+  key: string;
+}
+
+/**
+ * A development server's own key: its practice sign-ins never match a real one (the database is shared, env.ts header).
+ * Public, so it scrambles nothing that matters.
+ */
+const DEV_LOGIN_KEY = "meadow-development-sign-in-key-not-for-production";
+/** A production key shorter than this (MEADOW_LOGIN_KEY) is a mistake, not a key. */
+const LOGIN_KEY_MIN = 32;
+let warnedLoginKey = false;
+
+/**
+ * Google sign-in (lib/server/google.ts), on when GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET hold the web client made in
+ * Google Cloud and, in production, MEADOW_LOGIN_KEY holds the key each account's Google number is scrambled with before
+ * it is stored (login-rules.ts subjectHash; a development server uses a key of its own). Off on a Preview, whose
+ * changing address Google would not send anyone back to. While it is off, anyone may plant as before, without signing in.
+ */
+export function googleSignIn(): GoogleSignIn | null {
+  const clientId = (process.env.GOOGLE_CLIENT_ID ?? "").trim();
+  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET ?? "").trim();
+  if (!clientId || !clientSecret) return null;
+  const where = deployment();
+  if (where === "preview") return null;
+  const key = (process.env.MEADOW_LOGIN_KEY ?? "").trim();
+  if (where !== "production") return { clientId, clientSecret, key: key || DEV_LOGIN_KEY };
+  if (key.length < LOGIN_KEY_MIN) {
+    if (!warnedLoginKey) {
+      warnedLoginKey = true;
+      console.error(`[meadow api] Google sign-in is off: MEADOW_LOGIN_KEY must be set (${LOGIN_KEY_MIN} characters or more) beside the Google client`);
+    }
+    return null;
+  }
+  return { clientId, clientSecret, key };
+}

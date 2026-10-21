@@ -10,7 +10,9 @@
 // - anyone else is given the seed (since 21 Oct, party link or not: the QR link's ?code=... rides along and spares the
 //   party's seeds the limits on strangers' plantings; planting never closes), unless planting asks for the party link
 //   again (MEADOW_PLANTING=party, which GET /api/session reports): then someone without it sees Lijas's rose with a
-//   gentle line about the link.
+//   gentle line about the link. Once Google sign-in is on, someone without the party link continues with Google first
+//   (GiftFlow), and comes back from Google to /garden?signin=...: to their own garden, with a note under the pill; to
+//   the name step, signed in; or to a dialog when the sign-in could not do what it was for (takeSignInResult).
 // The decision needs the server (the session cookie is httpOnly), so the first render, which is also the prerendered
 // HTML, shows only the loading veil, and the door opens once GET /api/session answers (asked as the page script
 // loads, lib/client/session.ts, so the answer is usually in by the time the page hydrates). That first answer also
@@ -52,11 +54,14 @@ import {
   takeGardenLink,
   takeLinkFromHashChange,
   takeSessionAhead,
+  takeSignInResult,
+  type LoginStatus,
   type PersonSummary,
   type SeedResult,
+  type SignInResult,
   type TakenLink,
 } from "@/lib/client/session";
-import { opening, quoteRuns, useOpening } from "@/lib/garden/opening";
+import { opening, quoteRuns, uiHeld, useOpening } from "@/lib/garden/opening";
 import "@/components/gift/gift.css";
 
 // Only a signed-in visitor needs the care layer, so the party's first-time visitors download it only once their seed
@@ -87,9 +92,10 @@ type Door =
       problem: string | null;
     }
   | { mode: "notice"; title: string; message: string; retryToken: string | null }
-  | { mode: "gift"; partyCode: string | null }
+  /** login: Google sign-in on this server and device (null: unknown); startAt "name": just back from signing in */
+  | { mode: "gift"; partyCode: string | null; login: LoginStatus | null; startAt?: "name" }
   /** focus: the person arrived here from the sheet or a dialog, so focus goes to the name pill */
-  | { mode: "garden"; person: PersonSummary; previous: PersonSummary | null; focus?: boolean }
+  | { mode: "garden"; person: PersonSummary; previous: PersonSummary | null; login: LoginStatus | null; focus?: boolean }
   | { mode: "showcase" };
 
 const personKey = (p: PersonSummary) => `${p.firstName}:${p.plot ?? "-"}`;
@@ -98,13 +104,15 @@ const personKey = (p: PersonSummary) => `${p.firstName}:${p.plot ?? "-"}`;
 async function sessionDoor(): Promise<Door> {
   // whether someone without the party link may plant: yes, unless the server says planting asks for the link again
   let plantingOpen = true;
+  let login: LoginStatus | null = null;
   try {
     // the first time, the answer the page asked for as it loaded
     const s = await (takeSessionAhead() ?? getSession());
+    login = s.login ?? null;
     if (s.signedIn && s.person) {
       // a device that holds a garden has no use for the party code: not kept, and out of the address bar
       forgetPartyCode();
-      return { mode: "garden", person: s.person, previous: s.previous };
+      return { mode: "garden", person: s.person, previous: s.previous, login };
     }
     plantingOpen = s.plantingOpen !== false;
   } catch {
@@ -112,7 +120,7 @@ async function sessionDoor(): Promise<Door> {
   }
   const partyCode = capturePartyCode();
   if (AS_SHOWCASE) return { mode: "showcase" };
-  if (partyCode !== null || plantingOpen || IS_DEV) return { mode: "gift", partyCode };
+  if (partyCode !== null || plantingOpen || IS_DEV) return { mode: "gift", partyCode, login };
   return { mode: "showcase" };
 }
 
@@ -123,11 +131,11 @@ const withFocus = (next: Promise<Door>): Promise<Door> => next.then((d) => (d.mo
 async function gardenAfterLink(person: PersonSummary, previous: PersonSummary | null): Promise<Door> {
   try {
     const s = await getSession();
-    if (s.signedIn && s.person) return { mode: "garden", person: s.person, previous: s.previous };
+    if (s.signedIn && s.person) return { mode: "garden", person: s.person, previous: s.previous, login: s.login ?? null };
   } catch {
     // keep what the link answer said
   }
-  return { mode: "garden", person, previous };
+  return { mode: "garden", person, previous, login: null };
 }
 
 async function linkDoor(token: string): Promise<Door> {
@@ -171,6 +179,39 @@ async function doorFor(link: TakenLink): Promise<Door> {
 // One answer per page load, even when React runs the effect twice in development.
 let arriving: Promise<Door> | null = null;
 
+/** The dialog for a sign-in that came back without doing what it was for (null: nothing to say). */
+function signInNotice(result: SignInResult | null): Extract<Door, { mode: "notice" }> | null {
+  const notice = (title: string, message: string) => ({ mode: "notice" as const, title, message, retryToken: null });
+  switch (result) {
+    case "taken":
+      return notice(
+        "That Google account has a garden already",
+        "Each Google account keeps one garden. This one stays as it is, and its personal link still opens it anywhere.",
+      );
+    case "elsewhere":
+      return notice("This garden is kept on another Google account", "Sign in with that account to open it on your other devices.");
+    case "failed":
+      return notice("Google sign-in did not finish", "Nothing has changed. Please try again in a moment.");
+    case "unavailable":
+      return notice("Google sign-in is not open yet", "Please try again a little later.");
+    default:
+      return null;
+  }
+}
+
+/** The door a sign-in came back to: the name step after signing in to plant, or the dialog for one that could not. */
+function afterSignIn(d: Door, result: SignInResult | null): Door {
+  if (result === "plant" && d.mode === "gift") return { ...d, startAt: "name" };
+  return signInNotice(result) ?? d;
+}
+
+/** The note under the pill when a sign-in has just opened or kept this garden. */
+function signInNote(result: SignInResult | null): string | null {
+  if (result === "welcome") return "Signed in with Google. Your garden opens wherever you sign in.";
+  if (result === "kept") return "Your garden is now kept on your Google account. Sign in on any device to open it.";
+  return null;
+}
+
 /**
  * The first answer also decides the page's opening (lib/garden/opening): the quote moment for the visitor's own garden
  * (with their name for the welcome) and for the showcase; the plain loading veil for the gift's own first look and for
@@ -190,15 +231,21 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
   const [pendingNote, setPendingNote] = useState<{ text: string; person: PersonSummary } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const quoteMoment = useOpening(quoteRuns);
+  // the pill holds back through the opening's quiet (gift.css): a note's time starts once it can be read
+  const pillHeld = useOpening(uiHeld);
   const soundSwitch = useSoundSwitch();
   const showSound = soundSwitch !== "off" && (door.mode === "garden" || soundSwitch === "on");
 
   useEffect(() => {
     let live = true;
-    arriving ??= doorFor(takeGardenLink());
+    const signedIn = takeSignInResult();
+    arriving ??= doorFor(takeGardenLink()).then((d) => afterSignIn(d, signedIn));
     arriving.then((d) => {
       openingFor(d);
-      if (live) setDoor(d);
+      if (!live) return;
+      setDoor(d);
+      const words = signInNote(signedIn);
+      if (words && d.mode === "garden") setPendingNote({ text: words, person: d.person });
     });
     // a garden link pasted into this open page changes only the fragment, so no reload brings it to the door
     const onHash = () => {
@@ -253,10 +300,10 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
   }, [pendingNote]);
 
   useEffect(() => {
-    if (!toast) return;
+    if (!toast || pillHeld) return;
     const t = setTimeout(() => setToast(null), NOTE_MS);
     return () => clearTimeout(t);
-  }, [toast]);
+  }, [toast, pillHeld]);
 
   const note = useCallback((text: string, person: PersonSummary) => {
     setToast(null);
@@ -272,9 +319,15 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
     void loadCareLayer().catch(() => {});
   }, []);
 
-  const enterGarden = useCallback((result: SeedResult) => {
-    setDoor({ mode: "garden", person: { firstName: result.me.person.firstName, plot: result.me.plant.plot }, previous: null, focus: true });
-  }, []);
+  // a seed planted signed in is kept on the account (POST /api/seed spends the sign-in)
+  const giftLogin = door.mode === "gift" ? door.login : null;
+  const enterGarden = useCallback(
+    (result: SeedResult) => {
+      const login = giftLogin && { ...giftLogin, kept: giftLogin.pending, pending: false };
+      setDoor({ mode: "garden", person: { firstName: result.me.person.firstName, plot: result.me.plant.plot }, previous: null, login, focus: true });
+    },
+    [giftLogin],
+  );
 
   async function confirmSwitch(d: Extract<Door, { mode: "switch" }>) {
     setDoor({ ...d, busy: true, problem: null });
@@ -308,9 +361,10 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
         <IdentityMenu
           person={door.person}
           previous={door.previous}
+          login={door.login}
           focusOnMount={door.focus === true}
           onSwitchedBack={(person) => {
-            setDoor({ mode: "garden", person, previous: null });
+            setDoor({ mode: "garden", person, previous: null, login: null });
             note(`Back in ${gardenName(person, knownFacts(person))}.`, person);
           }}
           note={toast}
@@ -329,6 +383,11 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
       {door.mode === "gift" && (
         <GiftFlow
           partyCode={door.partyCode}
+          signIn={{
+            needed: door.partyCode === null && door.login?.required === true && !door.login.pending,
+            pending: door.login?.pending === true,
+          }}
+          startAt={door.startAt}
           onPlanted={onPlanted}
           onEnterGarden={enterGarden}
           onAlreadyPlanted={() => go(withFocus(sessionDoor()))}

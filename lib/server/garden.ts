@@ -59,9 +59,11 @@ import {
 } from "@/lib/sim";
 import { advanceCheckpoint, seedState, type AdvanceDeps, type CheckpointRecord } from "./catchup";
 import { db, transaction, type Queryable } from "./db";
-import { isProduction, partyCodes, plantingOpenToAll, showRehearsals, writesDerivedState } from "./env";
+import { googleSignIn, isProduction, partyCodes, plantingOpenToAll, showRehearsals, writesDerivedState } from "./env";
 import { ApiError } from "./http";
 import { createGardenLink, createSession } from "./identity";
+import { accountPerson, keepPlanting, loginStartSubject } from "./login";
+import { plantingNeeds } from "./login-rules";
 import { plantingPass } from "./party";
 import { KNOWN_SPECIES } from "./species-guard";
 import { PLOT_CAPACITY, assignPlot, isBedIndex } from "./plots";
@@ -390,6 +392,8 @@ export interface PlantResult {
   linkToken: string;
   /** true when this was a retry of a planting that already happened (same clientEventId) */
   replay: boolean;
+  /** the new garden is kept on the Google account signed in on this device (its login cookie is spent) */
+  keptOnAccount: boolean;
   me: MeView;
 }
 
@@ -464,14 +468,21 @@ async function answerRetry(prior: PriorPlanting, input: SeedInput, sessionPerson
     sessionToken: sessionPersonId === prior.personId ? null : await createSession(tx, prior.personId),
     linkToken: await createGardenLink(tx, prior.personId),
   }));
-  return { personId: prior.personId, sessionToken, linkToken, replay: true, me: await getMe(prior.personId, now) };
+  return { personId: prior.personId, sessionToken, linkToken, replay: true, keptOnAccount: false, me: await getMe(prior.personId, now) };
+}
+
+/** A planting with a Google account that keeps a garden already: each account keeps one (login-rules.ts). */
+function accountHasGardenError(): ApiError {
+  return new ApiError(409, "account_has_garden", "That Google account has a garden in the Meadow already. Continue with Google to open it here.");
 }
 
 /**
  * Plants a seed for a new person: checks who may plant, gives them the next plot, and creates the person, their
- * garden, the plant and its first checkpoint, a session and a personal garden link, all in one transaction.
+ * garden, the plant and its first checkpoint, a session and a personal garden link, all in one transaction. Once Google
+ * sign-in is on, a seed without the party link needs the device's login cookie (`loginToken`, login.ts): the account
+ * it holds keeps the new garden, and a seed with the party link is kept on such an account too.
  */
-export async function plantSeed(input: SeedInput, opts: { sessionPersonId: string | null; now?: Date }): Promise<PlantResult> {
+export async function plantSeed(input: SeedInput, opts: { sessionPersonId: string | null; loginToken?: string; now?: Date }): Promise<PlantResult> {
   const now = opts.now ?? new Date();
   const h = hourIndexOf(now);
   const pass = plantingPass(input.partyCode, partyCodes(), isProduction(), plantingOpenToAll());
@@ -486,6 +497,15 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
         { plot: mine.plot, firstName: mine.firstName });
     }
   }
+
+  // without the party link, a seed needs a Google account that keeps no garden yet, once sign-in is on (login-rules.ts)
+  const signInOn = googleSignIn() !== null;
+  const subject = signInOn ? await loginStartSubject(db(), opts.loginToken) : null;
+  const needs = plantingNeeds(pass, signInOn, subject !== null, subject !== null && (await accountPerson(db(), subject)) !== null);
+  if (needs === "sign_in") {
+    throw new ApiError(403, "sign_in_needed", "Continue with Google to plant your seed, so your garden opens on all your devices.");
+  }
+  if (needs === "has_garden") throw accountHasGardenError();
 
   const species = input.species;
   // the live site plants real gardens; a dev server or a Preview, practice ones
@@ -532,6 +552,8 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
       await tx`
         insert into meadow.checkpoints (plant_id, h, state, sim_version)
         values (${plant.id}, ${state.h}, ${tx.json(asJson(state))}, ${modelVersionOf(species)})`;
+      // kept on the Google account the device signed in with (the account's key is unique: never two gardens)
+      if (subject && opts.loginToken) await keepPlanting(tx, opts.loginToken, subject, person.id);
       const ref: PlantRef = {
         personId: person.id, firstName: input.firstName, showName: input.showName, plantId: plant.id, species, seed, plot,
         plantedH: h, rehearsal,
@@ -548,6 +570,7 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
       sessionToken: created.sessionToken,
       linkToken: created.linkToken,
       replay: false,
+      keptOnAccount: subject !== null,
       me: buildMe(created.ref, created.state, [], now, null, []),
     };
   } catch (err) {
@@ -559,6 +582,8 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
       if (winner) return answerRetry(winner, input, opts.sessionPersonId, now);
     }
     if (nameClash) throw nameTakenError(input.firstName);
+    // the same account planted on another device in the meantime
+    if (isUniqueViolation(err, "logins_pkey")) throw accountHasGardenError();
     // a build that offers a seed the database's species list does not hold yet (the lotus, before migration 0006): a
     // calm answer rather than a failure, and nothing was planted (the transaction rolled back)
     if (isCheckViolation(err, "plants_species_check")) {

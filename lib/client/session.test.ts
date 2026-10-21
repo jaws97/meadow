@@ -10,6 +10,8 @@ import {
   ApiProblem,
   checkFirstName,
   checkNameFree,
+  chromeIntentUrl,
+  inAppBrowser,
   isRetryablePlanting,
   newClientEventId,
   parseLinkLocation,
@@ -184,5 +186,27 @@ describe("the name step's check", () => {
     expect(await checkNameFree("Ravi", null)).toBeNull();
     vi.stubGlobal("fetch", answer(403, { error: "party_code_wrong", message: "m" }));
     expect(await checkNameFree("Ravi", "old")).toBeNull();
+  });
+});
+
+describe("Google sign-in in another app's browser", () => {
+  const SAFARI = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+  const CHROME = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
+  const INSTAGRAM_IOS = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 350.0.0.0 (iPhone15,2; iOS 18_0; en_IN)";
+  const FACEBOOK_ANDROID = "Mozilla/5.0 (Linux; Android 14; SM-S911B Build/UP1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/480.0.0.0;]";
+  const WEBVIEW = "Mozilla/5.0 (Linux; Android 13; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/129.0.0.0 Mobile Safari/537.36";
+
+  it("knows a real browser from an app's own, and which way out to offer", () => {
+    expect(inAppBrowser(SAFARI)).toBeNull();
+    expect(inAppBrowser(CHROME)).toBeNull();
+    expect(inAppBrowser(INSTAGRAM_IOS)).toBe("ios");
+    expect(inAppBrowser(FACEBOOK_ANDROID)).toBe("android");
+    expect(inAppBrowser(WEBVIEW)).toBe("android");
+  });
+
+  it("opens the same page in Chrome on Android, party code and all", () => {
+    expect(chromeIntentUrl("https://growmyflower.vercel.app/garden?code=abc")).toBe(
+      "intent://growmyflower.vercel.app/garden?code=abc#Intent;scheme=https;package=com.android.chrome;end",
+    );
   });
 });

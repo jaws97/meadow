@@ -40,6 +40,20 @@ export interface SessionStatus {
   previous: PersonSummary | null;
   /** whether anyone may plant without the party link (false only under MEADOW_PLANTING=party); absent from older servers */
   plantingOpen?: boolean;
+  /** Google sign-in's word (lib/server/login.ts loginStatus); absent from older servers */
+  login?: LoginStatus;
+}
+
+/** Google sign-in on this server, for this device (GET /api/session). */
+export interface LoginStatus {
+  /** sign-in is on here */
+  available: boolean;
+  /** a seed planted without the party link needs it */
+  required: boolean;
+  /** this device's garden is kept on a Google account */
+  kept: boolean;
+  /** an account is signed in on this device, which holds no garden yet: the seed planted next is kept on it */
+  pending: boolean;
 }
 
 export type LinkOpen =
@@ -224,6 +238,60 @@ export function forgetPartyCode(): void {
   } catch {
     // harmless to leave
   }
+}
+
+// ---- Google sign-in -----------------------------------------------------------------------------------------------
+
+/**
+ * How a Google sign-in ended, as its return answers /garden?signin=... (lib/server/login-rules.ts SignInResult):
+ * welcome (the account's garden opened here), plant (signed in: now a name and a seed), kept (this garden is now kept on
+ * the account), taken (that account keeps another garden), elsewhere (this garden is kept on another account),
+ * cancelled, failed, unavailable.
+ */
+export type SignInResult = "welcome" | "plant" | "kept" | "taken" | "elsewhere" | "cancelled" | "failed" | "unavailable";
+const SIGN_IN_RESULTS: ReadonlySet<string> = new Set(["welcome", "plant", "kept", "taken", "elsewhere", "cancelled", "failed", "unavailable"]);
+let signInResult: SignInResult | null | undefined;
+
+/** How the sign-in this page came back from ended (once per page load), taken out of the address bar; null for none. */
+export function takeSignInResult(): SignInResult | null {
+  if (signInResult !== undefined) return signInResult;
+  if (typeof window === "undefined") return null;
+  const { pathname, search, hash } = window.location;
+  const query = splitParams(search, ["signin"]);
+  const raw = query.found.get("signin") ?? "";
+  signInResult = SIGN_IN_RESULTS.has(raw) ? (raw as SignInResult) : null;
+  if (query.found.has("signin")) {
+    try {
+      window.history.replaceState(null, "", `${pathname}${query.rest ? `?${query.rest}` : ""}${hash}`);
+    } catch {
+      // harmless to leave
+    }
+  }
+  return signInResult;
+}
+
+/**
+ * Starts a Google sign-in (GET /api/login/google): "garden" from a device that holds no garden (opens the account's
+ * garden here, or plants one kept on it), "keep" to keep this device's garden on the account.
+ */
+export function signInWithGoogle(forWhat: "garden" | "keep"): void {
+  // a whole-page visit (the route answers with Google's own page), never a router push
+  window.location.assign(new URL(`/api/login/google?for=${forWhat}`, window.location.origin).href);
+}
+
+/**
+ * A browser built into another app (Instagram's, Facebook's, LinkedIn's, Snapchat's, TikTok's, LINE's, WeChat's, or an
+ * Android web view), where Google signs no one in: "android" or "ios", for which way out to offer; null for a browser.
+ */
+export function inAppBrowser(ua: string): "android" | "ios" | null {
+  if (!/Instagram|FBAN|FBAV|FB_IAB|FBIOS|LinkedInApp|Snapchat|musical_ly|BytedanceWebview|\bLine\/|MicroMessenger|; wv\)/i.test(ua)) return null;
+  return /Android/i.test(ua) ? "android" : "ios";
+}
+
+/** Android's way out of an app's own browser: the same page in Chrome (an intent: address, read by Android alone). */
+export function chromeIntentUrl(href: string): string {
+  const u = new URL(href);
+  return `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=${u.protocol.replace(":", "")};package=com.android.chrome;end`;
 }
 
 // ---- the first name, checked as the server checks it ---------------------------------------------------------------

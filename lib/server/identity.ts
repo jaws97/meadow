@@ -248,9 +248,9 @@ export async function resetAccess(currentToken: string | undefined): Promise<{ l
 export async function sessionStatus(
   currentToken: string | undefined,
   prevToken: string | undefined,
-): Promise<{ person: PersonSummary | null; previous: PersonSummary | null }> {
+): Promise<{ person: PersonSummary | null; previous: PersonSummary | null; personId: string | null }> {
   const [currentId, prevId] = await Promise.all([sessionPerson(currentToken), sessionPerson(prevToken)]);
   const person = currentId ? await summary(db(), currentId) : null;
   const previous = prevId && prevId !== currentId ? await summary(db(), prevId) : null;
-  return { person, previous };
+  return { person, previous, personId: person ? currentId : null };
 }

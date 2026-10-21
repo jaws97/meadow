@@ -1,7 +1,9 @@
 "use client";
 // Whose garden this device is showing, as a small pill in the top-left corner, and the things a colleague may need
-// about it: a fresh personal garden link to open the garden on another device (POST /api/link; the newest five keep
-// working), after this device switched gardens the way back to the one it showed before (POST /api/session/back),
+// about it: where Google sign-in is on, keeping the garden on a Google account so it opens on every device signed in
+// with it (GET /api/login/google?for=keep, lib/server/login.ts; once kept, the menu says so), a fresh personal garden
+// link to open the garden on another device (POST /api/link; the newest five keep working), after this device
+// switched gardens the way back to the one it showed before (POST /api/session/back),
 // and, under a hairline, the picture the garden is drawn at (components/gift/PicturePicker). The fresh link opens in
 // a dialog with the same panel the planting ended with. A short note ("Now showing Ravi's Marigold garden on this
 // device") can hang under the pill for a few seconds after a switch. The picture has its own notes there, each once
@@ -19,11 +21,20 @@
 // that opened it has gone by then).
 import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@/components/gift/Dialog";
+import { GoogleG } from "@/components/gift/GoogleButton";
 import { Chevron, Leaf, LinkIcon, Swap } from "@/components/gift/icons";
 import { LinkPanel } from "@/components/gift/LinkPanel";
 import { PicturePicker } from "@/components/gift/PicturePicker";
 import { factsLine, gardenNames, useGardenFacts } from "@/lib/client/gardens";
-import { ApiProblem, OFFLINE_MESSAGE, newGardenLink, switchBack, type PersonSummary } from "@/lib/client/session";
+import {
+  ApiProblem,
+  OFFLINE_MESSAGE,
+  newGardenLink,
+  signInWithGoogle,
+  switchBack,
+  type LoginStatus,
+  type PersonSummary,
+} from "@/lib/client/session";
 import { uiHeld, useOpening } from "@/lib/garden/opening";
 import { clearFellBack, fellBackNote, introNote, markIntroduced, slowNote, usePicture } from "@/lib/garden/picture";
 import { quality, useQuality } from "@/lib/garden/quality";
@@ -78,12 +89,15 @@ const underVeil = (s: { veiled: boolean; phase: string }) => s.veiled && s.phase
 export function IdentityMenu({
   person,
   previous,
+  login = null,
   onSwitchedBack,
   note = null,
   focusOnMount = false,
 }: {
   person: PersonSummary;
   previous: PersonSummary | null;
+  /** Google sign-in on this server, and whether this garden is kept on an account (null: unknown, so not offered) */
+  login?: LoginStatus | null;
   onSwitchedBack: (person: PersonSummary) => void;
   /** a passing note under the pill, hidden while the menu is open */
   note?: string | null;
@@ -91,7 +105,7 @@ export function IdentityMenu({
   focusOnMount?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<"link" | "back" | null>(null);
+  const [busy, setBusy] = useState<"google" | "link" | "back" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -211,6 +225,29 @@ export function IdentityMenu({
           {what && (
             <p className="gift-id-what" aria-hidden="true">
               {what}
+            </p>
+          )}
+          {login?.available && !login.kept && (
+            <button
+              type="button"
+              className="gift-id-item"
+              onClick={() => {
+                setBusy("google");
+                signInWithGoogle("keep");
+              }}
+              disabled={busy !== null}
+            >
+              <GoogleG size={18} />
+              <span>
+                {busy === "google" ? "Opening Google" : "Keep it on all your devices"}
+                <span className="gift-id-item-sub">Sign in with Google</span>
+              </span>
+            </button>
+          )}
+          {login?.available && login.kept && (
+            <p className="gift-id-kept">
+              <GoogleG size={16} />
+              Kept on your Google account
             </p>
           )}
           <button type="button" className="gift-id-item" onClick={makeLink} disabled={busy !== null}>

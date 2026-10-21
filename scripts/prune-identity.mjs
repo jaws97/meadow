@@ -1,8 +1,9 @@
 // Removes device sessions and personal garden links that no longer open anything, once they are a month past it:
 // revoked rows (retired by the active caps, a sign-out, a switch or a reset) 30 days after they were revoked, and rows
 // past their server-side lifetime (lib/server/session-rules.ts SESSION_TTL_DAYS, LINK_TTL_DAYS) 30 days after they
-// expired. The month keeps recent history for support questions ("which devices had my garden?"). Gardens, plants and
-// people are never touched. Run it now and then (monthly is plenty); the app role cannot delete, so this runs as the
+// expired. Google sign-ins held for a planting (meadow.login_starts, an hour each) go a month after they were made.
+// The month keeps recent history for support questions ("which devices had my garden?"). Gardens, plants, people and
+// the gardens kept on Google accounts (meadow.logins) are never touched. Run it now and then (monthly is plenty); the app role cannot delete, so this runs as the
 // migration role.
 //
 //   node --env-file=.env.local scripts/prune-identity.mjs          count what would go
@@ -26,13 +27,17 @@ async function main() {
     const linksGone = () => sql`
       (revoked_at is not null and revoked_at < now() - make_interval(days => ${GRACE_DAYS}::int))
       or created_at < now() - make_interval(days => ${LINK_TTL_DAYS + GRACE_DAYS}::int)`;
+    const startsGone = () => sql`created_at < now() - make_interval(days => ${GRACE_DAYS}::int)`;
     const [counts] = await sql`
       select (select count(*)::int from meadow.sessions) as sessions,
              (select count(*)::int from meadow.sessions where ${sessionsGone()}) as sessions_old,
              (select count(*)::int from meadow.garden_links) as links,
-             (select count(*)::int from meadow.garden_links where ${linksGone()}) as links_old`;
+             (select count(*)::int from meadow.garden_links where ${linksGone()}) as links_old,
+             (select count(*)::int from meadow.login_starts) as starts,
+             (select count(*)::int from meadow.login_starts where ${startsGone()}) as starts_old`;
     console.log(`sessions: ${counts.sessions} rows, ${counts.sessions_old} revoked or expired more than ${GRACE_DAYS} days ago`);
     console.log(`garden links: ${counts.links} rows, ${counts.links_old} revoked or expired more than ${GRACE_DAYS} days ago`);
+    console.log(`Google sign-ins held for a planting: ${counts.starts} rows, ${counts.starts_old} made more than ${GRACE_DAYS} days ago`);
     if (!apply) {
       console.log("dry run: nothing deleted (add --yes to delete)");
       return;
@@ -40,8 +45,9 @@ async function main() {
     const result = await sql.begin(async (tx) => ({
       sessions: (await tx`delete from meadow.sessions where ${sessionsGone()} returning 1`).length,
       links: (await tx`delete from meadow.garden_links where ${linksGone()} returning 1`).length,
+      starts: (await tx`delete from meadow.login_starts where ${startsGone()} returning 1`).length,
     }));
-    console.log(`deleted ${result.sessions} sessions and ${result.links} garden links`);
+    console.log(`deleted ${result.sessions} sessions, ${result.links} garden links and ${result.starts} sign-ins held for a planting`);
   } finally {
     await sql.end();
   }
