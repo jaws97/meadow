@@ -93,3 +93,29 @@ describe("the light plant's stamens", () => {
     expect(anthers({}, 8)).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe("a jasmine's cluster, posed", () => {
+  const jas = (look: Partial<PlantLook>) =>
+    posePlant({ speciesId: "jasmine", seed: "typical-2", growth: 1, bloom: 1, health: 1, moisture: 0.6, scorch: 0, ...look }, lodDetail(SPECIES.jasmine), tags);
+  const r = SPECIES.jasmine.raceme!;
+  const heads = r.flowers + (r.buds ?? 0) + 1;
+
+  it("opens its flowers one a night among buds that stay closed", () => {
+    // every head not open shows its bud's core
+    const closedHeads = (opened: number | null | undefined) => {
+      const posed = jas({ opened });
+      for (const g of posed.own) g.dispose();
+      return count(posed.parts, "bud");
+    };
+    expect(closedHeads(null)).toBe(heads - 1);
+    expect(closedHeads(2)).toBe(heads - 1);
+    expect(closedHeads(26)).toBe(heads - 2);
+    expect(closedHeads(50)).toBe(heads - 3);
+    expect(closedHeads(undefined)).toBe(heads - r.flowers);
+    const bud = jas({ growth: 0.8, bloom: 0, opened: null });
+    expect(count(bud.parts, "bud")).toBe(heads);
+    expect(count(bud.parts, "stamen")).toBe(0);
+    for (const g of bud.own) g.dispose();
+  });
+});
+

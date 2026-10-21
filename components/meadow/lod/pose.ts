@@ -20,6 +20,7 @@ import {
   makeSepalGeometry,
   makeStemGeometry,
   makeThornGeometry,
+  receptacleShape,
   stemEndTransform,
   stemPointAt,
 } from "@/lib/plant/geometry";
@@ -166,7 +167,9 @@ export function posePlant<M>(look: PlantLook, detail: PoseDetail, mats: PartMate
   const { length, width, serration, fold } = sp.leaves;
   const leafGeo = Array.from({ length: VARIANTS }, (_, v) => keep(makeLeafGeometry({ length, width, serration, fold }, v + 1, detail.leaf[0], detail.leaf[1])));
   const sepalGeo = f.sepals.count > 0 ? keep(makeSepalGeometry(f.sepals.length, f.sepals.width, 99, detail.sepal[0], detail.sepal[1])) : null;
-  const receptacle = keep(detail.receptacle(c.radius * 1.25, c.radius * 2.1));
+  // the receptacle (or a jasmine's tube) and where it and the sepals sit
+  const cup = receptacleShape(f);
+  const receptacle = keep(detail.receptacle(cup.radius, cup.height));
   const rachisLength = sp.leaves.petiole ?? sp.leaves.length * 0.32;
   const rachis = keep(makeStemGeometry(rachisLength, sp.stem.radius * 0.22, sp.stem.radius * 0.12, 0, rachisLength * 0.22, detail.rachis[0], detail.rachis[1]));
   const thornGeo = sp.stem.thorns && detail.thorn ? keep(makeThornGeometry(detail.thorn[0], detail.thorn[1])) : null;
@@ -324,7 +327,7 @@ export function posePlant<M>(look: PlantLook, detail: PoseDetail, mats: PartMate
 
   // ---- the flower heads ----
   // the stamens' share each flower may draw (the most for a plant, among a lily's three flowers)
-  const stamenCap = Math.max(1, detail.stamens / Math.max(1, raceme.filter((x) => !x.tipBud).length));
+  const stamenCap = Math.max(1, detail.stamens / Math.max(1, raceme.filter((x) => !x.closed).length));
   const leadBud = heroBudGrowth(g);
   const leadEb = look.bloom * smoothstep(0.8, 0.92, g);
   // the head the garden follows: the lead, once its bud shows on its stalk; the growing tip before
@@ -339,7 +342,7 @@ export function posePlant<M>(look: PlantLook, detail: PoseDetail, mats: PartMate
     head.rotation.set((node ? node.tilt : bp.headTilt) + droop * 0.9, node ? node.spin : bp.flowerYaw, 0);
     head.scale.setScalar((node ? racemeHeadScale(node, bud) : 0.3 + 0.7 * bud) * (0.6 + 0.4 * flowerSize));
     if (shown) {
-      part(head, receptacle, mats.sepal()).position.y = -c.radius * 2.0;
+      part(head, receptacle, mats.sepal()).position.y = cup.y;
       if (petalsShown && eb < 0.9) {
         const core = part(head, detail.sphere, mats.bud());
         const br = Math.max(0.0001, f.budRadius * (1 - eb) * (0.6 + 0.4 * bud));
@@ -354,7 +357,7 @@ export function posePlant<M>(look: PlantLook, detail: PoseDetail, mats: PartMate
           around.rotation.y = (k / f.sepals.count) * 2 * Math.PI + 0.3;
           head.add(around);
           const sg = new THREE.Group();
-          sg.position.set(0, -c.radius * 0.25, c.radius * 0.95);
+          sg.position.set(0, cup.sepalY, cup.sepalR);
           sg.rotation.x = sepalRot;
           sg.scale.setScalar(sepalScale);
           around.add(sg);
@@ -370,8 +373,8 @@ export function posePlant<M>(look: PlantLook, detail: PoseDetail, mats: PartMate
           head.add(around);
           const pg = new THREE.Group();
           pg.position.set(0, (L - 1 - p.layer) * 0.006, c.radius * 0.35 + p.layer * 0.0055);
-          pg.rotation.set(o * p.openTarget - (1 - o) * 0.18 + droop * 0.3 * (p.layer / layerDen), 0, f.layers[p.layer].lean ?? 0);
-          pg.scale.setScalar(lerp(0.55, 1, o) * p.scale);
+          pg.rotation.set(o * p.openTarget - (1 - o) * (f.budClose ?? 0.18) + droop * 0.3 * (p.layer / layerDen), 0, f.layers[p.layer].lean ?? 0);
+          pg.scale.setScalar(lerp(f.budLength ?? 0.55, 1, o) * p.scale);
           around.add(pg);
           part(pg, petalGeo[p.layer][p.variant], mats.petal(p.variant), smoothstep(0.05, 0.95, o)).scale.setScalar(p.scale);
         });
