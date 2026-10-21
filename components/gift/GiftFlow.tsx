@@ -16,16 +16,18 @@
 // site is a real garden. The welcome step reminds anyone who has planted already that their personal garden link opens
 // their garden on this device, so nobody plants twice.
 //
-// Google sign-in (lib/server/login.ts) is offered, never asked for: the welcome step has a quiet "Continue with Google"
-// under the seed, for someone who kept a garden on Google (it opens here) or would like this one kept there from the
-// start (back on the name step, signed in, startAt), and once the seed is in, beside the personal link, the choice to
-// keep the garden on Google instead of keeping a link. Either way the garden then opens on every device signed in.
+// Google sign-in (lib/server/login.ts) is offered, never asked for, so the welcome step leads with the seed alone. Once
+// the seed is in, beside the personal link, comes the choice to keep the garden on Google instead of keeping a link,
+// so it opens on every device signed in. Someone who planted already finds "Open your garden here" in the welcome's
+// note: a small dialog with the two ways in, the personal link or Continue with Google (an account that keeps no
+// garden comes back to the name step, signed in, startAt, and the seed planted then is kept on it).
 //
 // Names are unique in the Meadow (ignoring case), so a friend finds the right flower: the name step says so, asks the
 // server whether the name is free before the seeds appear (this tab's own planting whose answer was lost does not
 // count, so planting again returns that garden), and a name taken in the meantime brings the person back to the name
 // step with the server's words. An answer that arrives after the name was changed, or the step left, is dropped.
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Dialog } from "@/components/gift/Dialog";
 import { GiftSheet } from "@/components/gift/GiftSheet";
 import { GoogleButton, GoogleG } from "@/components/gift/GoogleButton";
 import { ArrowLeft, Sparkle } from "@/components/gift/icons";
@@ -101,6 +103,8 @@ export function GiftFlow({
   const [seedHint, setSeedHint] = useState(false);
   const [planting, setPlanting] = useState<Planting>({ phase: "waiting", wait: null });
   const [checkingName, setCheckingName] = useState(false);
+  // the welcome's "Open your garden here", for someone who planted already
+  const [openHere, setOpenHere] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
@@ -240,19 +244,36 @@ export function GiftFlow({
           blooms in about two weeks.
         </p>
         <p className="gift-note" style={{ marginTop: 12 }}>
-          {offerGoogle
-            ? "Planted a seed already? Open your personal garden link on this device, or continue with Google if you kept your garden there."
-            : "Planted a seed already? Open your personal garden link on this device to see your flower."}
+          {offerGoogle ? (
+            <>
+              Planted a seed already?{" "}
+              <button type="button" className="gift-inline-link" onClick={() => setOpenHere(true)}>
+                Open your garden here
+              </button>
+            </>
+          ) : (
+            "Planted a seed already? Open your personal garden link on this device to see your flower."
+          )}
         </p>
+        {openHere && (
+          <Dialog label="Open your garden here" onClose={() => setOpenHere(false)}>
+            <h2 className="gift-title gift-title-sm">Open your garden here</h2>
+            <p className="gift-text">Open your personal garden link on this device, and your garden is here.</p>
+            <p className="gift-text">Kept your garden on your Google account instead? Continue with Google.</p>
+            <div className="gift-dialog-actions">
+              <GoogleButton forWhat="garden" />
+              <button type="button" className="gift-secondary" onClick={() => setOpenHere(false)}>
+                Not now
+              </button>
+            </div>
+          </Dialog>
+        )}
       </div>
     );
     foot = (
-      <>
-        <button type="button" className="gift-primary" onClick={() => setStep("name")}>
-          Receive your seed
-        </button>
-        {offerGoogle && <GoogleButton forWhat="garden" compact />}
-      </>
+      <button type="button" className="gift-primary" onClick={() => setStep("name")}>
+        Receive your seed
+      </button>
     );
   } else if (step === "name") {
     const preview = checkFirstName(name);
