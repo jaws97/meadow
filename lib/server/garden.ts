@@ -10,22 +10,24 @@
 // behind a checkpoint that has already passed its hour. Retries are idempotent through (plant, client_event_id). Every
 // locking transaction runs through db.ts transaction(), which bounds its waits.
 //
-// Planting: a seed needs the party code from the QR link (party.ts), so the internet at large cannot plant. Plots are
-// handed out under one advisory lock, inner rings first, growing past the planned rings when needed (plots.ts); a lotus
-// takes the next of the river's 56 pockets instead (plot numbers from 2000), and a bed plot once they are all taken. A
-// global throttle (PLANTINGS_PER_MINUTE) slows a runaway script; the UI retries a 429 or 503 by itself with the same
-// clientEventId. A retried planting is answered with the original only for the same name and species, within half an
-// hour, and from no session or its own (rules.ts decideSeedReplay).
+// Planting: anyone may plant (since 21 Oct, party link or not). Plots are handed out under one advisory lock, inner
+// rings first, growing past the planned rings when needed (plots.ts); a lotus takes the next of the river's 56 pockets
+// instead (plot numbers from 2000), and a bed plot once they are all taken. A global throttle (PLANTINGS_PER_MINUTE)
+// slows a runaway script, and the UI retries its 429, or a 503, by itself with the same clientEventId. A seed planted
+// without the party code (party.ts) also waits while the Meadow has taken in many seeds over the past hour or day
+// (rules.ts openPlantingWait): a 429 meadow_resting the person reads, so strangers can never crowd the Meadow or the
+// party's big screen. A retried planting is answered with the original only for the same name and species, within half
+// an hour, and from no session or its own (rules.ts decideSeedReplay).
 //
 // Names are unique in the Meadow, ignoring case, so a friend finds the right flower: a planting checks under the same
 // lock that hands out plots, so two people can never take one name at once, and the people_first_name_key index on
 // lower(first_name) (migration 0007) holds the line for every other writer. A taken name is a 409 name_taken with
 // field firstName, and the name step asks first (checkNameFree, POST /api/name).
 //
-// Planting is open from 20 Oct to 10 Dec (lib/sim canPlant) for anyone with the party link, and every planting through
-// production is real, before the party too. Plantings through a dev server or a Preview (env.ts) are marked
-// plants.rehearsal: they take plots from the outer end of the planned rings, the production Meadow never shows them,
-// scripts/clear-rehearsals.mjs removes them, and such a server may tend only them.
+// Planting is open from 20 Oct to 10 Dec (lib/sim canPlant), and every planting through production is real, before the
+// party too. Plantings through a dev server or a Preview (env.ts) are marked plants.rehearsal: they take plots from the
+// outer end of the planned rings, the production Meadow never shows them, scripts/clear-rehearsals.mjs removes them, and
+// such a server may tend only them.
 //
 // Writes outside a locking transaction (checkpoint saves) still go through db.ts transaction(), so every write waits
 // a bounded time for a lock whichever role the app connects as.
@@ -56,10 +58,10 @@ import {
 } from "@/lib/sim";
 import { advanceCheckpoint, seedState, type AdvanceDeps, type CheckpointRecord } from "./catchup";
 import { db, transaction, type Queryable } from "./db";
-import { isProduction, partyCodes, showRehearsals, writesDerivedState } from "./env";
+import { isProduction, partyCodes, plantingOpenToAll, showRehearsals, writesDerivedState } from "./env";
 import { ApiError } from "./http";
 import { createGardenLink, createSession } from "./identity";
-import { requirePartyCode } from "./party";
+import { plantingPass } from "./party";
 import { KNOWN_SPECIES } from "./species-guard";
 import { PLOT_CAPACITY, assignPlot, isBedIndex } from "./plots";
 import {
@@ -70,6 +72,7 @@ import {
   hourIso,
   istClock,
   istDayOfHour,
+  openPlantingWait,
   plantingWindow,
   sprinkleMessage,
   stageOf,
@@ -89,14 +92,22 @@ import { ensureWeather, loadWeather } from "./weather-store";
 const PLOT_LOCK_KEY = 0x706c6f74; // "plot"
 /**
  * Plantings per minute across the whole Meadow before new ones are asked to wait a few seconds: the whole office could
- * plant within one minute of the QR code going up and still pass. The party code keeps strangers out; this only brakes
- * a runaway script from someone who has the link.
+ * plant within one minute of the QR code going up and still pass. Seeds from outside the party also have their own,
+ * lower limits (rules.ts openPlantingWait); this one brakes a runaway script whoever runs it.
  */
 export const PLANTINGS_PER_MINUTE = 300;
 
 /** Seconds a throttled planting waits: 4-10, spread so that a crowd told to wait does not come back in step. */
 function plantingRetryAfterS(): number {
   return 4 + Math.floor(Math.random() * 7);
+}
+
+/** The calm answer for a seed from outside the party that has to wait (rules.ts openPlantingWait), read by the person. */
+function restingError(wait: "hour" | "day", recent: { hour: number; day: number }): ApiError {
+  console.warn(`[meadow api] a seed without the party link waits: ${recent.hour} seeds in the past hour, ${recent.day} in the past day`);
+  return wait === "day"
+    ? new ApiError(429, "meadow_resting", "The Meadow has taken in many new seeds today and is resting. Please come back tomorrow to plant yours.", { retryAfterS: 6 * 3600 })
+    : new ApiError(429, "meadow_resting", "Many seeds have gone into the Meadow this past hour. Please come back in a little while to plant yours.", { retryAfterS: 20 * 60 });
 }
 
 function practiceOnly(): ApiError {
@@ -424,12 +435,12 @@ export interface NameCheck {
 }
 
 /**
- * Whether a name is still free, for the name step (POST /api/name), behind the same party code as planting. The
- * device's own pending planting under that name does not count: its answer may have been lost, and planting again
+ * Whether a name is still free, for the name step (POST /api/name), open to whoever may plant (party.ts plantingPass).
+ * The device's own pending planting under that name does not count: its answer may have been lost, and planting again
  * with the same request returns that garden. Only a hint: plantSeed checks again under the plot lock.
  */
 export async function checkNameFree(input: NameCheckInput): Promise<NameCheck> {
-  requirePartyCode(input.partyCode, partyCodes(), isProduction());
+  plantingPass(input.partyCode, partyCodes(), isProduction(), plantingOpenToAll());
   const own = input.requestId === null ? null : hashToken(`seed:${input.requestId}`);
   const taken = await nameTaken(db(), input.firstName, own);
   return { firstName: input.firstName, available: !taken, message: taken ? nameTakenMessage(input.firstName) : null };
@@ -457,7 +468,7 @@ async function answerRetry(prior: PriorPlanting, input: SeedInput, sessionPerson
 export async function plantSeed(input: SeedInput, opts: { sessionPersonId: string | null; now?: Date }): Promise<PlantResult> {
   const now = opts.now ?? new Date();
   const h = hourIndexOf(now);
-  requirePartyCode(input.partyCode, partyCodes(), isProduction());
+  const pass = plantingPass(input.partyCode, partyCodes(), isProduction(), plantingOpenToAll());
   if (plantingWindow(h) === "closed") {
     throw new ApiError(409, "planting_closed", "Planting closed on 10 Dec. You can still wander the Meadow and enjoy everyone's flowers.");
   }
@@ -481,10 +492,19 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
     const created = await transaction(async (tx) => {
       // one planting at a time hands out plots, so two seeds never race for the same one
       await tx`select pg_advisory_xact_lock(${PLOT_LOCK_KEY})`;
-      const [recent] = await tx<{ n: number }[]>`
-        select count(*)::int as n from meadow.plants where created_at > now() - interval '1 minute'`;
-      if (recent.n >= PLANTINGS_PER_MINUTE) {
+      // every planting of the past minute, for the throttle; the real ones of the past hour and day, for seeds from
+      // outside the party
+      const [recent] = await tx<{ minute: number; hour: number; day: number }[]>`
+        select (count(*) filter (where created_at > now() - interval '1 minute'))::int as minute,
+               (count(*) filter (where not rehearsal and created_at > now() - interval '1 hour'))::int as hour,
+               (count(*) filter (where not rehearsal))::int as day
+        from meadow.plants where created_at > now() - interval '1 day'`;
+      if (recent.minute >= PLANTINGS_PER_MINUTE) {
         throw new ApiError(429, "busy_planting", "Lots of seeds are going in at once. Yours will follow in a moment.", { retryAfterS: plantingRetryAfterS() });
+      }
+      if (pass === "open") {
+        const wait = openPlantingWait(recent);
+        if (wait !== "go") throw restingError(wait, recent);
       }
       // under the plot lock, so two people cannot take one name at once (the index is the backstop)
       if (await nameTaken(tx, input.firstName)) throw nameTakenError(input.firstName);

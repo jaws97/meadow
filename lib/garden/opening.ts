@@ -28,13 +28,14 @@
 // opening's quote (by quoteOrder's own shuffle, never the one shown last) and shows it by marking the root element
 // (data-quote), so its words begin to arrive with the first paint instead of waiting for the page's JavaScript to load
 // and run, seconds on a phone. It does so only where the opening will surely run the quote: on the Meadow unless it is
-// skipped, and on the garden page for a device with the quote moment's look and a plain address (no garden link, no
-// party code), whose door can only open on the colleague's own garden or the showcase. It leaves a note for the store
-// (window.__openingFirst) and the store adopts it as the page hydrates: the same quote, timed from when it began. On
-// the garden page that quote is still waiting for the door's answer (awaitingDoor): the breath waits for it as a
-// pending opening would (at most PENDING_MAX_MS after the garden is ready), the answer brings the visitor's name for the
-// welcome, and in the rare case the door leads elsewhere after all (the gift, a dialog) the quote is withdrawn, rising
-// away as it would in the breath, over the night sky that stays. The dwell counts from the moment the words were
+// skipped, and on the garden page for a device that holds a garden (or, once planting has closed, any device with the
+// quote moment's look) at a plain address (no garden link, no party code), whose door can only open on the colleague's
+// own garden or the showcase: while planting is open, a device without a garden is offered the seed. It leaves a note
+// for the store (window.__openingFirst) and the store adopts it as the page hydrates: the same quote, timed from when
+// it began. On the garden page that quote is still waiting for the door's answer (awaitingDoor): the breath waits for
+// it as a pending opening would (at most PENDING_MAX_MS after the garden is ready), the answer brings the visitor's name
+// for the welcome, and in the rare case the door leads elsewhere after all (the gift, a dialog) the quote is withdrawn,
+// rising away as it would in the breath, over the night sky that stays. The dwell counts from the moment the words were
 // actually painted (painted()), not from when the store heard of them, so a slow page never cuts the reading short.
 //
 // A hidden page (opened in a background tab, or switched away from) stops the opening's clock: the quote begins to
@@ -92,6 +93,11 @@ const OPENED_AT_KEY = "garden:opening-at";
 const HELD_KEY: (typeof import("@/lib/client/plant"))["LOOK_KEY"] = "garden-plant:v1";
 /** lib/client/session's kept party code: this tab came from the party's QR link (typed against it rather than imported). */
 const PARTY_CODE_KEY: (typeof import("@/lib/client/session"))["PARTY_CODE_KEY"] = "garden-party-code:v1";
+/**
+ * When planting closes, 11 Dec 2026 00:00 IST: components/gift/copy's PLANTING_CLOSES_MS, written out so this module
+ * stays free of lib/sim (opening.test.ts holds the two equal).
+ */
+export const PLANTING_CLOSES_AT = Date.UTC(2026, 11, 10, 18, 30);
 
 /** The garden veil's look: the quote moment's night sky, or the plain veil's sprout (the root element's data-veil). */
 export type Look = "quote" | "plain";
@@ -218,14 +224,14 @@ const MODIFIER_KEYS = ["Shift", "Control", "Alt", "Meta", "CapsLock", "Fn"] as c
 export function firstLookScript(page: "garden" | "meadow"): string {
   const k = JSON.stringify;
   const prod = process.env.NODE_ENV === "production";
-  // On the garden page the door can only open the colleague's own garden or the showcase for a device with the quote
-  // moment's look and a plain address: a garden link (#k=, ?link=) or a party code (?code=, or one kept for this tab)
-  // may lead to a dialog or the gift instead. In development a device without a garden is offered the gift
-  // (GardenDoor's PLANT_WITHOUT_CODE), so there only a device that holds a garden is sure.
+  // On the garden page the door can only open the colleague's own garden or the showcase for a device that holds a
+  // garden, at a plain address: a garden link (#k=, ?link=) or a party code (?code=, or one kept for this tab) may lead
+  // to a dialog or the gift instead, and a device without a garden is offered the gift while planting is open
+  // (GardenDoor's sessionDoor; in development, always). Once it has closed, the quote moment's look is sure enough.
   const runs =
     page === "meadow"
       ? "!skip"
-      : `look==="quote"&&!/[#&]k=/.test(location.hash)&&!/[?&](link|code)=/.test(location.search)&&!kept()&&(${prod}||held)`;
+      : `look==="quote"&&!/[#&]k=/.test(location.hash)&&!/[?&](link|code)=/.test(location.search)&&!kept()&&(held||${prod}&&n>=${PLANTING_CLOSES_AT})`;
   return (
     `(function(){try{` +
     `var d=document,r=d.documentElement,s=localStorage,n=Date.now(),` +

@@ -3,13 +3,14 @@
 // own storage, apart from Safari's, so it would not know the garden this device already holds; in the browser it
 // opens straight into that garden. The PNGs in public/icons are drawn from app/icon.svg.
 import type { MetadataRoute } from "next";
+import { GARDEN_DESCRIPTION } from "./seo";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/garden",
     name: "Meadow",
     short_name: "Meadow",
-    description: "A living garden for the Bangalore celebration",
+    description: GARDEN_DESCRIPTION,
     start_url: "/garden",
     scope: "/",
     display: "browser",

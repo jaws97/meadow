@@ -70,6 +70,22 @@ export function plantingWindow(h: number): PlantingWindow {
   return canPlant(h) ? "open" : "closed";
 }
 
+/**
+ * Real seeds planted across the Meadow over the past hour, and the past day, beyond which a seed planted without the
+ * party code waits for later: room for a steady stream of newcomers, while a flood of strangers or a runaway script can
+ * neither crowd the Meadow nor fill the party's big screen with names. Seeds from the party link never wait for these
+ * (on the party afternoon the whole office plants within the hour), and practice plantings do not count.
+ */
+export const OPEN_PLANTINGS_PER_HOUR = 60;
+export const OPEN_PLANTINGS_PER_DAY = 300;
+
+/** Whether a seed from outside the party may go in now ("go"), or waits for the hour or the day to pass. */
+export function openPlantingWait(recent: { hour: number; day: number }): "go" | "hour" | "day" {
+  if (recent.day >= OPEN_PLANTINGS_PER_DAY) return "day";
+  if (recent.hour >= OPEN_PLANTINGS_PER_HOUR) return "hour";
+  return "go";
+}
+
 // ---- retried plantings ------------------------------------------------------------------------------------------------
 
 /** How long after planting a retry (same clientEventId) is still answered with the original planting. */

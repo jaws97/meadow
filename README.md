@@ -1,16 +1,19 @@
 # Meadow
 
-A living garden for the Bangalore celebration.
+Grow a flower, gift your love: a living garden in the real Bangalore weather.
 
 Meadow is a return gift for the office birthday celebration on Tuesday 10 November 2026. At the party, colleagues scan
 a QR code on the big screen, choose a flower, give their garden a name and plant a seed. The seed grows in the real
 Bangalore weather: rain waters it, a hot dry afternoon dries the soil, and too much water rots the roots. Looked after
-a little each day, it blooms in about two weeks; neglected, it blooms later and smaller. Everyone's flowers grow
-together in the shared Meadow, round a rose that is already in full bloom.
+a little each day, it blooms in about two weeks; neglected, it blooms later and smaller. Once it is in full bloom, its
+grower can send it to someone they love: a golden-hour picture card with their own message, and a link to the living
+flower. Everyone's flowers grow together in the shared Meadow, round a rose that is already in full bloom.
 
-Planting opened early. From 20 October to 10 December anyone with the party link can plant, and every planting on the
-live site is a real garden that keeps growing through the party and after it. Names are unique in the Meadow, so each
-person plants once, under their own name.
+Planting opened early, and it is open to everyone. From 20 October to 10 December anyone can plant, party link or not,
+and every planting on the live site is a real garden that keeps growing through the party and after it. A seed planted
+from the party link is spared the limits that keep a flood of strangers out of the Meadow and off the big screen: a
+seed without it waits after 60 new seeds in an hour or 300 in a day. Names are unique in the Meadow, so each person
+plants once, under their own name, and a name with an offensive word in it is turned away (`lib/server/unkind.ts`).
 
 Live at **https://meadow-phi.vercel.app**.
 
@@ -18,7 +21,7 @@ Live at **https://meadow-phi.vercel.app**.
 
 | Page | What it is |
 | --- | --- |
-| `/garden` | Everyone's first stop. Without a garden it shows the rose in bloom; opened from the party link (`/garden?code=...`) it offers the seed; on a device that holds a garden it opens that garden, with its care card and its sounds. |
+| `/garden` | Everyone's first stop. Without a garden it offers the seed (after 10 December, it shows the rose in bloom instead); on a device that holds a garden it opens that garden, with its care card and its sounds. The party link (`/garden?code=...`) opens it too. |
 | `/meadow` | The shared Meadow: rings of beds and a slow river round the rose. Ride the lantern cart (or glide), visit a friend's flower, leave a sprinkle, find someone by name. |
 | `/meadow/garden?plot=N` | A friend's garden, to look at only. |
 | `/party?code=...` | The big screen for the party: the rose, the QR code that carries the party link, new seeds as they are planted, and a seventy-second trailer played in the live garden (below). |
@@ -51,6 +54,9 @@ analytics. The party code is never written into the code base: it lives in the `
   row-level security is on for every table, and the deployed app connects as `meadow_app`, a role that can read and
   append but never delete or change the schema.
 - **Sound**: the garden's live soundscape and the sound tiles are in `lib/sound` and `public/garden/sounds`.
+- **Search and link previews**: each public page's title and description, the short introduction that search engines
+  and screen readers read where the canvas has no words, and the garden's schema.org data are in `app/seo.tsx`; the
+  preview picture is `app/opengraph-image.jpg`, and `app/sitemap.ts` lists `/garden` and `/meadow`.
 
 Where things are:
 
@@ -87,7 +93,8 @@ marked as a rehearsal: kept on the outer plots, hidden from the live Meadow, and
 | `POSTGRES_URL` | the app's database connection (the pooler) |
 | `POSTGRES_URL_NON_POOLING` | the direct connection the migrations use |
 | `POSTGRES_CA_CERT`, `POSTGRES_TLS` | optional TLS overrides (by default the Supabase root certificate in `db/` is checked) |
-| `MEADOW_PARTY_CODE` | the party code that opens planting, on Production only |
+| `MEADOW_PARTY_CODE` | the party code, on Production only: a seed planted with it is spared the limits on strangers' plantings |
+| `MEADOW_PLANTING` | leave unset so anyone can plant; `party` asks for the party link again, should strangers ever need keeping out (redeploy after changing it) |
 | `OPEN_METEO_API_KEY` | optional, for Open-Meteo's paid service |
 
 Checks to run before a commit:

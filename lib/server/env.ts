@@ -56,9 +56,18 @@ export function showRehearsals(): boolean {
 }
 
 /**
- * The party codes that open planting (MEADOW_PARTY_CODE, comma-separated so the committee can rotate without a gap:
- * add the new code, update the QR, then drop the old one). Empty when unset.
+ * The party codes (MEADOW_PARTY_CODE, comma-separated so the committee can rotate without a gap: add the new code,
+ * update the QR, then drop the old one). Empty when unset. A seed planted with one skips the limits on strangers'
+ * plantings (party.ts).
  */
 export function partyCodes(): string[] {
   return (process.env.MEADOW_PARTY_CODE ?? "").split(",").map((c) => c.trim()).filter((c) => c.length > 0);
+}
+
+/**
+ * Whether anyone may plant, party link or not: yes, unless MEADOW_PLANTING is "party", which asks for the party link
+ * again, as before 21 Oct, should strangers ever need keeping out (set it on Vercel, then redeploy).
+ */
+export function plantingOpenToAll(): boolean {
+  return (process.env.MEADOW_PLANTING ?? "").trim().toLowerCase() !== "party";
 }

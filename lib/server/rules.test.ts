@@ -1,6 +1,6 @@
-// The rules around the model: the planting window, when a retried planting gets the original, idempotent retries and
-// rate limits for care, shade and cover changes, the conditions for Fairy Dust and replanting, how stored rows become
-// the model's events, the IST clock helpers, and the Meadow's bands.
+// The rules around the model: the planting window, when a seed from outside the party waits, when a retried planting
+// gets the original, idempotent retries and rate limits for care, shade and cover changes, the conditions for Fairy Dust
+// and replanting, how stored rows become the model's events, the IST clock helpers, and the Meadow's bands.
 import { describe, expect, it } from "vitest";
 import {
   BED,
@@ -26,11 +26,14 @@ import {
   istClock,
   istDayOfHour,
   lastPinchH,
+  openPlantingWait,
   plantingWindow,
   sprinkleMessage,
   stageOf,
   toRecordedEvent,
   toTimedEvent,
+  OPEN_PLANTINGS_PER_DAY,
+  OPEN_PLANTINGS_PER_HOUR,
   SEED_REPLAY_WINDOW_MS,
   TOGGLES_PER_HOUR,
   type CareContext,
@@ -56,6 +59,19 @@ describe("planting window", () => {
     for (const h of [-494, -1, 0, PLANT_OPEN_H - 1, PLANT_OPEN_H, 743]) expect(plantingWindow(h), `h ${h}`).toBe("open");
     expect(plantingWindow(744)).toBe("closed");
     expect(plantingWindow(800)).toBe("closed");
+  });
+});
+
+describe("seeds from outside the party", () => {
+  it("go in freely while the Meadow takes a steady stream of newcomers", () => {
+    expect(openPlantingWait({ hour: 0, day: 0 })).toBe("go");
+    expect(openPlantingWait({ hour: OPEN_PLANTINGS_PER_HOUR - 1, day: OPEN_PLANTINGS_PER_DAY - 1 })).toBe("go");
+  });
+
+  it("wait for the hour after a busy hour, and for the next day after a busy day (the day's word wins)", () => {
+    expect(openPlantingWait({ hour: OPEN_PLANTINGS_PER_HOUR, day: OPEN_PLANTINGS_PER_HOUR })).toBe("hour");
+    expect(openPlantingWait({ hour: 3, day: OPEN_PLANTINGS_PER_DAY })).toBe("day");
+    expect(openPlantingWait({ hour: OPEN_PLANTINGS_PER_HOUR * 5, day: OPEN_PLANTINGS_PER_DAY })).toBe("day");
   });
 });
 

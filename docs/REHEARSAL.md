@@ -20,15 +20,19 @@ The live site is https://meadow-phi.vercel.app. Its settings are in Vercel, in t
 Suggested days: steps 1 and 2 on Monday 2 November, steps 3 and 4 on Tuesday 3 or Wednesday 4, step 5 on Thursday 5,
 and Monday 9 November as a quiet spare day.
 
-Planting is already open on the live site for anyone with the party link, from 20 October until 10 December. Every
-planting is a real garden: it keeps growing through the party, may bloom before it, and stays. So the colleagues who
-test it now keep their gardens, and the Meadow will already hold a few flowers when the party starts. Names are unique
-in the Meadow, so each person plants once, under their own name.
+Planting is already open on the live site to everyone, with or without the party link, from 20 October until 10
+December. Every planting is a real garden: it keeps growing through the party, may bloom before it, and stays. So the
+colleagues who test it now keep their gardens, and the Meadow will already hold a few flowers when the party starts.
+Names are unique in the Meadow, so each person plants once, under their own name, and a name with an offensive word in
+it is turned away. A seed planted without the party link waits after 60 new seeds in an hour or 300 in a day, so
+strangers can never crowd the Meadow or the big screen; seeds from the party link never wait.
 
 ## 1. Make the party code
 
-The party code opens planting. The QR code on the party screen carries it, and without it no one can plant. It is not
-a password, since the link is meant to be shared at the party, but keep it to yourself until then.
+The QR code on the party screen carries the party code. Anyone can plant without it, but a seed planted from the party
+link never waits behind the limits on strangers' plantings, so the party afternoon is never held up. A link with an old
+or mistyped code says so instead of planting. It is not a password, since the link is meant to be shared at the party,
+but keep it to yourself until then.
 
 1. Make a code: 10 lower-case letters and digits, leaving out ones that are easy to confuse.
    ```
@@ -211,8 +215,8 @@ Write the final address, with any `&quality=` ending, in your private note.
 
 **In the morning**
 
-1. In Vercel, check that `MEADOW_PARTY_CODE` is set for Production and the newest Production deployment says
-   **Ready**.
+1. In Vercel, check that `MEADOW_PARTY_CODE` is set for Production, that `MEADOW_PLANTING` is not (unless you chose to
+   keep strangers out), and that the newest Production deployment says **Ready**.
 2. Check that no test gardens from a development or preview server are left:
    ```
    node --env-file=.env.local scripts/clear-rehearsals.mjs
@@ -252,6 +256,9 @@ Write the final address, with any `&quality=` ending, in your private note.
 - If the room is very full, invite people one table at a time.
 - If phones say "Seed planting is still being set up", `MEADOW_PARTY_CODE` is missing on Production. Add it (step 1.3)
   and redeploy; planting opens a couple of minutes later.
+- Someone who planted without the party link may be told the Meadow has taken in many seeds this past hour, or today,
+  and to come back later. That is the limit on strangers' plantings at work; anyone at the party plants through the QR
+  code's link, which never waits.
 - If phones say "That party link looks out of date", the code in the screen's address doesn't match the one on Vercel.
   Retype the address from your note.
 
@@ -270,8 +277,10 @@ Write the final address, with any `&quality=` ending, in your private note.
 **After the party**
 
 - Colleagues who missed it can plant until 10 December with the same link,
-  `https://meadow-phi.vercel.app/garden?code=<party code>`. Share it in the team chat once the party has started, and
-  keep `MEADOW_PARTY_CODE` set until then.
+  `https://meadow-phi.vercel.app/garden?code=<party code>`, or without it, at `https://meadow-phi.vercel.app/garden`.
+  Share the link in the team chat once the party has started, and keep `MEADOW_PARTY_CODE` set until then.
+- If strangers' names ever need keeping off the big screen, hide a name as below; to stop strangers planting at all,
+  set `MEADOW_PLANTING` to `party` for Production and redeploy (step 1.4). Planting then needs the party link again.
 - A day or two later, look for anyone who planted twice, from a second phone or a link opened inside WhatsApp or Teams.
   Their second garden carries a variant of their name ("Asha" and "Asha K"), so the script groups names by their first
   word:

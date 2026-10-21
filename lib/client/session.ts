@@ -483,8 +483,10 @@ export interface NameFree {
 const NAME_CHECK_TIMEOUT_MS = 6000;
 
 /**
- * POST /api/name: whether a name is still free in the Meadow (names are unique, ignoring case). Null when the garden
- * could not say in time (offline, busy, an old party link): the name step then goes on, and the planting checks again.
+ * POST /api/name: whether a name is still free in the Meadow (names are unique, ignoring case). A name the garden would
+ * not put on a sign at all (a 400 about firstName, say an offensive word) comes back as not available, in the server's
+ * words. Null when the garden could not say in time (offline, busy, an old party link): the name step then goes on,
+ * and the planting checks again.
  */
 export async function checkNameFree(firstName: string, partyCode: string | null): Promise<NameFree | null> {
   const ctrl = new AbortController();
@@ -499,7 +501,8 @@ export async function checkNameFree(firstName: string, partyCode: string | null)
     });
     if (typeof r.available !== "boolean") return null;
     return { available: r.available, message: typeof r.message === "string" ? r.message : null };
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiProblem && err.status === 400 && err.body.field === "firstName") return { available: false, message: err.message };
     return null;
   } finally {
     clearTimeout(t);

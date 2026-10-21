@@ -16,8 +16,9 @@
 // checkpoints (single and bulk), and weather rows written once. Before 10 Nov the cleanup also removes the pre-game
 // weather hours the run wrote, unless a colleague's garden planted before 10 Nov needs them.
 //
-// SMOKE_PARTY_CODE (or the first code in MEADOW_PARTY_CODE) is sent with every planting; when one is known the test
-// also checks that a planting without it, or with an old one, is refused.
+// SMOKE_PARTY_CODE (or the first code in MEADOW_PARTY_CODE) is sent with every planting, so the test's seeds never wait
+// behind the limits on strangers' plantings; when one is known the test also checks that a planting with an old one is
+// refused, and that the name check answers without it (anyone may plant).
 //
 // The database is only used for setup tweaks, the cleanup and the before/after counts (POSTGRES_URL_NON_POOLING).
 // Tokens, cookies, garden links and the party code are never printed.
@@ -99,8 +100,6 @@ async function run(sql) {
   // 1. plant, and retries
   const seedId = randomUUID();
   if (PARTY_CODE) {
-    const noCode = await call("POST", "/api/seed", { body: { firstName: TEST_NAME, species: "rose", clientEventId: randomUUID() } });
-    check(noCode.status === 403 && noCode.json?.error === "party_code_required", "a planting without the party code is refused kindly", noCode.json?.message);
     const oldCode = await call("POST", "/api/seed", { body: { firstName: TEST_NAME, species: "rose", clientEventId: randomUUID(), partyCode: `${PARTY_CODE}x` } });
     check(oldCode.status === 403 && oldCode.json?.error === "party_code_wrong", "a planting with an old party code is refused kindly", oldCode.json?.message);
   } else {
@@ -144,9 +143,15 @@ async function run(sql) {
     "POST /api/name does not count the asker's own planting (an answer lost on the way), so planting again can return it");
   const badName = await call("POST", "/api/name", { body: withCode({ firstName: "   " }) });
   check(badName.status === 400 && badName.json?.field === "firstName", "POST /api/name checks the name as planting does", badName.json?.error);
+  // an offensive word (kept in ROT13, as lib/server/unkind.ts keeps its lists)
+  const rot13 = (s) => s.replace(/[a-z]/g, (c) => String.fromCharCode(((c.charCodeAt(0) - 97 + 13) % 26) + 97));
+  const unkind = await call("POST", "/api/name", { body: withCode({ firstName: `Test ${rot13("phag")}` }) });
+  check(unkind.status === 400 && unkind.json?.error === "name_unkind" && unkind.json?.field === "firstName",
+    "POST /api/name keeps an offensive word off the garden signs", unkind.json?.error);
   if (PARTY_CODE) {
     const askNoCode = await call("POST", "/api/name", { body: { firstName: TEST_NAME_B } });
-    check(askNoCode.status === 403 && askNoCode.json?.error === "party_code_required", "POST /api/name is behind the party code too");
+    check(askNoCode.status === 200 && typeof askNoCode.json?.available === "boolean", "POST /api/name answers without the party code too: anyone may plant",
+      `status ${askNoCode.status} ${askNoCode.json?.error ?? ""}`);
   }
   const clash = await call("POST", "/api/seed", { body: withCode({ firstName: sameNameOtherCase, species: "rose", clientEventId: randomUUID() }) });
   check(clash.status === 409 && clash.json?.error === "name_taken" && clash.json?.field === "firstName",

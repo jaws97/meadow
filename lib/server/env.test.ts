@@ -2,7 +2,7 @@
 // VERCEL_ENV is never production; practice (rehearsal) plants come only from a dev server or a Preview and never show in
 // production, where every planting is real, before the party too.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deployment, isProduction, partyCodes, showRehearsals, writesDerivedState } from "./env";
+import { deployment, isProduction, partyCodes, plantingOpenToAll, showRehearsals, writesDerivedState } from "./env";
 import { plantingWindow } from "./rules";
 
 afterEach(() => {
@@ -68,5 +68,16 @@ describe("partyCodes", () => {
     expect(partyCodes()).toEqual([]);
     vi.stubEnv("MEADOW_PARTY_CODE", " Rose-7f3k9q , lantern2x8p ,");
     expect(partyCodes()).toEqual(["Rose-7f3k9q", "lantern2x8p"]);
+  });
+});
+
+describe("plantingOpenToAll", () => {
+  it("lets anyone plant unless MEADOW_PLANTING asks for the party link again", () => {
+    vi.stubEnv("MEADOW_PLANTING", "");
+    expect(plantingOpenToAll()).toBe(true);
+    vi.stubEnv("MEADOW_PLANTING", "open");
+    expect(plantingOpenToAll()).toBe(true);
+    vi.stubEnv("MEADOW_PLANTING", " Party ");
+    expect(plantingOpenToAll()).toBe(false);
   });
 });

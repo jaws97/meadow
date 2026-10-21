@@ -4,6 +4,7 @@
 import type { SpeciesId } from "@/lib/plant/species";
 import { isPlotIndex } from "./plots";
 import { isTokenShape } from "./tokens";
+import { isUnkindName } from "./unkind";
 
 export type Invalid = { ok: false; code: string; message: string; field?: string };
 export type Result<T> = { ok: true; value: T } | Invalid;
@@ -79,7 +80,10 @@ export function isUuid(v: unknown): v is string {
   return typeof v === "string" && UUID.test(v);
 }
 
-/** Tidies a first name for the garden sign: NFC, trimmed, single spaces, 1-24 characters, at least one letter. */
+/**
+ * Tidies a first name for the garden sign: NFC, trimmed, single spaces, 1-24 characters, at least one letter, and no
+ * word that may not stand on a sign (unkind.ts).
+ */
 export function cleanFirstName(raw: unknown): Result<string> {
   if (typeof raw !== "string" || raw.trim() === "") {
     return invalid("name_required", "Please type your first name, so friends can find your flower.", "firstName");
@@ -91,6 +95,7 @@ export function cleanFirstName(raw: unknown): Result<string> {
   if (!NAME_CHARS.test(name) || !HAS_LETTER.test(name)) {
     return invalid("name_characters", "Letters, spaces, hyphens and apostrophes work best on a garden sign.", "firstName");
   }
+  if (isUnkindName(name)) return invalid("name_unkind", "That name can't go on a garden sign. Please choose another.", "firstName");
   return ok(name);
 }
 

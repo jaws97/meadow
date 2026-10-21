@@ -11,9 +11,12 @@
 // holds one. A reload in the middle keeps the name and seed (pendingSeed), so a retry reuses the same request id and
 // never plants twice.
 //
-// Planting is open from 20 Oct, before the party, to 10 Dec for anyone with the party link, and every planting on the
-// live site is a real garden. On the live site the welcome step follows the season by the same hours the server does
-// (copy.ts seasonAt), so after 10 Dec it says planting has closed; on a development server, ?season=closed shows that.
+// Planting is open from 20 Oct, before the party, to 10 Dec, to everyone since 21 Oct, party link or not (the link's
+// code only spares the party's seeds the limits on strangers' plantings), and every planting on the live site is a
+// real garden. The welcome step reminds anyone who has planted already that their personal garden link opens their
+// garden on this device, so nobody plants twice. On the live site it follows the season by the same hours the server
+// does (copy.ts seasonAt), so after 10 Dec it says planting has closed; on a development server, ?season=closed shows
+// that.
 //
 // Names are unique in the Meadow (ignoring case), so a friend finds the right flower: the name step says so, asks the
 // server whether the name is free before the seeds appear (this tab's own planting whose answer was lost does not
@@ -273,6 +276,9 @@ export function GiftFlow({
         <p className="gift-text">
           Choose a flower and plant it today. Look after it a little each day, in the real Bangalore weather. With gentle care, it
           blooms in about two weeks.
+        </p>
+        <p className="gift-note" style={{ marginTop: 12 }}>
+          Planted a seed already? Open your personal garden link on this device to see your flower.
         </p>
       </div>
     );

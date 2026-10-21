@@ -1,6 +1,7 @@
 // POST /api/name: whether a first name is still free for a garden sign, asked by the name step before the seeds appear.
-// Body { firstName, partyCode, clientEventId? } as for planting, behind the same party code (403 party_code_required /
-// party_code_wrong), so only people with the party link can ask. clientEventId is the device's own pending planting
+// Body { firstName, partyCode?, clientEventId? } as for planting, open to whoever may plant (anyone, or under
+// MEADOW_PLANTING=party only the party link: 403 party_code_required / party_code_wrong). A name that may not stand on
+// a sign gets 400 name_unkind with field firstName. clientEventId is the device's own pending planting
 // request for that name, if any: a planting whose answer was lost already holds the name, and must not look taken.
 // Answers { firstName, available, message }: the name tidied as the sign would show it, and when it is taken the calm
 // words the name step shows. Names are unique in the Meadow, ignoring case (migration 0007); this is only a hint, and

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { POND_SPECIES, SIM_SPECIES } from "@/lib/sim";
 import { PLOT_LIMIT, WATER_BASE } from "./plots";
 import { newToken } from "./tokens";
+import { rot13 } from "./unkind";
 import {
   FIRST_NAME_MAX,
   SPECIES_IDS,
@@ -50,6 +51,14 @@ describe("cleanFirstName", () => {
       const r = cleanFirstName(odd);
       expect(!r.ok && r.code).toBe("name_characters");
     }
+  });
+
+  it("keeps an offensive word off the sign, in calm words, at the name field (lib/server/unkind)", () => {
+    const r = cleanFirstName(`Ravi ${rot13("phag")}`);
+    expect(r).toMatchObject({ ok: false, code: "name_unkind", field: "firstName" });
+    expect(!r.ok && r.message).toBe("That name can't go on a garden sign. Please choose another.");
+    expect(parseNameCheckBody({ firstName: rot13("puhgvln") })).toMatchObject({ ok: false, code: "name_unkind" });
+    expect(cleanFirstName("Kshitij").ok).toBe(true);
   });
 });
 

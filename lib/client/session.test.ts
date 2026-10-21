@@ -2,13 +2,15 @@
 // of the address bar and the address cleaned, the planting retry policy follows the backend notes, and fallback ids are
 // UUIDs the seed route accepts. Then one planting run against a stand-in window: a lost answer is said to be a lost
 // connection, is tried again as soon as the browser is back online (with the same request), and success drops the
-// party code from the address through replaceState(null, ...). And the gift's season check, by lib/sim's hours.
+// party code from the address through replaceState(null, ...). The name step's check says a name the garden will not put
+// on a sign is taken, in the server's words. And the gift's season check, by lib/sim's hours.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PLANTING_CLOSES_MS, nextSeasonChangeMs, seasonAt, showcaseLine } from "@/components/gift/copy";
+import { PLANTING_CLOSES_MS, nextSeasonChangeMs, seasonAt } from "@/components/gift/copy";
 import { cleanFirstName, isUuid } from "@/lib/server/validate";
 import {
   ApiProblem,
   checkFirstName,
+  checkNameFree,
   isRetryablePlanting,
   newClientEventId,
   parseLinkLocation,
@@ -19,6 +21,7 @@ import {
 
 const TOKEN = "A".repeat(20) + "b_-" + "9".repeat(20);
 
+// all but the server's list of words that may not stand on a sign (lib/server/unkind), which the name check asks about
 describe("checkFirstName mirrors the server", () => {
   const names = [
     "Asha", "  Asha  ", "Mary-Anne", "O'Brien", "O’Brien", "Jr. Rao", "Zoë", "अनन्या", "李", "  ", "", "Asha!", "123",
@@ -162,6 +165,29 @@ describe("a planting whose answer was lost", () => {
   });
 });
 
+describe("the name step's check", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const answer = (status: number, body: Record<string, unknown>) => vi.fn(async () => new Response(JSON.stringify(body), { status }));
+
+  it("says a name the garden will not put on a sign is not available, in the server's words", async () => {
+    const message = "That name can't go on a garden sign. Please choose another.";
+    vi.stubGlobal("fetch", answer(400, { error: "name_unkind", message, field: "firstName" }));
+    expect(await checkNameFree("Ravi", null)).toEqual({ available: false, message });
+  });
+
+  it("passes on the garden's answer, and goes on without one when the garden could not say", async () => {
+    vi.stubGlobal("fetch", answer(200, { firstName: "Ravi", available: true, message: null }));
+    expect(await checkNameFree("Ravi", null)).toEqual({ available: true, message: null });
+    vi.stubGlobal("fetch", answer(503, { error: "busy", message: "m" }));
+    expect(await checkNameFree("Ravi", null)).toBeNull();
+    vi.stubGlobal("fetch", answer(403, { error: "party_code_wrong", message: "m" }));
+    expect(await checkNameFree("Ravi", "old")).toBeNull();
+  });
+});
+
 describe("the gift's season", () => {
   it("is open from 20 Oct, through the party, until 10 Dec, then closed", () => {
     expect(seasonAt(new Date("2026-10-20T10:00:00+05:30"))).toBe("open");
@@ -175,10 +201,5 @@ describe("the gift's season", () => {
     expect(PLANTING_CLOSES_MS).toBe(Date.parse("2026-12-11T00:00:00+05:30"));
     expect(nextSeasonChangeMs(Date.parse("2026-10-20T10:00:00+05:30"))).toBe(PLANTING_CLOSES_MS);
     expect(nextSeasonChangeMs(PLANTING_CLOSES_MS)).toBeNull();
-  });
-
-  it("tells someone without a seed where seeds come from, and when planting has closed", () => {
-    expect(showcaseLine(new Date("2026-10-20T10:00:00+05:30"))).toBe("Seeds come with the party link. Ask a colleague to share it with you.");
-    expect(showcaseLine(new Date("2026-12-20T10:00:00+05:30"))).toMatch(/^Planting closed/);
   });
 });
