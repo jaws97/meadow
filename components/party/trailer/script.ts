@@ -352,8 +352,12 @@ const WIDE = shot(0, 0.04, 1.25, 0, 1.08);
 /** The drink's close-up, S05 (and the reduced-motion care beat). */
 const DRINK_A = shot(0, -0.03, 0.12, 1, 0.6);
 const DRINK_B = shot(0, -0.03, 0.115, 1, 0.6);
-/** Over the big soft rose toward the doe, S17. */
-const OVER_ROSE = shot(0.2, 0.02, 0.29, 1, 0.75);
+/**
+ * Past the big soft rose toward the doe, S17: from the lantern's side of the bed, so the lamp hangs between her and the
+ * rose rather than in front of her face (her head is only about 0.8 m up as she looks, and seen from the rose's other
+ * side the lamp covers it).
+ */
+const OVER_ROSE = shot(-0.3, 0, 0.5, 1, 0.75);
 
 /** The cut up to the montage, the picture showing from 0.8 s. */
 const OPENING: readonly Segment[] = [
@@ -490,18 +494,19 @@ const OPENING: readonly Segment[] = [
   },
   {
     // the payoff, cut on the home chord
-    // the bloom card's own view of the flower (lib/garden/cardAim), close enough that the opening petals fill the band
-    // and far enough that they never leave it; the lens lowers the bloom, which stands above its head's point
+    // the bloom card's own view of the flower (lib/garden/cardAim), pushed in until the opening petals fill the band; the
+    // lens lowers the bloom, which stands above its head's point, and the sharp range reaches across most of it (it is
+    // half a metre across), so only the nearest petals go soft
     id: "S12",
     from: 29.4,
     to: 31.6,
     keys: [
-      [29.4, shot(0.12, -0.04, 0.22, 1, 0.75)],
-      [31.6, shot(0.14, -0.05, 0.19, 1, 0.75)],
+      [29.4, shot(0.12, -0.04, 0.3, 1, 0.75)],
+      [31.6, shot(0.14, -0.05, 0.27, 1, 0.75)],
     ],
     interp: "L",
-    lens: { shiftY: -0.06 },
-    dof: { target: "head", range: 0.18, bokeh: 1.4 },
+    lens: { shiftY: -0.08 },
+    dof: { target: "head", range: 0.3, bokeh: 1.4 },
     pollen: 0.3,
     fluff: 0.3,
   },
@@ -559,7 +564,7 @@ const OPENING: readonly Segment[] = [
     to: 44.6,
     keys: [[41.8, OVER_ROSE]],
     interp: "L",
-    lens: { look: 0.42, target: "doeStand" },
+    lens: { look: 0.42, target: "doeStand", shiftY: 0.04 },
     dof: {
       target: "head",
       to: "doeBone",
