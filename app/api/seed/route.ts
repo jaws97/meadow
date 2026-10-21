@@ -8,16 +8,21 @@
 // already_planted. A name already in the Meadow (names are unique, ignoring case) gets 409 name_taken, and a name that
 // may not stand on a sign 400 name_unkind, both with field firstName. When a Google account is signed in on this device
 // (its meadow_login cookie, lib/server/login.ts), the new garden is kept on it and the cookie is dropped, and 409
-// account_has_garden answers an account that keeps a garden already; signing in is never required. A seed without the party code, after many seeds in the past hour or
-// day, gets 429 meadow_resting for the person to read. Under MEADOW_PLANTING=party a missing or
-// old party code gets 403 party_code_required / party_code_wrong. A burst beyond the planting throttle gets 429
-// busy_planting and a busy database 503 busy, both with Retry-After: the UI retries those two by itself with the same
-// body.
+// account_has_garden answers an account that keeps a garden already; signing in is never required. A seed without the
+// party code, after many seeds in the past hour or day, gets 429 meadow_resting for the person to read, and after a few
+// from its own network this hour or today (lib/server/network.ts) 429 network_resting. A request Vercel BotID takes
+// for a script gets 403 not_verified (lib/server/bot.ts). Under MEADOW_PLANTING=party a missing or old party code gets
+// 403 party_code_required / party_code_wrong. A burst beyond the planting throttle gets 429 busy_planting and a busy
+// database 503 busy, both with Retry-After: the UI retries those two by itself with the same body.
 import { NextResponse, type NextRequest } from "next/server";
+import { hourIndexOf } from "@/lib/sim";
+import { requireHuman } from "@/lib/server/bot";
 import { plantSeed } from "@/lib/server/garden";
 import { ApiError, NO_STORE, errorResponse, readJsonBody } from "@/lib/server/http";
 import { gardenLinkUrl, personIdFromRequest } from "@/lib/server/identity";
 import { LOGIN_COOKIE, clearedLoginCookie } from "@/lib/server/login-rules";
+import { requestMark } from "@/lib/server/network";
+import { istDayOfHour } from "@/lib/server/rules";
 import { sessionCookie } from "@/lib/server/session-rules";
 import { parseSeedBody } from "@/lib/server/validate";
 
@@ -25,8 +30,13 @@ export async function POST(request: NextRequest) {
   try {
     const parsed = parseSeedBody(await readJsonBody(request));
     if (!parsed.ok) throw ApiError.invalid(parsed);
+    await requireHuman("planting");
     const sessionPersonId = await personIdFromRequest(request);
-    const result = await plantSeed(parsed.value, { sessionPersonId, loginToken: request.cookies.get(LOGIN_COOKIE)?.value });
+    const result = await plantSeed(parsed.value, {
+      sessionPersonId,
+      loginToken: request.cookies.get(LOGIN_COOKIE)?.value,
+      network: requestMark(request.headers, istDayOfHour(hourIndexOf(new Date()))),
+    });
     const res = NextResponse.json(
       { link: gardenLinkUrl(request.nextUrl.origin, result.linkToken), replay: result.replay, me: result.me },
       { status: result.replay ? 200 : 201, headers: { "Cache-Control": NO_STORE } },

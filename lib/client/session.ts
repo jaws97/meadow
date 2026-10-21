@@ -645,6 +645,27 @@ export async function newGardenLink(): Promise<string> {
   return r.link;
 }
 
+/** What "Sign out other devices" did (POST /api/session/reset). */
+export interface SignedOutOthers {
+  /** the one personal link that opens the garden now */
+  link: string;
+  /** devices that opened the garden after this one, now signed out */
+  signedOut: number;
+  /** devices that opened it before this one, still signed in */
+  stayed: number;
+  /** the garden was kept on a Google account added after this device opened it, and is no longer */
+  releasedAccount: boolean;
+}
+
+/**
+ * POST /api/session/reset: "Sign out other devices". Turns off every personal link, signs out the devices that opened
+ * the garden after this one (never one before it), lets go of a Google account added after it, and returns a fresh link.
+ */
+export async function signOutOtherDevices(): Promise<SignedOutOthers> {
+  const r = await api<SignedOutOthers>("/api/session/reset", { method: "POST", body: {} });
+  return { link: r.link, signedOut: r.signedOut, stayed: r.stayed, releasedAccount: r.releasedAccount === true };
+}
+
 // ---- as the page loads ---------------------------------------------------------------------------------------------
 //
 // At the end of the module so everything above is defined; module evaluation is still before the page hydrates.

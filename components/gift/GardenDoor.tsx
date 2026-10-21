@@ -189,7 +189,10 @@ function signInNotice(result: SignInResult | null): Extract<Door, { mode: "notic
         "Each Google account keeps one garden. This one stays as it is, and its personal link still opens it anywhere.",
       );
     case "elsewhere":
-      return notice("This garden is kept on another Google account", "Sign in with that account to open it on your other devices.");
+      return notice(
+        "This garden is kept on another Google account",
+        "Sign in with that account to open it on your other devices. If that isn't your account, choose Sign out other devices on the phone you planted on.",
+      );
     case "failed":
       return notice("Google sign-in did not finish", "Nothing has changed. Please try again in a moment.");
     case "unavailable":
@@ -366,6 +369,10 @@ export function GardenDoor({ hint }: { hint: ReactNode }) {
           onSwitchedBack={(person) => {
             setDoor({ mode: "garden", person, previous: null, login: null });
             note(`Back in ${gardenName(person, knownFacts(person))}.`, person);
+          }}
+          onSignedOutOthers={(releasedAccount) => {
+            // the menu offers keeping the garden on an account again once it is kept on none
+            if (releasedAccount && door.login) setDoor({ ...door, login: { ...door.login, kept: false } });
           }}
           note={toast}
         />

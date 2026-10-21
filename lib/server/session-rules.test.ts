@@ -1,5 +1,6 @@
 // Device sessions: the cookie flags, opening a garden link never silently replaces the garden a device holds, and
-// sessions and links stop working after their server-side lifetime, with an hourly cap on how many a person can make.
+// sessions and links stop working after their server-side lifetime, with an hourly cap on how many a person can make;
+// and "Sign out other devices" never lets a newer device sign out an older one.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LINKS_PER_HOUR,
@@ -12,6 +13,7 @@ import {
   clearedCookie,
   decideLinkOpen,
   linkCutoff,
+  planSignOut,
   prevSessionCookie,
   sessionCookie,
   sessionCutoff,
@@ -82,5 +84,41 @@ describe("lifetimes and limits", () => {
     // planting makes one session and one link, and a person sets up a few devices: well inside both caps
     expect(LINKS_PER_HOUR).toBeGreaterThanOrEqual(5);
     expect(SESSIONS_PER_HOUR).toBeGreaterThanOrEqual(12);
+  });
+});
+
+describe("planSignOut: a newer key never outranks an older one", () => {
+  // standings in microseconds: the phone that planted, then a link opened by the wrong person, then that person's
+  // Google account, then the gardener's own laptop
+  const PLANTED = 1_000_000, STRANGER = 2_000_000, STRANGER_KEEPS = 3_000_000, LAPTOP = 4_000_000;
+
+  it("lets the phone that planted sign out a stranger's link and let go of the Google account they added", () => {
+    const plan = planSignOut(PLANTED, [{ id: "stranger", standingUs: STRANGER }, { id: "stranger-google", standingUs: STRANGER_KEEPS }], STRANGER_KEEPS);
+    expect(plan).toEqual({ signOut: ["stranger", "stranger-google"], stay: 0, releaseAccount: true });
+  });
+
+  it("never lets the stranger sign out the phone that planted, or let go of an account added before them", () => {
+    expect(planSignOut(STRANGER, [{ id: "phone", standingUs: PLANTED }], null)).toEqual({ signOut: [], stay: 1, releaseAccount: false });
+    // the gardener kept the garden on Google before the link went astray
+    expect(planSignOut(STRANGER, [{ id: "phone", standingUs: PLANTED }], 1_500_000).releaseAccount).toBe(false);
+  });
+
+  it("signs out only devices that came later, and counts the ones that stay", () => {
+    const plan = planSignOut(STRANGER, [
+      { id: "phone", standingUs: PLANTED },
+      { id: "laptop", standingUs: LAPTOP },
+    ], null);
+    expect(plan.signOut).toEqual(["laptop"]);
+    expect(plan.stay).toBe(1);
+  });
+
+  it("leaves a device opened through Google alone with the account it came by, and its twins on that account", () => {
+    // a device opened through Google stands from the moment the garden was kept on the account, to the microsecond
+    const plan = planSignOut(STRANGER_KEEPS, [{ id: "other-google-device", standingUs: STRANGER_KEEPS }], STRANGER_KEEPS);
+    expect(plan).toEqual({ signOut: [], stay: 1, releaseAccount: false });
+  });
+
+  it("does nothing to other devices when there are none, and lets go of no account when none is kept", () => {
+    expect(planSignOut(PLANTED, [], null)).toEqual({ signOut: [], stay: 0, releaseAccount: false });
   });
 });

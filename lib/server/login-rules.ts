@@ -10,6 +10,9 @@
 //   next on this device is kept on that account;
 // - "keep", from a garden (the name pill's menu, or right after planting): this garden is kept on the account, so
 //   signing in on any other device opens it. Each account keeps one garden, and each garden is kept on one account.
+//   A device that held the garden before it was kept on the account can let go of the account ("Sign out other
+//   devices", identity.ts resetAccess), so a personal link that reached the wrong person cannot be turned into a Google
+//   sign-in the gardener can never undo; a device that came after it cannot.
 //
 // Signing in is a choice, never a gate (since 22 Oct): anyone may plant without it, party link or not, and keep their
 // garden by its personal link instead. A seed planted on a device where an account is signed in is kept on that

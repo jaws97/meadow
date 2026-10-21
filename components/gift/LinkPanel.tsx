@@ -43,7 +43,8 @@ export function LinkPanel({
   rehearsal = false,
 }: {
   link: string;
-  variant: "first" | "fresh";
+  /** first: after planting; fresh: one more link; only: the one link left after "Sign out other devices" */
+  variant: "first" | "fresh" | "only";
   /** the species name, for "your Sundrop is there too" */
   flowerName?: string;
   rehearsal?: boolean;
@@ -85,11 +86,15 @@ export function LinkPanel({
   const flower = flowerName ? `your ${flowerName}` : "your flower";
   return (
     <div className="gift-link">
-      <h3 className="gift-h3">{variant === "first" ? `Open your garden on ${others}` : "A fresh link to your garden"}</h3>
+      <h3 className="gift-h3">
+        {variant === "first" ? `Open your garden on ${others}` : variant === "fresh" ? "A fresh link to your garden" : "Your new garden link"}
+      </h3>
       <p className="gift-text">
         {variant === "first"
           ? `This is your personal garden link. Open it on another screen and ${flower} is there too.`
-          : `Open it on ${others} and your flower is there too. Your recent links keep working too.`}
+          : variant === "fresh"
+            ? `Open it on ${others} and your flower is there too. Your recent links keep working too.`
+            : `Your old links no longer open anything. This one does: open it on ${others} and your flower is there too.`}
       </p>
       <p className="gift-note" style={{ marginTop: 6 }}>
         Keep it to yourself: anyone with the link can tend your garden.

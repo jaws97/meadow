@@ -8,13 +8,18 @@
 //
 // A garden link is /garden#k=<token>. The token sits in the URL fragment, which browsers never send to a server, so it
 // stays out of request logs and link-preview bots (Teams, Slack, Outlook Safe Links) cannot use it; the garden page
-// exchanges it with POST /api/session, and GET requests have no side effects. Only the newest few links and sessions
-// per person stay active, and a person can revoke every other link and device at once (POST /api/session/reset).
+// exchanges it with POST /api/session, and GET requests have no side effects. Only the newest few links and the
+// longest-held sessions per person stay active, and a person can turn off every link and sign out every device that came
+// after theirs at once (POST /api/session/reset, "Sign out other devices").
 //
 // Lifetimes and limits (session-rules.ts): a session is honoured for SESSION_TTL_DAYS after it was created and a link
 // opens its garden for LINK_TTL_DAYS, whatever the browser sends; a person may start SESSIONS_PER_HOUR sessions and make
 // LINKS_PER_HOUR links an hour, so no client can grow the tables without bound. scripts/prune-identity.mjs removes
 // revoked and expired rows once they are a month old.
+//
+// A newer key never outranks an older one (session-rules.ts): every session keeps its standing, when the device's hold
+// on the garden began, and "Sign out other devices" (resetAccess) and the cap on devices (createSession) only ever
+// retire holds that began later than the ones that stay.
 import "server-only";
 import type { NextRequest } from "next/server";
 import { db, transaction, type Queryable } from "./db";
@@ -25,6 +30,7 @@ import {
   SESSION_COOKIE,
   decideLinkOpen,
   linkCutoff,
+  planSignOut,
   sessionCutoff,
   underHourlyLimit,
 } from "./session-rules";
@@ -32,7 +38,10 @@ import { hashToken, isTokenShape, newToken } from "./tokens";
 
 // last_seen_at is a convenience for support and the session cap, refreshed at most hourly so reads stay reads
 const TOUCH_AFTER_MS = 60 * 60 * 1000;
-/** Devices signed in to one garden at once; signing in another retires the least recently seen beyond this. */
+/**
+ * Devices signed in to one garden at once; signing in another retires the newest holds beyond this (by standing, the
+ * least recently seen first among equals), so opening a link again and again only ever retires its own sessions.
+ */
 export const MAX_ACTIVE_SESSIONS = 12;
 /** Garden links that work at once; making another retires the oldest beyond this. */
 export const MAX_ACTIVE_LINKS = 5;
@@ -63,23 +72,36 @@ async function madeInLastHour(q: Queryable, table: "sessions" | "garden_links", 
 }
 
 /**
+ * Where a new session's standing comes from (session-rules.ts): null for now (a planting, or a device opened by a
+ * personal link); `account`, the moment the garden was kept on that Google account (a device opened through it);
+ * `link`, the standing that personal link carries (the one that moves a device from the old address), else now. Read
+ * in SQL, so the database's own microseconds are copied and never rounded on the way.
+ */
+export type SessionSince = { account: Buffer } | { link: Buffer } | null;
+
+/**
  * Creates a session for a person (inside the caller's transaction when given one) and returns the raw token. Refuses
  * with 429 beyond SESSIONS_PER_HOUR new sessions for the garden in an hour.
  */
-export async function createSession(q: Queryable, personId: string): Promise<string> {
+export async function createSession(q: Queryable, personId: string, since: SessionSince = null): Promise<string> {
   if (!underHourlyLimit(await madeInLastHour(q, "sessions", personId), SESSIONS_PER_HOUR)) {
     throw new ApiError(429, "too_many_devices",
       "This garden has been opened on a lot of devices in the last hour. Please try again a little later.", { retryAfterS: 900 });
   }
   const token = newToken(), hash = hashToken(token);
-  await q`insert into meadow.sessions (token_hash, person_id) values (${hash}, ${personId})`;
+  const standing = since === null
+    ? q`now()`
+    : "account" in since
+      ? q`coalesce((select created_at from meadow.logins where subject_hash = ${since.account} and forgotten_at is null), now())`
+      : q`coalesce((select standing_at from meadow.garden_links where token_hash = ${since.link}), now())`;
+  await q`insert into meadow.sessions (token_hash, person_id, standing_at) values (${hash}, ${personId}, ${standing})`;
   await q`
     update meadow.sessions set revoked_at = now()
     where person_id = ${personId} and revoked_at is null and token_hash <> ${hash}
       and token_hash not in (
         select token_hash from meadow.sessions
         where person_id = ${personId} and revoked_at is null and token_hash <> ${hash}
-        order by last_seen_at desc
+        order by standing_at, last_seen_at desc
         limit ${MAX_ACTIVE_SESSIONS - 1})`;
   return token;
 }
@@ -115,9 +137,11 @@ export async function requirePersonId(request: NextRequest): Promise<string> {
 
 /**
  * Creates a personal garden link token (shown once, never stored) and retires the oldest beyond MAX_ACTIVE_LINKS.
- * Refuses with 429 beyond LINKS_PER_HOUR new links for the person in an hour.
+ * Refuses with 429 beyond LINKS_PER_HOUR new links for the person in an hour. `carrying` is the SHA-256 of the session
+ * whose standing the link passes on (only the link that moves a device from the old address, lib/server/move.ts); such
+ * a link works once (openGardenLink).
  */
-export async function createGardenLink(q: Queryable, personId: string): Promise<string> {
+export async function createGardenLink(q: Queryable, personId: string, carrying: Buffer | null = null): Promise<string> {
   if (!underHourlyLimit(await madeInLastHour(q, "garden_links", personId), LINKS_PER_HOUR)) {
     throw new ApiError(429, "too_many_links",
       "You have made several garden links in the last hour. The newest ones still work; please make another a little later.",
@@ -132,7 +156,10 @@ export async function createGardenLink(q: Queryable, personId: string): Promise<
         order by created_at desc, token_hash
         limit ${MAX_ACTIVE_LINKS - 1})`;
   const token = newToken();
-  await q`insert into meadow.garden_links (token_hash, person_id) values (${hashToken(token)}, ${personId})`;
+  const standing = carrying === null
+    ? q`null`
+    : q`(select standing_at from meadow.sessions where token_hash = ${carrying} and person_id = ${personId})`;
+  await q`insert into meadow.garden_links (token_hash, person_id, standing_at) values (${hashToken(token)}, ${personId}, ${standing})`;
   return token;
 }
 
@@ -178,12 +205,17 @@ export async function openGardenLink(
       const here = await summary(tx, current.person_id);
       if (here) return { kind: "switch_needed", current: here, target };
     }
-    await tx`update meadow.garden_links set last_used_at = now(), use_count = use_count + 1 where token_hash = ${linkHash}`;
+    // a link that carries a device's standing (lib/server/move.ts) works once
+    await tx`
+      update meadow.garden_links
+      set last_used_at = now(), use_count = use_count + 1,
+          revoked_at = case when standing_at is null then revoked_at else now() end
+      where token_hash = ${linkHash}`;
     const switched = decision === "switch" && isTokenShape(currentToken);
     if (switched && isTokenShape(prevToken) && prevToken !== currentToken) {
       await tx`update meadow.sessions set revoked_at = now() where token_hash = ${hashToken(prevToken)} and revoked_at is null`;
     }
-    const sessionToken = await createSession(tx, link.person_id);
+    const sessionToken = await createSession(tx, link.person_id, { link: linkHash });
     return { kind: "signed_in", person: target, sessionToken, previousToken: switched ? (currentToken as string) : null, switched };
   });
 }
@@ -223,24 +255,62 @@ export async function endSessions(tokens: readonly (string | undefined)[]): Prom
   return ended;
 }
 
+export interface SignOutResult {
+  /** a fresh personal garden link: every other one is turned off */
+  linkToken: string;
+  /** devices signed out: those whose hold on the garden began after this device's */
+  signedOut: number;
+  /** devices that opened the garden before this one and stay signed in */
+  stayed: number;
+  linksRevoked: number;
+  /** the garden was kept on a Google account after this device's hold began, and is no longer */
+  releasedAccount: boolean;
+}
+
 /**
- * "Someone else has my link": revokes every garden link of the person and every session except this device's, and
- * returns a fresh link. Returns null when the device's session is not active.
+ * "Sign out other devices" (someone else has my link): turns off every garden link of the person, signs out the devices
+ * whose hold on the garden began after this device's, lets go of a Google account the garden was kept on after it
+ * (session-rules.ts planSignOut), and returns a fresh link. Devices that came earlier stay: no device can sign out the
+ * one that planted. Returns null when the device's session is not active. Times are compared as the database's whole
+ * microseconds (exact in a JavaScript number), so a device opened through Google, whose standing is the very moment
+ * the garden was kept on that account, never reads as older than it.
  */
-export async function resetAccess(currentToken: string | undefined): Promise<{ linkToken: string; signedOut: number; linksRevoked: number } | null> {
+export async function resetAccess(currentToken: string | undefined): Promise<SignOutResult | null> {
   if (!isTokenShape(currentToken)) return null;
   const keep = hashToken(currentToken);
   return transaction(async (tx) => {
-    const [me] = await tx<{ person_id: string }[]>`
-      select person_id from meadow.sessions where token_hash = ${keep} and revoked_at is null and created_at > ${sessionCutoff()}`;
+    const [me] = await tx<{ person_id: string; standing_us: string }[]>`
+      select person_id, (extract(epoch from standing_at) * 1000000)::bigint as standing_us
+      from meadow.sessions where token_hash = ${keep} and revoked_at is null and created_at > ${sessionCutoff()}`;
     if (!me) return null;
-    const sessions = await tx`
-      update meadow.sessions set revoked_at = now()
-      where person_id = ${me.person_id} and revoked_at is null and token_hash <> ${keep} returning 1`;
+    const others = await tx<{ token_hash: Buffer; standing_us: string }[]>`
+      select token_hash, (extract(epoch from standing_at) * 1000000)::bigint as standing_us
+      from meadow.sessions
+      where person_id = ${me.person_id} and revoked_at is null and created_at > ${sessionCutoff()} and token_hash <> ${keep}`;
+    const [kept] = await tx<{ since_us: string }[]>`
+      select (extract(epoch from created_at) * 1000000)::bigint as since_us
+      from meadow.logins where person_id = ${me.person_id} and forgotten_at is null`;
+    const plan = planSignOut(
+      Number(me.standing_us),
+      others.map((o) => ({ id: o.token_hash, standingUs: Number(o.standing_us) })),
+      kept ? Number(kept.since_us) : null,
+    );
+    if (plan.signOut.length > 0) {
+      await tx`update meadow.sessions set revoked_at = now() where token_hash in ${tx(plan.signOut)} and revoked_at is null`;
+    }
+    if (plan.releaseAccount) {
+      await tx`update meadow.logins set forgotten_at = now() where person_id = ${me.person_id} and forgotten_at is null`;
+    }
     const links = await tx`
       update meadow.garden_links set revoked_at = now() where person_id = ${me.person_id} and revoked_at is null returning 1`;
     const linkToken = await createGardenLink(tx, me.person_id);
-    return { linkToken, signedOut: sessions.length, linksRevoked: links.length };
+    return {
+      linkToken,
+      signedOut: plan.signOut.length,
+      stayed: plan.stay,
+      linksRevoked: links.length,
+      releasedAccount: plan.releaseAccount,
+    };
   });
 }
 

@@ -2,7 +2,17 @@
 // VERCEL_ENV is never production; practice (rehearsal) plants come only from a dev server or a Preview and never show in
 // production, where every planting is real, before the party too.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deployment, googleSignIn, isProduction, partyCodes, plantingOpenToAll, showRehearsals, writesDerivedState } from "./env";
+import {
+  botCheckOn,
+  deployment,
+  googleSignIn,
+  isProduction,
+  networkKey,
+  partyCodes,
+  plantingOpenToAll,
+  showRehearsals,
+  writesDerivedState,
+} from "./env";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -117,5 +127,29 @@ describe("googleSignIn", () => {
     expect(googleSignIn()).toBeNull();
     vi.stubEnv("MEADOW_LOGIN_KEY", "k".repeat(43));
     expect(googleSignIn()).toEqual({ clientId: "123-abc.apps.googleusercontent.com", clientSecret: "s3cret", key: "k".repeat(43) });
+  });
+});
+
+describe("networkKey and botCheckOn", () => {
+  it("scramble networks with MEADOW_LOGIN_KEY, the public development key off production, and nothing in production without one", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("MEADOW_LOGIN_KEY", "short");
+    expect(networkKey()).toBeNull();
+    vi.stubEnv("MEADOW_LOGIN_KEY", "k".repeat(40));
+    expect(networkKey()).toBe("k".repeat(40));
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("MEADOW_LOGIN_KEY", "");
+    expect(networkKey()).toMatch(/development/);
+  });
+
+  it("keep the bot check on unless MEADOW_BOT_CHECK is off", () => {
+    vi.stubEnv("MEADOW_BOT_CHECK", "");
+    expect(botCheckOn()).toBe(true);
+    vi.stubEnv("MEADOW_BOT_CHECK", " Off ");
+    expect(botCheckOn()).toBe(false);
+    vi.stubEnv("MEADOW_BOT_CHECK", "on");
+    expect(botCheckOn()).toBe(true);
   });
 });

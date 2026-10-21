@@ -16,7 +16,8 @@
 // slows a runaway script, and the UI retries its 429, or a 503, by itself with the same clientEventId. A seed planted
 // without the party code (party.ts) also waits while the Meadow has taken in many seeds over the past hour or day
 // (rules.ts openPlantingWait): a 429 meadow_resting the person reads, so strangers can never crowd the Meadow or the
-// party's big screen. A retried planting is answered with the original only for the same name and species, within half
+// party's big screen; and once its own network has planted a few such seeds this hour or today (network.ts), a 429
+// network_resting, so one script cannot use the Meadow's share up or take name after name. A retried planting is answered with the original only for the same name and species, within half
 // an hour, and from no session or its own (rules.ts decideSeedReplay).
 //
 // Names are unique in the Meadow, ignoring case, so a friend finds the right flower: a planting checks under the same
@@ -65,6 +66,7 @@ import { createGardenLink, createSession } from "./identity";
 import { accountPerson, keepPlanting, loginStartSubject } from "./login";
 import { plantingNeeds } from "./login-rules";
 import { plantingPass } from "./party";
+import { networkNameWait, networkSeedWait } from "./network";
 import { KNOWN_SPECIES } from "./species-guard";
 import { PLOT_CAPACITY, assignPlot, isBedIndex } from "./plots";
 import {
@@ -110,6 +112,14 @@ function restingError(wait: "hour" | "day", recent: { hour: number; day: number 
   return wait === "day"
     ? new ApiError(429, "meadow_resting", "The Meadow has taken in many new seeds today and is resting. Please come back tomorrow to plant yours.", { retryAfterS: 6 * 3600 })
     : new ApiError(429, "meadow_resting", "Many seeds have gone into the Meadow this past hour. Please come back in a little while to plant yours.", { retryAfterS: 20 * 60 });
+}
+
+/** The calm answer for a seed from outside the party when its network has planted its share (network.ts). */
+function networkRestingError(wait: "hour" | "day"): ApiError {
+  console.warn(`[meadow api] a seed without the party link waits: its network planted its share this ${wait}`);
+  return wait === "day"
+    ? new ApiError(429, "network_resting", "Many seeds have gone in from this network today. Please come back tomorrow to plant yours.", { retryAfterS: 6 * 3600 })
+    : new ApiError(429, "network_resting", "A few seeds have just gone in from this network. Please wait a little while, then plant yours.", { retryAfterS: 20 * 60 });
 }
 
 function practiceOnly(): ApiError {
@@ -447,10 +457,21 @@ export interface NameCheck {
 /**
  * Whether a name is still free, for the name step (POST /api/name), open to whoever may plant (party.ts plantingPass).
  * The device's own pending planting under that name does not count: its answer may have been lost, and planting again
- * with the same request returns that garden. Only a hint: plantSeed checks again under the plot lock.
+ * with the same request returns that garden. Only a hint: plantSeed checks again under the plot lock. Without the party
+ * code, one network may ask NAME_CHECKS_PER_NETWORK_HOUR times an hour (`network`, its mark for today, network.ts; null
+ * when this server keeps no marks).
  */
-export async function checkNameFree(input: NameCheckInput): Promise<NameCheck> {
-  plantingPass(input.partyCode, partyCodes(), isProduction(), plantingOpenToAll());
+export async function checkNameFree(input: NameCheckInput, network: Buffer | null = null): Promise<NameCheck> {
+  const pass = plantingPass(input.partyCode, partyCodes(), isProduction(), plantingOpenToAll());
+  if (pass === "open" && network) {
+    const [n] = await db()<{ hour: number }[]>`
+      select count(*)::int as hour from meadow.network_marks
+      where mark = ${network} and kind = 'name' and created_at > now() - interval '1 hour'`;
+    if (networkNameWait(n?.hour ?? 0) !== "go") {
+      throw new ApiError(429, "names_resting", "Many names have been tried from this network in the last hour. Please wait a few minutes and try again.", { retryAfterS: 600 });
+    }
+    await db()`insert into meadow.network_marks (mark, kind) values (${network}, 'name')`;
+  }
   const own = input.requestId === null ? null : hashToken(`seed:${input.requestId}`);
   const taken = await nameTaken(db(), input.firstName, own);
   return { firstName: input.firstName, available: !taken, message: taken ? nameTakenMessage(input.firstName) : null };
@@ -480,9 +501,14 @@ function accountHasGardenError(): ApiError {
  * Plants a seed for a new person: checks who may plant, gives them the next plot, and creates the person, their
  * garden, the plant and its first checkpoint, a session and a personal garden link, all in one transaction. When a
  * Google account is signed in on the device (its login cookie, `loginToken`, login.ts), the new garden is kept on it;
- * signing in is never required.
+ * signing in is never required. A seed without the party code also waits once its network (`network`, the request's
+ * mark for today, network.ts; null when this server keeps no marks) has planted its share this hour or today.
  */
-export async function plantSeed(input: SeedInput, opts: { sessionPersonId: string | null; loginToken?: string; now?: Date }): Promise<PlantResult> {
+export async function plantSeed(
+  input: SeedInput,
+  opts: { sessionPersonId: string | null; loginToken?: string; network?: Buffer | null; now?: Date },
+): Promise<PlantResult> {
+  const network = opts.network ?? null;
   const now = opts.now ?? new Date();
   const h = hourIndexOf(now);
   const pass = plantingPass(input.partyCode, partyCodes(), isProduction(), plantingOpenToAll());
@@ -526,6 +552,14 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
         const wait = openPlantingWait(recent);
         if (wait !== "go") throw restingError(wait, recent);
       }
+      // this network's own seeds without the party code: the mark changes every IST day, so all of them are today's
+      if (pass === "open" && network) {
+        const [mine] = await tx<{ hour: number; day: number }[]>`
+          select (count(*) filter (where created_at > now() - interval '1 hour'))::int as hour, count(*)::int as day
+          from meadow.network_marks where mark = ${network} and kind = 'seed'`;
+        const wait = networkSeedWait(mine);
+        if (wait !== "go") throw networkRestingError(wait);
+      }
       // under the plot lock, so two people cannot take one name at once (the index is the backstop)
       if (await nameTaken(tx, input.firstName)) throw nameTakenError(input.firstName);
       const taken = await tx<{ plot_index: number }[]>`select plot_index from meadow.plants`;
@@ -551,6 +585,7 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
         values (${plant.id}, ${state.h}, ${tx.json(asJson(state))}, ${modelVersionOf(species)})`;
       // kept on the Google account the device signed in with (the account's key is unique: never two gardens)
       if (subject && opts.loginToken) await keepPlanting(tx, opts.loginToken, subject, person.id);
+      if (pass === "open" && network) await tx`insert into meadow.network_marks (mark, kind) values (${network}, 'seed')`;
       const ref: PlantRef = {
         personId: person.id, firstName: input.firstName, showName: input.showName, plantId: plant.id, species, seed, plot,
         plantedH: h, rehearsal,
@@ -580,7 +615,7 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
     }
     if (nameClash) throw nameTakenError(input.firstName);
     // the same account planted on another device in the meantime
-    if (isUniqueViolation(err, "logins_pkey")) throw accountHasGardenError();
+    if (isUniqueViolation(err, "logins_account_key")) throw accountHasGardenError();
     // a build that offers a seed the database's species list does not hold yet (the lotus, before migration 0006): a
     // calm answer rather than a failure, and nothing was planted (the transaction rolled back)
     if (isCheckViolation(err, "plants_species_check")) {
@@ -591,10 +626,14 @@ export async function plantSeed(input: SeedInput, opts: { sessionPersonId: strin
   }
 }
 
-/** A fresh personal garden link for someone who already has a garden (the newest few links keep working). */
-export async function newGardenLink(personId: string): Promise<string> {
+/**
+ * A fresh personal garden link for someone who already has a garden (the newest few links keep working). `carrying`:
+ * the SHA-256 of the session whose standing the link passes on, for the link that moves a device from the old address
+ * (lib/server/move.ts, identity.ts createGardenLink).
+ */
+export async function newGardenLink(personId: string, carrying: Buffer | null = null): Promise<string> {
   await requirePlant(personId);
-  return createGardenLink(db(), personId);
+  return createGardenLink(db(), personId, carrying);
 }
 
 // ---- care -------------------------------------------------------------------------------------------------------------

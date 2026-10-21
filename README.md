@@ -41,6 +41,18 @@ A garden is tied to the device it was planted on. Its personal link (`/garden#k=
 laptop; the key sits in the address's fragment, which browsers never send in a page request, and it is scrubbed from
 analytics. The party code is never written into the code base: it lives in the `MEADOW_PARTY_CODE` setting on Vercel.
 
+A newer key never outranks an older one. Each device remembers when its hold on the garden began, so "Sign out other
+devices" in the name pill's menu turns off every personal link, signs out the devices that opened the garden after
+this one, and lets go of a Google account the garden was kept on after it; no device can sign out the phone that
+planted. A link that reached the wrong person can be used to tend the garden, but never to lock its gardener out
+(`lib/server/session-rules.ts`).
+
+Scripts are kept out of planting by Vercel BotID, an invisible check that a request comes from a real browser
+(`lib/server/bot.ts`, `instrumentation-client.ts`), and seeds and name checks without the party code are limited per
+network (`lib/server/network.ts`): the network is kept only as a mark scrambled with a key that changes every IST day,
+for two days. Every page and API answer carries security headers that keep Meadow out of other sites' frames
+(`next.config.ts`).
+
 ## How it works
 
 - **App**: Next.js 16 (App Router, Cache Components) on Vercel, served from Mumbai (`bom1`).
@@ -106,7 +118,8 @@ marked as a rehearsal: kept on the outer plots, hidden from the live Meadow, and
 | `MEADOW_PARTY_CODE` | the party code, on Production only: a seed planted with it is spared the limits on strangers' plantings |
 | `MEADOW_PLANTING` | leave unset so anyone can plant; `party` asks for the party link again, should strangers ever need keeping out (redeploy after changing it) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | the Google Cloud web client for Google sign-in (redirect address `https://growmyflower.vercel.app/api/login/google/callback`, and `http://localhost:3000/...` for development); while unset, Google sign-in is not offered |
-| `MEADOW_LOGIN_KEY` | Production only: the key each Google account's number is scrambled with before it is stored (32 characters or more; never change it, or every garden kept on Google loses its account) |
+| `MEADOW_LOGIN_KEY` | Production only: the key each Google account's number is scrambled with before it is stored (32 characters or more; never change it, or every garden kept on Google loses its account); the per-network limits derive their daily key from it too |
+| `MEADOW_BOT_CHECK` | leave unset; `off` turns Vercel BotID's check on planting off, should it ever turn real people away (redeploy after changing it) |
 | `OPEN_METEO_API_KEY` | optional, for Open-Meteo's paid service |
 
 Checks to run before a commit:

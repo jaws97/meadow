@@ -9,6 +9,14 @@
 // the answer is "switch_needed" (with both names), and only a second request with confirmSwitch moves the current
 // session to meadow_prev and signs the device in to the link's garden. So a link shared by mistake, a link a colleague
 // taps "to see my flower", or a link planted by someone else (login CSRF) cannot quietly take over a device.
+//
+// A newer key never outranks an older one. Each session has a standing: when the device's hold on the garden began (the
+// planting device: the planting; a device opened by a personal link: that moment; a device opened through Google: when
+// the garden was kept on that account; migration 0012). "Sign out other devices" signs out only devices whose hold began
+// after the asking device's, and lets go of a Google account the garden was kept on after it (planSignOut); the cap on
+// devices retires the newest holds first (identity.ts createSession). So a personal link that reached the wrong person
+// can be used to tend the garden, but never to lock the gardener out: the phone that planted can always sign that
+// person out, Google account included, and no device can sign out the phone that planted.
 
 export const SESSION_COOKIE = "meadow_session";
 export const PREV_SESSION_COOKIE = "meadow_prev";
@@ -70,6 +78,31 @@ export function prevSessionCookie(token: string): CookieSpec {
 /** Set-Cookie options that remove a cookie (same name, path and flags, empty value, already expired). */
 export function clearedCookie(name: typeof SESSION_COOKIE | typeof PREV_SESSION_COOKIE): CookieSpec {
   return cookie(name, "", 0);
+}
+
+/** Another device holding the same garden, by its standing in microseconds since the epoch (as the database keeps it). */
+export interface Hold<T> {
+  id: T;
+  standingUs: number;
+}
+
+export interface SignOutPlan<T> {
+  /** the devices whose hold began after the asking device's */
+  signOut: T[];
+  /** how many began before it (or with it) and stay signed in */
+  stay: number;
+  /** the garden was kept on a Google account after the asking device's hold began: let go of it */
+  releaseAccount: boolean;
+}
+
+/**
+ * "Sign out other devices" from a device whose hold began at `mineUs`: the devices whose hold began later are signed
+ * out and the rest stay, and a Google account the garden was kept on later (`keptSinceUs`, null when it is kept on none)
+ * is let go of. A device opened through that account began its hold when the garden was kept on it, so it goes too.
+ */
+export function planSignOut<T>(mineUs: number, others: readonly Hold<T>[], keptSinceUs: number | null): SignOutPlan<T> {
+  const signOut = others.filter((o) => o.standingUs > mineUs).map((o) => o.id);
+  return { signOut, stay: others.length - signOut.length, releaseAccount: keptSinceUs !== null && keptSinceUs > mineUs };
 }
 
 /**

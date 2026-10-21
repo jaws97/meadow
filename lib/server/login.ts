@@ -16,15 +16,20 @@ export function signInCallback(requestOrigin: string): string {
   return `${isProduction() ? PUBLIC_ORIGIN : requestOrigin}/api/login/google/callback`;
 }
 
-/** The person whose garden an account keeps, or null. */
+/**
+ * The person whose garden an account keeps, or null. A garden let go of ("Sign out other devices" from a device that
+ * held it before the account did, identity.ts resetAccess) is kept on it no longer.
+ */
 export async function accountPerson(q: Queryable, subject: Buffer): Promise<string | null> {
-  const [row] = await q<{ person_id: string }[]>`select person_id from meadow.logins where subject_hash = ${subject}`;
+  const [row] = await q<{ person_id: string }[]>`
+    select person_id from meadow.logins where subject_hash = ${subject} and forgotten_at is null`;
   return row?.person_id ?? null;
 }
 
 /** Whether a person's garden is kept on a Google account. */
 async function personKept(q: Queryable, personId: string): Promise<boolean> {
-  const [row] = await q<{ n: number }[]>`select count(*)::int as n from meadow.logins where person_id = ${personId}`;
+  const [row] = await q<{ n: number }[]>`
+    select count(*)::int as n from meadow.logins where person_id = ${personId} and forgotten_at is null`;
   return (row?.n ?? 0) > 0;
 }
 
@@ -88,8 +93,9 @@ export async function finishSignIn(
     const outcome = decideSignIn(intent, account, devicePerson, deviceKept);
     const done: SignInDone = { result: resultOf(outcome), sessionToken: null, previousToken: null, loginToken: null };
     if (outcome.kind === "open") {
-      const sessionToken = await createSession(tx, outcome.personId);
-      await tx`update meadow.logins set last_used_at = now() where subject_hash = ${subject}`;
+      // the device's hold on the garden began when the garden was kept on this account (session-rules.ts)
+      const sessionToken = await createSession(tx, outcome.personId, { account: subject });
+      await tx`update meadow.logins set last_used_at = now() where subject_hash = ${subject} and forgotten_at is null`;
       const switched = outcome.switchFrom !== null && isTokenShape(currentToken);
       if (switched && isTokenShape(prevToken) && prevToken !== currentToken) {
         await tx`update meadow.sessions set revoked_at = now() where token_hash = ${hashToken(prevToken)} and revoked_at is null`;

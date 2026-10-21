@@ -175,6 +175,17 @@ async function probeAppRole(sql) {
       await tx`update meadow.sessions set last_seen_at = now(), revoked_at = now() where person_id = ${p.id}`;
       await tx`insert into meadow.garden_links (token_hash, person_id) values (${Buffer.alloc(32, 9)}, ${p.id})`;
       await tx`update meadow.garden_links set use_count = use_count + 1, last_used_at = now(), revoked_at = now() where person_id = ${p.id}`;
+      // migration 0012: standings, letting go of a Google account, network marks (skipped on a database without it)
+      const [m12] = await tx`select to_regclass('meadow.network_marks') is not null as here`;
+      if (m12.here) {
+        await tx`insert into meadow.sessions (token_hash, person_id, standing_at) values (${Buffer.alloc(32, 8)}, ${p.id}, now())`;
+        await tx`insert into meadow.garden_links (token_hash, person_id, standing_at) values (${Buffer.alloc(32, 10)}, ${p.id}, now())`;
+        await tx`insert into meadow.logins (subject_hash, person_id) values (${Buffer.alloc(32, 5)}, ${p.id})`;
+        await tx`update meadow.logins set forgotten_at = now() where person_id = ${p.id}`;
+        await tx`insert into meadow.logins (subject_hash, person_id) values (${Buffer.alloc(32, 6)}, ${p.id})`;
+        await tx`insert into meadow.network_marks (mark, kind) values (${Buffer.alloc(32, 4)}, 'seed')`;
+        await tx`select count(*)::int as n from meadow.network_marks where mark = ${Buffer.alloc(32, 4)}`;
+      }
       await tx`
         insert into meadow.weather_hours (h, t_c, rh_pct, precip_mm, sw_wm2, et0_mm, wind_kmh, soil_t_c, is_day, source)
         values (-100000, 20, 70, 0, 0, 0, 5, 20, 0, 'probe') on conflict (h) do nothing`;
@@ -187,12 +198,20 @@ async function probeAppRole(sql) {
         ["DELETE an event", (q) => q`delete from meadow.plant_events where id = ${e.id}`],
         ["UPDATE a name", (q) => q`update meadow.people set first_name = 'x' where id = ${p.id}`],
         ["UPDATE an event", (q) => q`update meadow.plant_events set h = 0 where id = ${e.id}`],
+        ["DELETE a Google keep", (q) => q`delete from meadow.logins where person_id = ${p.id}`],
+        ["UPDATE a Google keep's garden", (q) => q`update meadow.logins set person_id = ${p.id} where person_id = ${p.id}`],
         ["TRUNCATE weather", (q) => q`truncate meadow.weather_hours`],
         ["read schema_migrations", (q) => q`select * from meadow.schema_migrations`],
         ["disable RLS", (q) => q`alter table meadow.people disable row level security`],
         ["drop the append-only trigger", (q) => q`drop trigger plant_events_append_only on meadow.plant_events`],
         ["create a table", (q) => q`create table meadow.probe_table (id int)`],
       ];
+      if (m12.here) {
+        refused.push(
+          ["UPDATE a session's standing", (q) => q`update meadow.sessions set standing_at = now() where person_id = ${p.id}`],
+          ["DELETE a network mark", (q) => q`delete from meadow.network_marks where mark = ${Buffer.alloc(32, 4)}`],
+        );
+      }
       for (const [label, run] of refused) {
         try {
           await tx.savepoint((q) => run(q));

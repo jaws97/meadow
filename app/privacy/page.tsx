@@ -52,6 +52,13 @@ export default function PrivacyPage() {
           </li>
         </ul>
 
+        <h2 className="privacy-h2">Keeping scripts out</h2>
+        <p className="privacy-p">
+          So no script can plant seeds by the hundred, planting asks Vercel BotID, an invisible check, whether it comes from
+          a real browser. We also keep a scrambled mark of the network a seed came from for two days. The scrambling changes
+          every day, and the mark can never be turned back into your address.
+        </p>
+
         <h2 className="privacy-h2">Where it lives</h2>
         <p className="privacy-p">Gardens are kept in a database run by Supabase, and the site is served by Vercel.</p>
 

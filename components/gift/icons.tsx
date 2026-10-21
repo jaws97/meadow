@@ -82,6 +82,14 @@ export const Picture = (p: IconProps) => (
   </Icon>
 );
 
+export const SignOut = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10 4H6.5A2.5 2.5 0 0 0 4 6.5v11A2.5 2.5 0 0 0 6.5 20H10" />
+    <path d="M15 8l4 4-4 4" />
+    <path d="M19 12H9" />
+  </Icon>
+);
+
 export const Swap = (p: IconProps) => (
   <Icon {...p}>
     <path d="M7 7h11l-3-3" />

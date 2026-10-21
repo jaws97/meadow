@@ -88,6 +88,34 @@ const DEV_LOGIN_KEY = "meadow-development-sign-in-key-not-for-production";
 const LOGIN_KEY_MIN = 32;
 let warnedLoginKey = false;
 
+let warnedNetworkKey = false;
+
+/**
+ * The key network addresses are scrambled with for the per-network limits (lib/server/network.ts): MEADOW_LOGIN_KEY,
+ * so nothing more needs setting on Vercel (network.ts derives a key of its own from it, so the two uses never meet). A
+ * development server or a Preview without it uses the public development key; production without it (or with one too
+ * short) keeps no network marks and so has no per-network limits, which is logged once.
+ */
+export function networkKey(): string | null {
+  const key = (process.env.MEADOW_LOGIN_KEY ?? "").trim();
+  if (deployment() !== "production") return key || DEV_LOGIN_KEY;
+  if (key.length >= LOGIN_KEY_MIN) return key;
+  if (!warnedNetworkKey) {
+    warnedNetworkKey = true;
+    console.error(`[meadow api] the per-network limits are off: MEADOW_LOGIN_KEY must be set (${LOGIN_KEY_MIN} characters or more)`);
+  }
+  return null;
+}
+
+/**
+ * Whether planting and name checks ask Vercel BotID that the request comes from a real browser (lib/server/bot.ts):
+ * yes, unless MEADOW_BOT_CHECK is "off", the switch should it ever turn real people away (set it on Vercel, then
+ * redeploy).
+ */
+export function botCheckOn(): boolean {
+  return (process.env.MEADOW_BOT_CHECK ?? "").trim().toLowerCase() !== "off";
+}
+
 /**
  * Google sign-in (lib/server/google.ts), on when GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET hold the web client made in
  * Google Cloud and, in production, MEADOW_LOGIN_KEY holds the key each account's Google number is scrambled with before

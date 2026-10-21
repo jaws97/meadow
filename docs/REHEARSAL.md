@@ -50,6 +50,12 @@ but keep it to yourself until then.
 To change the code later without a gap: set the variable to `newcode,oldcode`, redeploy, and open the party screen
 with the new code. Once no one needs the old link, set it to `newcode` alone and redeploy again.
 
+**Change it on the party's morning.** The code in use since 20 October has been passed around for weeks, and a seed
+with the party code is not limited per network (the whole office shares one internet address at the party), so a
+script holding an old code could plant in bulk. On the morning of 10 November, make a fresh code (step 1), set the
+variable to the new code alone, redeploy, and open the party screen with the new code. Old party links then say they
+are out of date; anyone holding one can still plant without it, within the usual limits.
+
 Preview deployments need no code, because they only ever plant practice seeds.
 
 ## 2. Give the app its own limited login
@@ -215,8 +221,10 @@ Write the final address, with any `&quality=` ending, in your private note.
 
 **In the morning**
 
-1. In Vercel, check that `MEADOW_PARTY_CODE` is set for Production, that `MEADOW_PLANTING` is not (unless you chose to
-   keep strangers out), and that the newest Production deployment says **Ready**.
+1. In Vercel, change `MEADOW_PARTY_CODE` to a fresh code (step 1 of section 1, "Change it on the party's morning") and
+   redeploy; put the new code in your note for the party screen's address. Check that `MEADOW_PLANTING` and
+   `MEADOW_BOT_CHECK` are not set (unless you chose to keep strangers out, or to turn the bot check off), and that the
+   newest Production deployment says **Ready**.
 2. Check that no test gardens from a development or preview server are left:
    ```
    node --env-file=.env.local scripts/clear-rehearsals.mjs
