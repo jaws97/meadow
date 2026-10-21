@@ -9,7 +9,13 @@
 //
 // The party trailer (components/party/trailer) plays here too: its director
 // writes each frame's hour, growth and shot ahead of the clock, and its doe
-// is built and prepared with the garden, off stage until her cue.
+// is built and prepared with the garden, off stage until her cue. It grades
+// the picture through the effects' trailer look (a channel mixer mounted
+// from the screen's first frame, and the post levers written from
+// lib/garden/look each frame), which only this screen asks for: the prop is
+// static, because adding or removing an effect mid-trailer would rebuild and
+// recompile the composer. Its scene multipliers (lib/garden/trailerFx) reach
+// the shared parts on their own and sit at neutral whenever it is not playing.
 import { Suspense } from "react";
 import { PartyCamera } from "@/components/party/PartyCamera";
 import { TrailerDirector, TrailerDoe } from "@/components/party/trailer/Director";
@@ -43,7 +49,7 @@ export function PartyScene() {
       <PartyCamera />
       <TrailerDirector />
       <Suspense fallback={null}>
-        <Effects />
+        <Effects trailerLook />
       </Suspense>
     </>
   );

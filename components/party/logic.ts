@@ -2,13 +2,17 @@
 // which link the QR code carries, what the seed counter and the feed of new
 // plantings say, how far the camera's lens slides to keep the rose clear of
 // the panel, the slow tour's shots and how the camera glides between them,
-// and the golden hour the showcase is lit at.
+// where the camera stands and looks for a shot (placeShot, for the party's
+// own camera and the trailer's, which may look up at a bloom, straight down
+// into the bed and pan toward a point of its own), and the golden hour the
+// showcase is lit at.
 //
 // The QR link always points at the live site (PUBLIC_ORIGIN), whatever host
 // serves the party screen: a laptop that opened a Preview or a local build by
 // mistake must still send colleagues to the real garden, where their seeds
 // count. The party code itself is never written into the code base: it rides
 // in the screen's own address (/party?code=...).
+import { framingFor, LAYOUT, type Framing } from "@/lib/garden/layout";
 import { SPECIES, type SpeciesId } from "@/lib/plant/species";
 import { goldenHour } from "@/lib/sky/sun";
 
@@ -310,6 +314,9 @@ export interface Drift {
   dolly: number;
 }
 
+/** No wander at all: the shot exactly as composed. */
+export const DRIFT_REST: Readonly<Drift> = Object.freeze({ yaw: 0, lift: 0, dolly: 1 });
+
 /**
  * The camera's resting wander: a few slow sines of unrelated periods (47 to
  * 73 s), so the movement never visibly repeats and never quickens. `amount`
@@ -320,5 +327,177 @@ export function drift(t: number, amount: number, out: Drift): Drift {
   out.yaw = amount * (0.034 * Math.sin(w(47)) + 0.017 * Math.sin(w(73) + 1.3));
   out.lift = amount * 0.013 * Math.sin(w(59) + 0.7);
   out.dolly = 1 + amount * 0.022 * Math.sin(w(67) + 2.1);
+  return out;
+}
+
+// ---- placing the camera ---------------------------------------------------------------------------------------------
+
+/** A point in the garden, metres (three's Vector3 is one). */
+export interface XYZ {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Aspect ratios are rounded to this step, so a window resize does not re-frame every pixel. */
+export const ASPECT_STEP = 0.02;
+/** The composed framing for a canvas of this size (LAYOUT.camera.framings), its aspect rounded to ASPECT_STEP. */
+export function framingOf(width: number, height: number): Framing {
+  return framingFor(Math.round(width / Math.max(1, height) / ASPECT_STEP) * ASPECT_STEP);
+}
+
+/** The garden's middle, which the aim rides between and the flower head (LAYOUT.camera.target), and the aim's limits (m). */
+const TARGET = LAYOUT.camera.target;
+const TARGET_MIN = 0.2;
+const TARGET_MAX = 1.05;
+/** Inside the dressed room: past about 0.7 rad round the orbit the view runs out past the side hedges. */
+export const MAX_AZIMUTH = 0.68;
+/**
+ * The camera's elevation over its pivot (rad): the party's own camera always looks a little down at the garden; the
+ * trailer's may look up at a bloom from below (only ever round a high aim) and straight down into the bed.
+ */
+export const ELEVATION = Object.freeze({ party: Object.freeze([0.06, 0.6] as const), trailer: Object.freeze([-0.35, 1.25] as const) });
+/** The camera never stands lower than this (m), above the lawn and the kerb. */
+export const CAMERA_FLOOR = 0.12;
+
+/**
+ * The trailer's lens on top of a shot: a pan from the shot's pivot toward a world point (`look`, 0 none .. 1 straight
+ * at it), the lens shift (the share of the frame's width the subject moves left and of its height it moves up), and
+ * whether the aim takes the flower head as it stands, frame by frame, rather than easing toward it (`follow`).
+ */
+export interface LensAim {
+  look: number;
+  target: XYZ;
+  shiftX: number;
+  shiftY: number;
+  follow: boolean;
+}
+
+/** The lens at rest: no pan, no shift, the head eased as always. */
+export const LENS_REST: Readonly<LensAim> = Object.freeze({ look: 0, target: Object.freeze({ x: 0, y: 0, z: 0 }), shiftX: 0, shiftY: 0, follow: false });
+
+/** Where a shot puts the camera: its position, the point it looks at, its lens angle, and its orbit round the pivot. */
+export interface Placed {
+  position: XYZ;
+  look: XYZ;
+  /** the point the camera orbits (the aim before any pan) */
+  pivot: XYZ;
+  /** vertical lens angle, degrees */
+  fov: number;
+  /** the orbit's bearing (rad from +z toward +x) and elevation, as clamped */
+  azimuth: number;
+  elevation: number;
+}
+
+export function placed(): Placed {
+  return { position: { x: 0, y: 0, z: 0 }, look: { x: 0, y: 0, z: 0 }, pivot: { x: 0, y: 0, z: 0 }, fov: 0, azimuth: 0, elevation: 0 };
+}
+
+/**
+ * Places the camera for shot `s` (with wander `d`) in framing `f`, round a flower head at `head`. The pivot rides from
+ * the garden's middle toward the head by the shot's focus, and the camera stands on an orbit round it; it looks at the
+ * pivot, or, with the trailer's `lens`, at a point that far toward the lens's target. `trailer` widens the elevation's
+ * limits to the trailer's (ELEVATION.trailer). Without a lens and the trailer it places the camera exactly as the
+ * party screen always has.
+ */
+export function placeShot(
+  f: Framing,
+  head: Readonly<XYZ>,
+  s: Readonly<Shot>,
+  d: Readonly<Drift>,
+  out: Placed,
+  lens: Readonly<LensAim> | null = null,
+  trailer = false,
+): Placed {
+  const aimY = Math.min(TARGET_MAX, Math.max(TARGET_MIN, head.y * f.targetRise + f.targetLift));
+  const p = out.pivot;
+  p.x = TARGET[0] + (head.x - TARGET[0]) * s.focus;
+  p.y = aimY + (head.y - aimY) * s.focus;
+  p.z = TARGET[2] + (head.z - TARGET[2]) * s.focus;
+  const [low, high] = trailer ? ELEVATION.trailer : ELEVATION.party;
+  const azimuth = Math.min(MAX_AZIMUTH, Math.max(-MAX_AZIMUTH, f.azimuth + s.yaw + d.yaw));
+  const elevation = Math.min(high, Math.max(low, f.elevation + s.lift + d.lift));
+  const distance = f.distance * s.dolly * d.dolly;
+  const flat = Math.cos(elevation) * distance;
+  const c = out.position;
+  c.x = p.x + Math.sin(azimuth) * flat;
+  c.y = p.y + Math.sin(elevation) * distance;
+  c.z = p.z + Math.cos(azimuth) * flat;
+  if (c.y < CAMERA_FLOOR) c.y = CAMERA_FLOOR;
+  const k = lens ? lens.look : 0;
+  const l = out.look;
+  if (k !== 0 && lens) {
+    l.x = p.x + (lens.target.x - p.x) * k;
+    l.y = p.y + (lens.target.y - p.y) * k;
+    l.z = p.z + (lens.target.z - p.z) * k;
+  } else {
+    l.x = p.x;
+    l.y = p.y;
+    l.z = p.z;
+  }
+  out.fov = f.fov * s.zoom;
+  out.azimuth = azimuth;
+  out.elevation = elevation;
+  return out;
+}
+
+/**
+ * Where `point` falls in the picture of a camera placed as `at` (looking at its look point, the world's up kept up),
+ * before any lens shift: normalised device coordinates, x right and y up, -1..1 across the frame at `aspect`.
+ */
+export function project(at: Readonly<Placed>, point: Readonly<XYZ>, aspect: number, out: { x: number; y: number }): { x: number; y: number } {
+  const e = at.position;
+  // the camera's back axis (three's lookAt for a camera), right and up
+  let zx = e.x - at.look.x;
+  let zy = e.y - at.look.y;
+  let zz = e.z - at.look.z;
+  const zl = Math.hypot(zx, zy, zz) || 1;
+  zx /= zl;
+  zy /= zl;
+  zz /= zl;
+  // right = up(0, 1, 0) × back
+  let xx = zz;
+  let xz = -zx;
+  const xl = Math.hypot(xx, xz) || 1;
+  xx /= xl;
+  xz /= xl;
+  // up = back × right
+  const yx = zy * xz;
+  const yy = zz * xx - zx * xz;
+  const yz = -zy * xx;
+  const vx = point.x - e.x;
+  const vy = point.y - e.y;
+  const vz = point.z - e.z;
+  const depth = -(vx * zx + vy * zy + vz * zz);
+  const half = Math.tan(((at.fov / 2) * Math.PI) / 180);
+  out.x = (vx * xx + vz * xz) / (depth * half * aspect);
+  out.y = (vx * yx + vy * yy + vz * yz) / (depth * half);
+  return out;
+}
+
+/** The lens shift and screen place that match the trailer's last seed to the party's rose. */
+export interface CodaMatch {
+  /** the coda's lens shift (share of the frame's width left, of its height up) */
+  x: number;
+  y: number;
+  /** where the seed then stands across the screen, as a share of its width from the left */
+  screenX: number;
+}
+
+const homeAt = placed();
+const ndc = { x: 0, y: 0 };
+
+/**
+ * The lens shift for the trailer's coda, a seed framed dead centre (a shot with focus 1 and no pan), that puts the seed
+ * exactly where the party's camera, at home with the panel's lens shift `panel`, shows the full-grown flower at
+ * `fullHead`: so when the black lifts on the party screen, the rose stands where the seed stood. A shift moves the
+ * subject 2 × shift in device coordinates (left for x, up for y).
+ */
+export function codaShift(f: Framing, aspect: number, fullHead: Readonly<XYZ>, panel: Readonly<Shift>, out: CodaMatch): CodaMatch {
+  placeShot(f, fullHead, HOME, DRIFT_REST, homeAt);
+  project(homeAt, fullHead, aspect, ndc);
+  out.x = panel.x - ndc.x / 2;
+  out.y = panel.y + ndc.y / 2;
+  out.screenX = (ndc.x - 2 * panel.x + 1) / 2;
   return out;
 }

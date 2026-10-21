@@ -15,7 +15,11 @@
 // (lib/client/plant): its own droop, the leaves' yellowing, the flower's
 // size, the stem base darkening with rot and a soft glow after a kind word;
 // with the defaults (the owner's rose) every one of them leaves the look as
-// it was.
+// it was. The party trailer leans on it too, through lib/garden/trailerFx: a
+// glow multiplier swells the petals' own light (and lets the heart's light
+// shine by day) as the rose opens, and a snap counter makes the eased numbers
+// take the store's values at once when the trailer puts the garden back under
+// black. Both sit at neutral (×1, never bumped) everywhere else.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { SPECIES } from "@/lib/plant/species";
@@ -53,6 +57,7 @@ import {
 import { ANTHER, FILAMENT_GIRTH, longStamens, STIGMA, STYLE_GIRTH } from "@/lib/plant/stamens";
 import { garden, useGarden, type Quality } from "@/lib/garden/store";
 import { env } from "@/lib/garden/env";
+import { GLOW_CAP, trailerFx } from "@/lib/garden/trailerFx";
 import { CARD_BLOOM, CARD_DROOP, cardShot } from "@/lib/garden/cardShot";
 import {
   budMaterial,
@@ -214,6 +219,11 @@ const PETAL_TESS: Record<Quality, [number, number]> = {
 const HERO_SCALE = 1.12;
 /** Radians a sideways leaf turns about its rachis toward the camera. */
 const LEAF_FACING = 0.5;
+/**
+ * The heart's glow light by day, as a share of its night strength, per unit of the party trailer's glow swell above 1
+ * (lib/garden/trailerFx): enough to warm the inner petals as the rose opens in golden light. 0 without a swell.
+ */
+const GLOW_BY_DAY = 0.12;
 
 function emptyRefs(): PlantRefs {
   return {
@@ -799,13 +809,16 @@ export function Plant() {
   const vis = useRef<HeroVisual | null>(null);
   // A different plant (a colleague's seed replacing the owner's rose) starts from its own numbers, not eased from the last one's.
   const visKey = useRef(key);
+  // So does the plant the party trailer puts back under black (trailerFx.snap): whole at once, not growing into place.
+  const visSnap = useRef(trailerFx.snap);
 
   useLayerFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
     const k = 1 - Math.exp(-dt * 2.5);
     const s = garden.get();
-    if (visKey.current !== key) {
+    if (visKey.current !== key || visSnap.current !== trailerFx.snap) {
       visKey.current = key;
+      visSnap.current = trailerFx.snap;
       vis.current = null;
     }
     let v = vis.current;
@@ -1027,8 +1040,11 @@ export function Plant() {
     const tierGlow = quality === "lite" ? 0.75 : 1;
     // a kind word lifts the petals' own light a little for the hour that follows
     const kind = 1 + 0.5 * v.glow;
+    // the party trailer's swell (1 otherwise), held lower on lite for the same white spot as the glow light's below
+    const swell = Math.min(trailerFx.glow, quality === "lite" ? GLOW_CAP.lite : GLOW_CAP.full);
     const ei =
-      (lerp(f.emissiveDay, f.emissiveNight, night) * (0.3 + 0.7 * v.health) * (0.2 + 0.8 * eb) * pulse * tierGlow * kind) / lift;
+      (lerp(f.emissiveDay, f.emissiveNight, night) * (0.3 + 0.7 * v.health) * (0.2 + 0.8 * eb) * pulse * tierGlow * kind * swell) /
+      lift;
     const mats = R.petalMats;
     for (let j = 0; j < mats.length; j++) mats[j].emissiveIntensity = ei;
     budMat.emissiveIntensity = ei * 0.3;
@@ -1036,7 +1052,9 @@ export function Plant() {
     // The glow sits in the heart of the bloom, centimetres from the inner petals; on lite,
     // with nothing to soften it, it burns a white spot there, so it is kept low.
     // (it stays in the scene while the head is not yet shown, so the light count never changes, but gives no light)
-    if (glow) glow.intensity = leadShown ? ei * (quality === "lite" ? 1.1 : 3) * night * (sp.fx.glowNight ? 1 : 0.2) : 0;
+    // It lights only after dark, unless the trailer's swell is lighting the heart by day; intensity alone, never visibility.
+    const heartNight = Math.max(night, GLOW_BY_DAY * (swell - 1));
+    if (glow) glow.intensity = leadShown ? ei * (quality === "lite" ? 1.1 : 3) * heartNight * (sp.fx.glowNight ? 1 : 0.2) : 0;
 
     const head = followed?.head ?? null;
     if (head) {

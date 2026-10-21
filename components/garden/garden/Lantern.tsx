@@ -15,6 +15,12 @@
 // the hero's leaves) evaluate the same falloff in their shaders through
 // lampUniforms, so the leaves round the lamp are lit with the ground rather
 // than standing black against a painted pool of light.
+//
+// The party trailer strikes the lamp on a beat at nightfall through a gain in
+// lib/garden/trailerFx: it scales the light, the halo and the lite tier's
+// shader light, and the flame shrinks with it, but never shows or hides
+// anything (the lantern's own dusk still decides that). It is 1 whenever the
+// trailer is not playing, so the lantern burns exactly as above.
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { lampUniforms, makeLantern } from "@/lib/garden/dressing";
@@ -24,6 +30,7 @@ import type { Quality } from "@/lib/garden/store";
 import { makeCanvas } from "@/lib/plant/textures";
 import { gardenMaterials } from "@/components/garden/garden/materials";
 import { weather } from "@/components/garden/garden/weather";
+import { trailerFx } from "@/lib/garden/trailerFx";
 import { useLayerFrame } from "@/components/garden/TierLayers";
 
 /** Candela at full flame; with decay 2 this lifts the bed a metre away to a warm glow at night. */
@@ -34,6 +41,8 @@ const HALO_SIZE = 0.5;
 const HALO_TINT = new THREE.Color(1.6, 1.15, 0.7);
 /** The lamp's colour for the lite tier's shader light; the real light takes the layout's colour directly. */
 const LAMP_COLOR = new THREE.Color(LAYOUT.lantern.color);
+/** How far the flame shrinks as the trailer's lamp gain falls from 1 to 0 (a turned-down wick, not a gone one). */
+const FLAME_TURN_DOWN = 0.4;
 
 let haloTexture: THREE.CanvasTexture | null = null;
 
@@ -101,13 +110,16 @@ export function Lantern({ quality }: { quality: Quality }) {
      three.js objects the frame loop drives imperatively; React never re-renders on them. */
   useLayerFrame(() => {
     const lit = weather.lit;
-    const glow = lit * weather.flicker;
+    // the trailer's lamp gain, 1 otherwise
+    const gain = trailerFx.lamp;
+    const glow = lit * weather.flicker * gain;
     if (light.current) light.current.intensity = LIGHT_INTENSITY * glow;
     const f = flame.current;
     if (f) {
       f.visible = lit > 0.02;
-      // the flame stretches a little as it brightens
-      f.scale.set(1, 0.95 + 1.5 * (weather.flicker - 1), 1);
+      // the flame stretches a little as it brightens, and is turned down with the trailer's gain (never up past 1)
+      const turn = 1 - FLAME_TURN_DOWN * (1 - Math.min(1, gain));
+      f.scale.set(turn, (0.95 + 1.5 * (weather.flicker - 1)) * turn, turn);
     }
     const s = sprite.current;
     if (s) s.visible = lit > 0.02;

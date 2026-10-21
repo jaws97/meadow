@@ -430,10 +430,12 @@
   }
 }
 
-/* ---- the trailer (components/party/trailer): film bars, captions, the black, the closing card, its button ---- */
+/* ---- the trailer (components/party/trailer): film bars, the black, the type over it, its button ---- */
 
 .party-trailer {
+  /* each bar's height, and the picture's between them, on any shape of screen */
   --bar: max(0px, calc((100vh - 100vw / 2.39) / 2));
+  --band: min(100vh, calc(100vw / 2.39));
   pointer-events: none;
 }
 
@@ -463,55 +465,6 @@
   transform: none;
 }
 
-.party-trailer-captions {
-  position: absolute;
-  z-index: 26;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: var(--bar);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: calc(6 * var(--px));
-  text-align: center;
-  pointer-events: none;
-}
-
-.party-trailer-caption,
-.party-trailer-sub,
-.party-trailer-card {
-  opacity: 0;
-  transform: translate3d(0, calc(6 * var(--px)), 0);
-  transition:
-    opacity 1.1s cubic-bezier(0.4, 0, 0.2, 1),
-    transform 1.4s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-.party-trailer-caption.party-trailer-on,
-.party-trailer-sub.party-trailer-on,
-.party-trailer-card.party-trailer-on {
-  opacity: 1;
-  transform: none;
-}
-
-.party-trailer-caption {
-  font-family: var(--font-party-display), Georgia, serif;
-  font-style: italic;
-  font-weight: 500;
-  font-size: calc(38 * var(--px));
-  line-height: 1.1;
-  color: rgba(var(--cream), 0.92);
-}
-
-.party-trailer-sub {
-  font-size: calc(15 * var(--px));
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: rgba(var(--gold), 0.82);
-}
-
 /* the black the trailer dips through: written every frame by the director, or eased as it opens and closes */
 .party-trailer-cover {
   position: absolute;
@@ -522,21 +475,250 @@
   pointer-events: none;
 }
 
-.party-trailer-card {
+/*
+ * The type: one layer over the black (after it in the page, at its z-index) and under the panel, so a title stands on
+ * the black and the montage's line rides its dips. The lines sit in the lower third of the picture, their centre 0.17
+ * of its height above the lower bar (137 px at 1080p), with a soft shadow for the picture behind them. Each element
+ * comes on with its own fade (the script's timings arrive as --word-in, --line-out and --tagline-fade), holds its
+ * state while it fades out, and goes back to rest only once it is unseen, so nothing moves in view but the reveals.
+ */
+.party-trailer-type {
+  --type-y: calc(var(--bar) + 0.17 * var(--band));
+  --type-shadow: 0 0 calc(18 * var(--px)) rgba(0, 0, 0, 0.55), 0 1px calc(3 * var(--px)) rgba(0, 0, 0, 0.45);
   position: absolute;
   z-index: 29;
+  inset: 0;
+  font-family: var(--font-party-display), Georgia, serif;
+  pointer-events: none;
+}
+
+/* a line: on at once (its words fade themselves in), off as a whole, lifting a touch as it goes */
+.party-trailer-line {
+  position: absolute;
   left: 0;
   right: 0;
-  top: 50%;
-  margin-top: calc(-34 * var(--px));
-  text-align: center;
-  font-family: var(--font-party-display), Georgia, serif;
+  bottom: calc(var(--type-y) - 0.55em);
+  height: 1.1em;
+  margin: 0;
+  font-size: calc(56 * var(--px));
   font-style: italic;
   font-weight: 500;
-  font-size: calc(56 * var(--px));
-  line-height: 1.2;
-  color: rgba(var(--cream), 0.94);
-  pointer-events: none;
+  line-height: 1.1;
+  letter-spacing: 0.005em;
+  text-align: center;
+  white-space: nowrap;
+  color: rgba(var(--cream), 0.95);
+  text-shadow: var(--type-shadow);
+  opacity: 0;
+  transform: translate3d(0, calc(-4 * var(--px)), 0);
+  transition:
+    opacity var(--line-out) cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.party-trailer-line.party-trailer-on {
+  opacity: 1;
+  transform: none;
+  transition: none;
+}
+
+/* a word: in as its group comes in, a little after the word before it (--d); back to rest at once, unseen */
+.party-trailer-word {
+  display: inline-block;
+  opacity: 0;
+  transform: translate3d(0, calc(10 * var(--px)), 0);
+}
+
+.party-trailer-word.party-trailer-on {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--word-in) cubic-bezier(0.4, 0, 0.2, 1) var(--d, 0s),
+    transform 1.4s cubic-bezier(0.22, 0.61, 0.36, 1) var(--d, 0s);
+}
+
+/* a montage flower's name, under the line: in on the black over its gate, out from the next dip's start */
+.party-trailer-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--type-y) - 58 * var(--px) - 0.55em);
+  height: 1.1em;
+  margin: 0;
+  font-size: calc(42 * var(--px));
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  text-align: center;
+  white-space: nowrap;
+  color: rgba(var(--gold), 0.92);
+  text-shadow: var(--type-shadow);
+  opacity: 0;
+  transform: translate3d(0, calc(6 * var(--px)), 0);
+  transition:
+    opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0s linear 0.5s;
+}
+
+.party-trailer-name.party-trailer-on {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/*
+ * The title on black, its centre at 46 % of the screen's height: the letters gather toward the middle (the middle
+ * ones first) under the crest, whose rules open from the bud as the bud fades in. Once gathered it is still, and it
+ * leaves as a whole, a lap dissolve into the coda. Sized in --s, which a narrow screen shrinks.
+ */
+.party-trailer-title {
+  --s: var(--px);
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 46%;
+  height: 0;
+  opacity: 0;
+  transition: opacity 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.party-trailer-title.party-trailer-on {
+  opacity: 1;
+  transition: none;
+}
+
+.party-trailer-title-word {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -0.5em;
+  height: 1em;
+  margin: 0;
+  /* the tracking after the last letter, matched before the first, so the word stands in the middle */
+  padding-left: 0.34em;
+  font-size: calc(120 * var(--s));
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
+  color: rgba(var(--gold), 0.96);
+  text-shadow: 0 0 calc(30 * var(--s)) rgba(255, 186, 104, 0.25);
+}
+
+.party-trailer-letter {
+  display: inline-block;
+  opacity: 0;
+  transform: translate3d(var(--dx, 0), 0, 0);
+  transition:
+    opacity 0s linear 0.7s,
+    transform 0s linear 0.7s;
+}
+
+.party-trailer-title.party-trailer-on .party-trailer-letter {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 1s cubic-bezier(0.4, 0, 0.2, 1) var(--d, 0s),
+    transform 1.1s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0s);
+}
+
+/*
+ * The crest stands 30 above the capitals: half their height (Cormorant Garamond's capitals are 0.625 of the size,
+ * so 37.5 at 120) plus 30. Without a title it is centred where the title would be.
+ */
+.party-trailer-crest {
+  position: absolute;
+  left: 50%;
+  bottom: calc(67.5 * var(--s));
+  width: calc(320 * var(--s));
+  height: calc(38 * var(--s));
+  margin-left: calc(-160 * var(--s));
+}
+
+.party-trailer-crest-alone {
+  bottom: calc(-19 * var(--s));
+}
+
+.party-trailer-crest-rules,
+.party-trailer-crest-bud {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.party-trailer-crest-rules {
+  transform: scaleX(0);
+  transition: transform 0s linear 0.7s;
+}
+
+.party-trailer-title.party-trailer-on .party-trailer-crest-rules {
+  transform: none;
+  transition: transform 1.3s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.party-trailer-crest-bud {
+  opacity: 0;
+  transition: opacity 0s linear 0.7s;
+}
+
+.party-trailer-title.party-trailer-on .party-trailer-crest-bud {
+  opacity: 1;
+  transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1) 0.15s;
+}
+
+/* the closing tagline, the panel's "for you" in gold, centred over the coda's seed (--coda-x, from the director) */
+.party-trailer-tagline {
+  position: absolute;
+  left: var(--coda-x, 35%);
+  bottom: calc(var(--type-y) - 0.55em);
+  height: 1.1em;
+  margin: 0;
+  font-size: calc(64 * var(--px));
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+  color: #f3d69c;
+  text-shadow:
+    0 0 calc(26 * var(--px)) rgba(255, 186, 104, 0.28),
+    0 1px calc(3 * var(--px)) rgba(0, 0, 0, 0.45);
+  transform: translate3d(-50%, 0, 0);
+}
+
+.party-trailer-tagline-text {
+  display: inline-block;
+  opacity: 0;
+  transform: translate3d(0, calc(8 * var(--px)), 0);
+  transition:
+    opacity var(--tagline-fade) cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0s linear var(--tagline-fade);
+}
+
+.party-trailer-tagline-text.party-trailer-on {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--tagline-fade) cubic-bezier(0.4, 0, 0.2, 1),
+    transform 1.4s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* everything that fades or moves gets its own layer while the trailer runs, and gives it back when it is idle */
+.party-trailer-live .party-trailer-line,
+.party-trailer-live .party-trailer-word,
+.party-trailer-live .party-trailer-name,
+.party-trailer-live .party-trailer-title,
+.party-trailer-live .party-trailer-letter,
+.party-trailer-live .party-trailer-crest-rules,
+.party-trailer-live .party-trailer-crest-bud,
+.party-trailer-live .party-trailer-tagline-text {
+  will-change: opacity, transform;
 }
 
 .party-trailer-button {
@@ -612,9 +794,19 @@
     display: none;
   }
 
-  /* the trailer is composed for a laptop's landscape screen */
+  /* the trailer is composed for a laptop's landscape screen (D still plays it) */
   .party-trailer-button {
     display: none;
+  }
+
+  /* the title shrinks to fit the narrow screen's width */
+  .party-trailer-title {
+    --s: calc(0.7 * var(--px));
+  }
+
+  /* the panel comes back over the whole picture here, so the tagline leaves as the bars go rather than under it */
+  .party-trailer-bar:not(.party-trailer-on) ~ .party-trailer-type .party-trailer-tagline-text {
+    opacity: 0;
   }
 }
 
@@ -625,5 +817,30 @@
   }
   .party-feed-item {
     transition-duration: 0.01s;
+  }
+
+  /* the trailer's type only fades: nothing rises or gathers, the rules fade in whole, a group's words come together */
+  .party-trailer-line,
+  .party-trailer-word,
+  .party-trailer-name,
+  .party-trailer-letter,
+  .party-trailer-crest-rules,
+  .party-trailer-tagline-text {
+    transform: none;
+  }
+
+  .party-trailer-word.party-trailer-on,
+  .party-trailer-title.party-trailer-on .party-trailer-letter {
+    transition-delay: 0s;
+  }
+
+  .party-trailer-crest-rules {
+    opacity: 0;
+    transition: opacity 0s linear 0.7s;
+  }
+
+  .party-trailer-title.party-trailer-on .party-trailer-crest-rules {
+    opacity: 1;
+    transition: opacity 1.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 }

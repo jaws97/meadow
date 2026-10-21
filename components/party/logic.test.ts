@@ -1,15 +1,20 @@
 // The party screen's pure decisions: the QR link, the counter and feed words,
-// the feed's diffing and waiting line, the lens shift, the tour's clock and
-// the golden hour. (The project's vitest include covers lib/** and tests/**;
-// run these with `npx vitest run components/party` once components/** is
-// added there.)
+// the feed's diffing and waiting line, the lens shift, the tour's clock, where
+// the camera stands for a shot (the party's own, exactly as it always has, and
+// the trailer's, with its wider limits and its pan), the coda's match to the
+// party's rose, and the golden hour.
 import qrcode from "qrcode-generator";
+import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
+  CAMERA_FLOOR,
+  codaShift,
   counterNumber,
   counterWords,
   drift,
+  DRIFT_REST,
   ease,
+  ELEVATION,
   enqueue,
   FEED_QUEUE_MAX,
   GLIDE_S,
@@ -18,14 +23,19 @@ import {
   HOLD_S,
   HOME,
   latestPlantings,
+  LENS_REST,
   lensShift,
+  MAX_AZIMUTH,
   newPlantings,
   nextPollDelay,
   parseSnapshot,
   PARTY_CODE_MAX,
+  placed,
+  placeShot,
   plantedLine,
   plantingKey,
   POLL_MS,
+  project,
   readPartyCode,
   readSwitch,
   seedColour,
@@ -34,9 +44,13 @@ import {
   TOUR,
   TourPlayer,
   typedLink,
+  type Drift,
   type FeedPlot,
   type Planting,
+  type Shot,
 } from "@/components/party/logic";
+import { HERO_GROUND_Y } from "@/lib/garden/dressing";
+import { framingFor, LAYOUT, type Framing } from "@/lib/garden/layout";
 
 describe("the party code and the QR link", () => {
   it("reads the code from the screen's address, trimmed as the API trims it", () => {
@@ -247,6 +261,118 @@ describe("the camera", () => {
       expect(Math.abs(d.yaw)).toBeLessThan(0.06);
       expect(Math.abs(d.lift)).toBeLessThan(0.02);
       expect(Math.abs(d.dolly - 1)).toBeLessThan(0.03);
+    }
+  });
+});
+
+describe("placing the camera", () => {
+  /** PartyCamera's place() as it was before placeShot, kept here to prove the party's own camera never moved. */
+  function placeBefore(camera: THREE.PerspectiveCamera, f: Framing, head: THREE.Vector3, s: Readonly<Shot>, d: Readonly<Drift>) {
+    const TARGET = LAYOUT.camera.target;
+    const aimY = Math.min(1.05, Math.max(0.2, head.y * f.targetRise + f.targetLift));
+    const aim = new THREE.Vector3(TARGET[0], aimY, TARGET[2]).lerp(head, s.focus);
+    const azimuth = Math.min(0.68, Math.max(-0.68, f.azimuth + s.yaw + d.yaw));
+    const elevation = Math.min(0.6, Math.max(0.06, f.elevation + s.lift + d.lift));
+    const distance = f.distance * s.dolly * d.dolly;
+    const flat = Math.cos(elevation) * distance;
+    const offset = new THREE.Vector3(Math.sin(azimuth) * flat, Math.sin(elevation) * distance, Math.cos(azimuth) * flat);
+    camera.position.copy(aim).add(offset);
+    if (camera.position.y < 0.12) camera.position.y = 0.12;
+    camera.lookAt(aim);
+    const fov = f.fov * s.zoom;
+    if (Math.abs(camera.fov - fov) > 0.005) {
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    }
+  }
+  /** What PartyCamera now does with a placing. */
+  function placeNow(camera: THREE.PerspectiveCamera, f: Framing, head: THREE.Vector3, s: Readonly<Shot>, d: Readonly<Drift>) {
+    const at = placeShot(f, head, s, d, placed());
+    camera.position.set(at.position.x, at.position.y, at.position.z);
+    camera.lookAt(at.look.x, at.look.y, at.look.z);
+    if (Math.abs(camera.fov - at.fov) > 0.005) {
+      camera.fov = at.fov;
+      camera.updateProjectionMatrix();
+    }
+  }
+
+  const ASPECTS = [16 / 9, 16 / 10];
+  const framing = (aspect: number) => framingFor(Math.round(aspect / 0.02) * 0.02);
+
+  it("places the party's camera exactly as it always has, for home and every shot of the tour, at 16:9 and 16:10", () => {
+    const heads = [new THREE.Vector3(0, HERO_GROUND_Y + 1.12, 0), new THREE.Vector3(0.04, 1.2, -0.03), new THREE.Vector3(0, 0.3, 0)];
+    const drifts: Drift[] = [{ ...DRIFT_REST }, drift(13, 1, { yaw: 0, lift: 0, dolly: 1 }), drift(41, 0.4, { yaw: 0, lift: 0, dolly: 1 })];
+    for (const aspect of ASPECTS)
+      for (const shot of [HOME, ...TOUR])
+        for (const head of heads)
+          for (const d of drifts) {
+            const before = new THREE.PerspectiveCamera(40, aspect, 0.05, 80);
+            const now = new THREE.PerspectiveCamera(40, aspect, 0.05, 80);
+            placeBefore(before, framing(aspect), head, shot, d);
+            placeNow(now, framing(aspect), head, shot, d);
+            expect(now.position.toArray()).toEqual(before.position.toArray());
+            expect(now.quaternion.toArray()).toEqual(before.quaternion.toArray());
+            expect(now.fov).toBe(before.fov);
+          }
+  });
+
+  it("gives the trailer its wider limits, and the party none of them", () => {
+    const f = framing(16 / 9);
+    const head = { x: 0, y: 1.26, z: 0 };
+    const low = { yaw: 0, lift: -0.9, dolly: 0.3, focus: 1, zoom: 1 };
+    const high = { yaw: 2, lift: 2, dolly: 0.5, focus: 1, zoom: 1 };
+    expect(placeShot(f, head, low, DRIFT_REST, placed()).elevation).toBe(ELEVATION.party[0]);
+    expect(placeShot(f, head, low, DRIFT_REST, placed(), LENS_REST, true).elevation).toBe(ELEVATION.trailer[0]);
+    expect(placeShot(f, head, high, DRIFT_REST, placed(), LENS_REST, true).elevation).toBe(ELEVATION.trailer[1]);
+    expect(placeShot(f, head, high, DRIFT_REST, placed(), LENS_REST, true).azimuth).toBe(MAX_AZIMUTH);
+    // a low shot round a seed never goes under the lawn
+    expect(placeShot(f, { x: 0, y: 0.167, z: 0 }, low, DRIFT_REST, placed(), LENS_REST, true).position.y).toBe(CAMERA_FLOOR);
+  });
+
+  it("pans from the shot's pivot toward the lens's point, and the camera stays where the shot put it", () => {
+    const f = framing(16 / 9);
+    const head = { x: 0, y: 1.26, z: 0 };
+    const s = { yaw: 0.2, lift: 0.02, dolly: 0.29, focus: 1, zoom: 0.75 };
+    const plain = placeShot(f, head, s, DRIFT_REST, placed());
+    const doe = { x: -1.85, y: 1.15, z: -1.75 };
+    const panned = placeShot(f, head, s, DRIFT_REST, placed(), { ...LENS_REST, look: 0.42, target: doe });
+    expect(panned.position).toEqual(plain.position);
+    expect(panned.look.x).toBeCloseTo(head.x + (doe.x - head.x) * 0.42, 9);
+    expect(panned.look.z).toBeCloseTo(head.z + (doe.z - head.z) * 0.42, 9);
+    // the rose to the right, the doe to the left of it
+    const rose = project(panned, head, 16 / 9, { x: 0, y: 0 });
+    const her = project(panned, doe, 16 / 9, { x: 0, y: 0 });
+    expect(rose.x).toBeGreaterThan(0.3);
+    expect(her.x).toBeLessThan(rose.x);
+    // the look point is dead centre
+    const centre = project(panned, panned.look, 16 / 9, { x: 0, y: 0 });
+    expect(Math.abs(centre.x) + Math.abs(centre.y)).toBeLessThan(1e-9);
+  });
+
+  it("projects as three's camera does", () => {
+    const f = framing(16 / 10);
+    const at = placeShot(f, { x: 0, y: 1.2, z: 0 }, TOUR[2], DRIFT_REST, placed());
+    const camera = new THREE.PerspectiveCamera(at.fov, 16 / 10, 0.05, 80);
+    camera.position.set(at.position.x, at.position.y, at.position.z);
+    camera.lookAt(at.look.x, at.look.y, at.look.z);
+    camera.updateMatrixWorld();
+    for (const p of [new THREE.Vector3(-0.683, 1.18, -0.458), new THREE.Vector3(1.15, 1.2, -2.9), new THREE.Vector3(0.3, 0.2, 0.4)]) {
+      const mine = project(at, p, 16 / 10, { x: 0, y: 0 });
+      const theirs = p.clone().project(camera);
+      expect(mine.x).toBeCloseTo(theirs.x, 9);
+      expect(mine.y).toBeCloseTo(theirs.y, 9);
+    }
+  });
+
+  it("matches the coda's seed to the party's rose beside the panel, at 35 % across", () => {
+    const full = { x: 0, y: 1.26, z: 0 };
+    for (const aspect of ASPECTS) {
+      const m = codaShift(framing(aspect), aspect, full, { x: 0.143, y: 0 }, { x: 0, y: 0, screenX: 0 });
+      expect(m.x).toBeGreaterThan(0.14);
+      expect(m.x).toBeLessThan(0.16);
+      expect(m.y).toBeGreaterThan(0.07);
+      expect(m.y).toBeLessThan(0.09);
+      expect(m.screenX).toBeCloseTo(0.35, 2);
     }
   });
 });

@@ -6,7 +6,8 @@
 // slow, unrelated sines (logic.ts drift), as if on a crane that never stops
 // breathing. With the slow tour on (the hidden T key) it glides from shot to
 // shot (logic.ts TourPlayer), holding each for a while, and glides home when
-// the tour ends.
+// the tour ends. Where a shot puts the camera is worked out from scratch each
+// frame by logic.ts placeShot, a pure function the tests run too.
 //
 // The panel sits over the right of the screen, so the lens slides (an
 // off-axis shift, camera.setViewOffset) to bring the rose into the open part
@@ -16,57 +17,41 @@
 //
 // While the party trailer plays (components/party/trailer) the camera takes the
 // trailer's shot instead of the tour's, frame by frame, still breathing on the
-// same wander; under the trailer's black dips it takes a new flower's head at
-// once rather than easing toward it.
+// same wander, with the trailer's wider limits (it looks up at a bloom from
+// below and straight down into the bed) and its lens: a pan toward a point of
+// its own (the can, the sky, the doe), its own lens shift, taken at once, and,
+// for a shot that rides the growing stem, the flower head as it stands rather
+// than eased. Under the trailer's black dips it takes a new flower's head at
+// once. Once the trailer has put the garden back (still under its black) the
+// lens takes the panel's shift, at once while the head snaps, so the rose the
+// black lifts on stands exactly where the trailer's last seed stood.
 import { useFrame, useThree } from "@react-three/fiber";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { drift, TourPlayer, type Drift, type Shot } from "@/components/party/logic";
+import { ASPECT_STEP, drift, placed, placeShot, TourPlayer, type Drift, type Placed, type Shot } from "@/components/party/logic";
 import { party } from "@/components/party/store";
-import { trailerCam } from "@/components/party/trailer/store";
+import { trailer, trailerCam } from "@/components/party/trailer/store";
 import { HERO_GROUND_Y } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { framingFor, LAYOUT, type Framing } from "@/lib/garden/layout";
 
-/** Aspect ratios are rounded to this step, so a window resize does not re-frame every pixel. */
-const ASPECT_STEP = 0.02;
-const TARGET = LAYOUT.camera.target;
-const TARGET_MIN = 0.2;
-const TARGET_MAX = 1.05;
 /** The full-grown rose's head above the mulch, metres (as CameraRig frames it). */
 const FULL_HEIGHT = 1.12;
-/** Inside the dressed room: past about 0.7 rad the view runs out past the hedges (CameraRig MAX_AZIMUTH). */
-const MAX_AZIMUTH = 0.68;
-const MIN_ELEVATION = 0.06;
-const MAX_ELEVATION = 0.6;
-const CAMERA_FLOOR = 0.12;
 /** Per second: how quickly the aim follows the flower head, and the lens follows the panel (about three seconds). */
 const HEAD_RATE = 1.5;
 const SHIFT_RATE = 0.9;
 /** The wander's strength, and its strength for a viewer who asks for reduced motion. */
 const DRIFT_FULL = 1;
 const DRIFT_REDUCED = 0.4;
+/** A lens shift smaller than this (a share of the frame) is no shift: the view offset is cleared. */
+const SHIFT_CLEAR = 1e-4;
 
-const aim = new THREE.Vector3();
-const gardenAim = new THREE.Vector3();
-const offset = new THREE.Vector3();
-
-/** Places the camera for shot `s` (with wander `d`) in framing `f`, round a flower head at `head`. */
-function place(camera: THREE.PerspectiveCamera, f: Framing, head: THREE.Vector3, s: Readonly<Shot>, d: Readonly<Drift>) {
-  const aimY = Math.min(TARGET_MAX, Math.max(TARGET_MIN, head.y * f.targetRise + f.targetLift));
-  gardenAim.set(TARGET[0], aimY, TARGET[2]);
-  aim.copy(gardenAim).lerp(head, s.focus);
-  const azimuth = Math.min(MAX_AZIMUTH, Math.max(-MAX_AZIMUTH, f.azimuth + s.yaw + d.yaw));
-  const elevation = Math.min(MAX_ELEVATION, Math.max(MIN_ELEVATION, f.elevation + s.lift + d.lift));
-  const distance = f.distance * s.dolly * d.dolly;
-  const flat = Math.cos(elevation) * distance;
-  offset.set(Math.sin(azimuth) * flat, Math.sin(elevation) * distance, Math.cos(azimuth) * flat);
-  camera.position.copy(aim).add(offset);
-  if (camera.position.y < CAMERA_FLOOR) camera.position.y = CAMERA_FLOOR;
-  camera.lookAt(aim);
-  const fov = f.fov * s.zoom;
-  if (Math.abs(camera.fov - fov) > 0.005) {
-    camera.fov = fov;
+/** Applies a placing to the camera: where it stands, what it looks at, and its lens angle. */
+function apply(camera: THREE.PerspectiveCamera, at: Readonly<Placed>) {
+  camera.position.set(at.position.x, at.position.y, at.position.z);
+  camera.lookAt(at.look.x, at.look.y, at.look.z);
+  if (Math.abs(camera.fov - at.fov) > 0.005) {
+    camera.fov = at.fov;
     camera.updateProjectionMatrix();
   }
 }
@@ -77,10 +62,11 @@ export function PartyCamera() {
   const height = useThree((s) => s.size.height);
   const aspect = Math.round(width / Math.max(1, height) / ASPECT_STEP) * ASPECT_STEP;
   const framing = useMemo(() => framingFor(aspect), [aspect]);
-  const live = useRef(framing);
+  const live = useRef<Framing>(framing);
   const tour = useMemo(() => new TourPlayer(), []);
   const head = useMemo(() => new THREE.Vector3(LAYOUT.hero[0], HERO_GROUND_Y + FULL_HEIGHT, LAYOUT.hero[2]), []);
   const wander = useMemo<Drift>(() => ({ yaw: 0, lift: 0, dolly: 1 }), []);
+  const at = useMemo(() => placed(), []);
   const shift = useRef({ x: 0, y: 0, primed: false });
   const amount = useMemo(
     () => (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? DRIFT_REDUCED : DRIFT_FULL),
@@ -90,39 +76,48 @@ export function PartyCamera() {
   // Frame the garden before the first frame (and the opening's shader compile) sees the camera.
   useLayoutEffect(() => {
     live.current = framing;
-    if (camera instanceof THREE.PerspectiveCamera) place(camera, framing, head, tour.current, wander);
-  }, [camera, framing, head, tour, wander]);
+    if (camera instanceof THREE.PerspectiveCamera) apply(camera, placeShot(framing, head, tour.current, wander, at));
+  }, [camera, framing, head, tour, wander, at]);
 
   // After the plant (which writes env.headPos) and before the effects draw.
   useFrame((state, delta) => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return;
     const dt = Math.min(delta, 0.1);
     const p = party.get();
+    const active = trailerCam.active;
     let shot: Readonly<Shot>;
-    if (trailerCam.active) shot = trailerCam.shot;
+    if (active) shot = trailerCam.shot;
     else {
       tour.setOn(p.tour, env.time);
       shot = tour.step(env.time);
     }
-    if (trailerCam.snapFrames > 0) {
-      trailerCam.snapFrames--;
-      head.copy(env.headPos);
-    } else head.lerp(env.headPos, 1 - Math.exp(-dt * HEAD_RATE));
+    const snapping = trailerCam.snapFrames > 0;
+    if (snapping) trailerCam.snapFrames--;
+    if (snapping || (active && trailerCam.lens.follow)) head.copy(env.headPos);
+    else head.lerp(env.headPos, 1 - Math.exp(-dt * HEAD_RATE));
     drift(env.time, amount, wander);
-    place(camera, live.current, head, shot, wander);
+    apply(camera, placeShot(live.current, head, shot, wander, at, active ? trailerCam.lens : null, active));
 
-    // The lens slides toward where the panel wants the rose; the first frame takes it as it is.
-    const wantX = p.panel ? p.shiftX : 0;
-    const wantY = p.panel ? p.shiftY : 0;
+    // The lens: the trailer's own while it drives the camera, at once; otherwise the panel's, whenever the panel shows
+    // or the trailer is still on (it has put the garden back under its black, and the panel is about to return), eased
+    // as the panel comes and goes, at once while the head snaps. The first frame takes it as it is.
     const s = shift.current;
-    // (the trailer starts under black, so the lens centres at once)
-    const k = s.primed && !trailerCam.active ? 1 - Math.exp(-dt * SHIFT_RATE) : 1;
+    let wantX = 0;
+    let wantY = 0;
+    if (active) {
+      wantX = trailerCam.lens.shiftX;
+      wantY = trailerCam.lens.shiftY;
+    } else if (p.panel || trailer.get().phase !== "idle") {
+      wantX = p.shiftX;
+      wantY = p.shiftY;
+    }
+    const k = s.primed && !active && !snapping ? 1 - Math.exp(-dt * SHIFT_RATE) : 1;
     s.primed = true;
     s.x += (wantX - s.x) * k;
     s.y += (wantY - s.y) * k;
     const w = state.size.width;
     const h = state.size.height;
-    if (Math.abs(s.x) < 1e-4 && Math.abs(s.y) < 1e-4) {
+    if (Math.abs(s.x) < SHIFT_CLEAR && Math.abs(s.y) < SHIFT_CLEAR) {
       if (camera.view?.enabled) camera.clearViewOffset();
     } else {
       const v = camera.view;

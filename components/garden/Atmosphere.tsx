@@ -17,11 +17,17 @@
 //   embers     glowing petal sparks falling from a sickly flower
 //
 // Every field fakes its own depth of field: the vertex shader compares each
-// particle's view depth with the distance to the flower head (the focus of the
-// real DoF pass) and grows the sprite into a dim bokeh disc as it leaves focus,
-// so motes near the lens and far behind the plant read as photography, not
-// confetti. Which field you see is decided by its opacity curve, read from the
-// shared env and the store every frame; a field at opacity 0 is not drawn.
+// particle's view depth with the distance to the real DoF pass's focus (the
+// flower head, or whatever the party trailer pulls focus to through env.focus)
+// and grows the sprite into a dim bokeh disc as it leaves focus, so motes near
+// the lens and far behind the plant read as photography, not confetti. Which
+// field you see is decided by its opacity curve, read from the shared env and
+// the store every frame; a field at opacity 0 is not drawn.
+//
+// The party trailer thins or thickens the pollen (and grows its motes), the
+// fluff and the fireflies shot by shot, and lifts scent sparkles off the rose
+// as it opens, through lib/garden/trailerFx: multipliers of 1 and an added
+// scent of 0 whenever it is not playing, so every garden draws as it did.
 //
 // Butterflies are one InstancedMesh: two wing grids and a crossed body quad
 // per instance, a canvas-painted atlas with three colourways, the wingbeat
@@ -34,6 +40,7 @@ import { useThree } from "@react-three/fiber";
 import { env } from "@/lib/garden/env";
 import { LAYOUT } from "@/lib/garden/layout";
 import { garden, useGarden, type GardenState, type Quality } from "@/lib/garden/store";
+import { trailerFx } from "@/lib/garden/trailerFx";
 import { Rng } from "@/lib/plant/prng";
 import { SPECIES, SPECIES_LIST, type SpeciesId } from "@/lib/plant/species";
 import { makeCanvas, rgba, toTexture } from "@/lib/plant/textures";
@@ -84,6 +91,8 @@ interface FieldSpec {
   sizeRange: [number, number];
   /** sprite size cap in CSS pixels, before the pixel ratio */
   maxSize: number;
+  /** per-frame × on `size`, written only when it changes; omitted means `size` as it is */
+  sizeScale?: () => number;
   /** fall speed in m/s for the rain */
   fall: number;
   /** fake bokeh: circle-of-confusion strength per metre out of focus */
@@ -554,6 +563,10 @@ function ParticleField({ spec, count }: { spec: FieldSpec; count: number }) {
     if (points) points.visible = visible;
     if (!visible) return;
     uniforms.uOpacity.value = o;
+    if (spec.sizeScale) {
+      const want = size * spec.sizeScale();
+      if (uniforms.uSize.value !== want) uniforms.uSize.value = want;
+    }
     uniforms.uTime.value = env.time;
     uniforms.uWind.value = env.wind;
     uniforms.uRain.value = env.rain;
@@ -561,8 +574,8 @@ function ParticleField({ spec, count }: { spec: FieldSpec; count: number }) {
     uniforms.uPixelRatio.value = pr;
     uniforms.uMaxSize.value = Math.min(maxSize, hardwareMax / pr);
     uniforms.uAspect.value = state.size.width / Math.max(1, state.size.height);
-    // The real DoF focuses on the flower head; the sprites agree with it.
-    focusScratch.copy(env.headPos).applyMatrix4(state.camera.matrixWorldInverse);
+    // The real DoF focuses on the flower head, or where the trailer pulls it; the sprites agree with it.
+    focusScratch.copy(env.focus ?? env.headPos).applyMatrix4(state.camera.matrixWorldInverse);
     uniforms.uFocus.value = Math.max(0.2, -focusScratch.z);
     if (spec.tint) spec.tint(env, s, uniforms.uColor.value);
     if (spec.follow && points) points.position.copy(env.headPos);
@@ -608,8 +621,9 @@ const POLLEN: FieldSpec = {
   halo: false,
   additive: true,
   seed: "pollen",
-  // fainter still with a high sun, when the sky behind them is brightest
-  opacity: (e) => dayAir(e) * (1 - e.cloud * 0.55) * (0.42 - 0.3 * smooth(0.5, 0.95, e.sun.altitude)),
+  // fainter still with a high sun, when the sky behind them is brightest; the trailer's multipliers are 1 otherwise
+  opacity: (e) => dayAir(e) * (1 - e.cloud * 0.55) * (0.42 - 0.3 * smooth(0.5, 0.95, e.sun.altitude)) * trailerFx.pollen,
+  sizeScale: () => trailerFx.pollenSize,
   // Lit by the sun: white-gold at noon, amber at golden hour.
   tint: (e, _s, out) => out.copy(e.sky.sun).lerp(POLLEN_WARM, 0.6),
 };
@@ -631,7 +645,7 @@ const FLUFF: FieldSpec = {
   // Backlit seed heads glow against the lawn; additive keeps them luminous.
   additive: true,
   seed: "fluff",
-  opacity: (e) => dayAir(e) * (1 - e.cloud * 0.4) * 0.9,
+  opacity: (e) => dayAir(e) * (1 - e.cloud * 0.4) * 0.9 * trailerFx.fluff,
   tint: (e, _s, out) => out.copy(WHITE).lerp(e.sky.sun, 0.5),
 };
 
@@ -653,7 +667,9 @@ const FIREFLIES: FieldSpec = {
   seed: "fireflies",
   // Marigolds draw them out earlier, while the sky is still lit.
   opacity: (e, s) =>
-    (s.speciesId === "marigold" ? smooth(0.28, 0.75, e.nightness) : smooth(0.45, 0.9, e.nightness)) * (1 - e.rain * 0.7),
+    (s.speciesId === "marigold" ? smooth(0.28, 0.75, e.nightness) : smooth(0.45, 0.9, e.nightness)) *
+    (1 - e.rain * 0.7) *
+    trailerFx.fireflies,
 };
 
 const RAIN: FieldSpec = {
@@ -733,7 +749,10 @@ const SCENT: FieldSpec = {
   additive: true,
   seed: "scent",
   follow: true,
-  opacity: (e, s) => (SPECIES[s.speciesId].fx.scent ? 1 : 0) * duskWindow(e.hour) * (1 - e.rain) * s.bloom * s.growth,
+  // A scented flower's own at dusk, plus the trailer's lift off the opening rose (0 otherwise), at any hour, any flower.
+  opacity: (e, s) =>
+    (SPECIES[s.speciesId].fx.scent ? 1 : 0) * duskWindow(e.hour) * (1 - e.rain) * s.bloom * s.growth +
+    trailerFx.scent * s.bloom * s.growth * (1 - e.rain),
   tint: (_e, s, out) => out.copy(SCENT_PALE).lerp(GLOW_COLORS[s.speciesId], 0.35),
 };
 

@@ -5,12 +5,17 @@
 // 0.03, its first leaves from 0.04), and settles away as the shoot comes up through it. A grown plant never shows
 // it, so the owner's rose is drawn exactly as before. When the watering can pours onto it (canLive), the soil darkens
 // from where the water lands, as the bed's mulch does, and the seed's light takes one deeper breath as it drinks.
+//
+// The party trailer opens on this seed and closes on a new one, through lib/garden/trailerFx: a multiplier on the
+// light (a brighter seed of light in the dawn close-ups), a pulse that swells it, and a bulge that lifts the mound, so
+// the seed hops twice to the tune's last two notes. At neutral (×1, no pulse, no bulge) it draws exactly as above.
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { HERO_GROUND_Y, withGardenLight } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { LAYOUT } from "@/lib/garden/layout";
 import { garden, type Quality } from "@/lib/garden/store";
+import { trailerFx } from "@/lib/garden/trailerFx";
 import { gardenMaterials, withCanWet } from "@/components/garden/garden/materials";
 import { canLive } from "@/components/garden/garden/canLive";
 import { smoothstep } from "@/lib/plant/prng";
@@ -23,6 +28,13 @@ const RADIUS = 0.06;
 const HEIGHT = 0.022;
 /** seconds per breath of the seed's light */
 const BREATH = 5.5;
+/** The glow sprite's height over the bed: inside the top of the mound, so the light seems to come up through it. */
+const GLOW_Y = HEIGHT * 0.85;
+/** The trailer's hop at full pulse and bulge: the light swells and grows, the mound rises and draws in a little. */
+const PULSE_LIGHT = 1.2;
+const PULSE_SIZE = 0.35;
+const BULGE_RISE = 0.5;
+const BULGE_NARROW = 0.05;
 
 /** A soft round glow, drawn once: white at the heart, gone at the rim (tinted by the sprite's colour). */
 function glowTexture(): THREE.CanvasTexture {
@@ -135,15 +147,22 @@ export function SeedMound({ quality }: { quality: Quality }) {
     g.visible = here > 0.01;
     if (sp) sp.visible = g.visible;
     if (!g.visible) return;
+    // the trailer's hop (0 otherwise): the mound swells upward and draws in a little, and the light rides up with it
+    const { seedLight, seedPulse: pulse, seedBulge: bulge } = trailerFx;
+    const rise = 1 + BULGE_RISE * bulge;
+    const narrow = 1 - BULGE_NARROW * bulge;
     // the mound sinks and spreads a little as the shoot pushes up through it
-    g.scale.set(RADIUS * (1 + 0.15 * (1 - here)), HEIGHT * here, RADIUS * (1 + 0.15 * (1 - here)));
+    const spread = RADIUS * (1 + 0.15 * (1 - here)) * narrow;
+    g.scale.set(spread, HEIGHT * here * rise, spread);
     if (sp) {
       const breath = 0.5 + 0.5 * Math.sin((env.time / BREATH) * Math.PI * 2);
       // one deeper breath as the can's water reaches the seed
       const drink = canLive.soil.breath;
-      live.current.glow.opacity = here * (0.2 + 0.26 * breath) * (1 + 0.4 * drink);
-      const r = (0.038 + 0.014 * breath) * (1 + 0.15 * drink);
+      live.current.glow.opacity = here * (0.2 + 0.26 * breath) * (1 + 0.4 * drink) * seedLight * (1 + PULSE_LIGHT * pulse);
+      const r = (0.038 + 0.014 * breath) * (1 + 0.15 * drink) * (1 + PULSE_SIZE * pulse);
       sp.scale.set(r, r, r);
+      const y = GLOW_Y * rise;
+      if (sp.position.y !== y) sp.position.y = y;
     }
   });
 
@@ -152,7 +171,7 @@ export function SeedMound({ quality }: { quality: Quality }) {
       <group ref={group} visible={false}>
         <mesh geometry={parts.mound} material={parts.soil} receiveShadow />
       </group>
-      <sprite ref={sprite} material={parts.glow} position={[0, HEIGHT * 0.85, 0]} renderOrder={2} visible={false} />
+      <sprite ref={sprite} material={parts.glow} position={[0, GLOW_Y, 0]} renderOrder={2} visible={false} />
     </group>
   );
 }

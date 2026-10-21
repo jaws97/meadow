@@ -10,7 +10,9 @@
 // off the lawn from below, a share of sunlight that ignores the canopy so the
 // bed is lit, a warm rim on the silhouettes (the garden's own shader patch,
 // driven from here) and a narrow kicker from the sun's bearing aimed at the
-// flower head so its petal edges glow against the darker garden. Every light
+// flower head so its petal edges glow against the darker garden (the party
+// trailer leans on the kicker as the rose opens, through a multiplier in
+// lib/garden/trailerFx that is 1 whenever it is not playing). Every light
 // is mounted all day (at intensity 0 when idle): changing the light count
 // would recompile every material in the scene. The ones that only work with
 // the sun low or down are hidden while it stands high, with their programs
@@ -44,6 +46,7 @@ import {
 import { useLayerFrame, useTier } from "@/components/garden/TierLayers";
 import { env } from "@/lib/garden/env";
 import type { Quality } from "@/lib/garden/store";
+import { trailerFx } from "@/lib/garden/trailerFx";
 import { clamp01, lerp } from "@/lib/plant/prng";
 
 /**
@@ -337,7 +340,8 @@ export function TierLights() {
       rimTarget.position.copy(env.headPos);
       rimTarget.updateMatrixWorld();
       rim.color.copy(env.sky.sun).lerp(RIM_WARM, 0.4);
-      rim.intensity = RIM_INTENSITY * low * clamp01(env.sky.sunIntensity / 1.4) * (1 - 0.85 * env.cloud);
+      // the trailer's rim multiplier (1 otherwise) switches it on harder as the cloud slides off the sun
+      rim.intensity = RIM_INTENSITY * low * clamp01(env.sky.sunIntensity / 1.4) * (1 - 0.85 * env.cloud) * trailerFx.rim;
     }
 
     const scene = state.scene;

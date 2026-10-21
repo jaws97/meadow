@@ -1,13 +1,18 @@
 "use client";
 // The party trailer's shared state, beside the party's own store (components/party/store):
-// - `trailer`, what the page shows over the garden (the phase, the film bars, the caption, the closing card), read by
-//   the overlay and the button through React, and changed only when one of them changes;
-// - `trailerCam`, the shot the party camera takes while the trailer plays, written by the director every frame;
+// - `trailer`, what the page shows over the garden (the phase, the film bars, and the type: a line of words revealed a
+//   group at a time, a flower's name under the montage's line, the title and the closing tagline), read by the overlay
+//   and the button through React, and changed only when one of them changes;
+// - `trailerCam`, the shot and the lens the party camera takes while the trailer plays, written by the director every
+//   frame;
 // - `trailerCues`, what the doe is told (whether she is in the garden);
 // - `cover`, the black over the picture, written straight to its element every frame (no React render), or eased by
-//   CSS when the trailer opens and closes, which keeps working even if the frame loop has stopped.
+//   CSS when the trailer opens and closes, which keeps working even if the frame loop has stopped;
+// - `overlayRoot`, the overlay's own element, on which the director sets where the coda's seed stands across the
+//   screen (--coda-x), so the tagline sits over it.
 import { useSyncExternalStore } from "react";
-import { HOME, type Shot } from "@/components/party/logic";
+import { HOME, LENS_REST, type LensAim, type Shot } from "@/components/party/logic";
+import type { LineId } from "@/components/party/trailer/script";
 
 /** idle: the party screen as always; opening: dipping to black and preparing; playing; closing: stopped early, going back. */
 export type TrailerPhase = "idle" | "opening" | "playing" | "closing";
@@ -15,18 +20,36 @@ export type TrailerPhase = "idle" | "opening" | "playing" | "closing";
 export interface TrailerState {
   phase: TrailerPhase;
   bars: boolean;
-  /** the lower bar's line and its second line (a flower's name): the last text each showed, kept while it fades out */
-  caption: string;
-  captionOn: boolean;
-  sub: string;
-  subOn: boolean;
-  card: boolean;
+  /**
+   * The line of words (script LINES): the last one shown, kept while it fades out (null before the first), how many of
+   * its reveal groups are showing, and whether it is on.
+   */
+  line: LineId | null;
+  lineGroups: number;
+  lineOn: boolean;
+  /** a montage flower's name, under the montage's line: the last one shown, kept while it fades out, and whether it is on */
+  name: string | null;
+  nameOn: boolean;
+  /** the title on black (script END_TITLE, or the crest alone) */
+  title: boolean;
+  /** the closing tagline (script TAGLINE), over the coda's seed */
+  tagline: boolean;
 }
 
-const initial: TrailerState = { phase: "idle", bars: false, caption: "", captionOn: false, sub: "", subOn: false, card: false };
+const initial: TrailerState = {
+  phase: "idle",
+  bars: false,
+  line: null,
+  lineGroups: 0,
+  lineOn: false,
+  name: null,
+  nameOn: false,
+  title: false,
+  tagline: false,
+};
 
-/** Nothing over the garden but (perhaps) the bars. */
-export const QUIET: Partial<TrailerState> = { captionOn: false, subOn: false, card: false };
+/** Nothing over the garden but (perhaps) the bars: every piece of type turned off (its last words kept, to fade out). */
+export const QUIET: Partial<TrailerState> = { lineOn: false, nameOn: false, title: false, tagline: false };
 let state = initial;
 const listeners = new Set<() => void>();
 
@@ -55,10 +78,29 @@ export function useTrailer<T>(selector: (s: TrailerState) => T): T {
 }
 
 /**
- * The party camera's shot while the trailer drives it; for `snapFrames` frames it takes the flower's head as it stands
- * rather than easing toward it (a new flower under a black dip, or the rose again at the end).
+ * The party camera's shot and lens while the trailer drives it (`active`); for `snapFrames` frames it takes the
+ * flower's head as it stands rather than easing toward it (a cut, a new flower under a black dip, or the rose again at
+ * the end). The lens (logic LensAim) pans toward `target` by `look`, shifts the picture by `shiftX`/`shiftY`, and with
+ * `follow` takes the head as it stands every frame; at rest it is LENS_REST.
  */
-export const trailerCam: { active: boolean; shot: Shot; snapFrames: number } = { active: false, shot: { ...HOME }, snapFrames: 0 };
+export const trailerCam: { active: boolean; shot: Shot; snapFrames: number; lens: LensAim } = {
+  active: false,
+  shot: { ...HOME },
+  snapFrames: 0,
+  lens: { ...LENS_REST, target: { ...LENS_REST.target } },
+};
+
+/** Puts the trailer's lens back at rest (in place: the camera holds the object). */
+export function restLens() {
+  const l = trailerCam.lens;
+  l.look = LENS_REST.look;
+  l.target.x = LENS_REST.target.x;
+  l.target.y = LENS_REST.target.y;
+  l.target.z = LENS_REST.target.z;
+  l.shiftX = LENS_REST.shiftX;
+  l.shiftY = LENS_REST.shiftY;
+  l.follow = LENS_REST.follow;
+}
 
 /** What the doe is told. */
 export const trailerCues = { doe: false };
@@ -81,5 +123,17 @@ export const cover = {
     if (el.style.transition !== transition) el.style.transition = transition;
     const value = String(Math.round(Math.min(DARKEST, Math.max(0, opacity)) * 1000) / 1000);
     if (el.style.opacity !== value) el.style.opacity = value;
+  },
+};
+
+/** The overlay's root element (the overlay registers it), and where the coda's seed stands across the screen. */
+export const overlayRoot = {
+  el: null as HTMLElement | null,
+  /** Sets --coda-x on the overlay's root: the coda seed's place across the screen, a share of its width (0..1). */
+  setCodaX(share: number) {
+    const el = overlayRoot.el;
+    if (!el) return;
+    const value = `${Math.round(Math.min(1, Math.max(0, share)) * 1000) / 10}%`;
+    if (el.style.getPropertyValue("--coda-x") !== value) el.style.setProperty("--coda-x", value);
   },
 };

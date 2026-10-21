@@ -10,7 +10,9 @@
 // standing water, the lantern's flame) at priority -5, after the clock has
 // written the env at -10 and before the parts and their materials read it.
 // It also stages the companions by the hero's growth (see heroGrowth): low
-// and in leaf while the owner's flower is young, in flower as it buds.
+// and in leaf while the owner's flower is young, in flower as it buds. When
+// the party trailer puts the garden back under black (lib/garden/trailerFx's
+// snap counter), they take the hero's growth at once, as the hero does.
 // For a signed-in visitor's plant two more parts follow the store: a mound of
 // fresh soil while the seed has not come up (SeedMound), and the shade cloth
 // and rain cover on their hoops (BedCovers); neither draws for a grown plant
@@ -21,6 +23,7 @@
 // the water. Nothing of it draws otherwise.
 import { swayUniforms } from "@/lib/garden/dressing";
 import { garden, useGarden } from "@/lib/garden/store";
+import { trailerFx } from "@/lib/garden/trailerFx";
 import { Bed } from "@/components/garden/garden/Bed";
 import { BedCovers } from "@/components/garden/garden/BedCovers";
 import { Border } from "@/components/garden/garden/Border";
@@ -39,9 +42,10 @@ import { useLayerFrame, useTier } from "@/components/garden/TierLayers";
 
 /**
  * The hero's growth as the companions follow it, eased like the plant's own (Plant.tsx) so both move together, and
- * started afresh with it when a new plant (another seed) takes the bed.
+ * started afresh with it when a new plant (another seed) takes the bed, or when the party trailer snaps the garden
+ * back (the trailerFx snap it last saw).
  */
-const staged = { primed: false, growth: 1, seed: "" };
+const staged = { primed: false, growth: 1, seed: "", snap: 0 };
 
 export function Garden() {
   const seed = useGarden((s) => s.seed);
@@ -54,9 +58,10 @@ export function Garden() {
     stepWeather(dt);
     driveGardenMaterials(gardenMaterials(), weather);
     const { growth: g, seed: owner } = garden.get();
-    if (!staged.primed || staged.seed !== owner) {
+    if (!staged.primed || staged.seed !== owner || staged.snap !== trailerFx.snap) {
       staged.primed = true;
       staged.seed = owner;
+      staged.snap = trailerFx.snap;
       staged.growth = g;
     } else staged.growth += (g - staged.growth) * (1 - Math.exp(-dt * 2.5));
     swayUniforms.uGrow.value = companionGrow(staged.growth);

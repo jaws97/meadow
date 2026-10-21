@@ -13,11 +13,18 @@
 // no normal flip on back faces (leaves are thin); and the sun glowing through
 // the foliage when it stands behind it. A depth twin with the same sway casts
 // alpha-tested, moving shadows, so the dappled light under the trees drifts.
+//
+// The arch's climbing blooms are chosen to go with the hero's colour, so a new
+// flower rebuilds the backdrop. The party trailer changes the flower under
+// black at each of its gates; it holds the colour it opened with
+// (lib/garden/trailerFx's heroHex, null whenever it is not playing), so none
+// of those gates rebuilds anything here.
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { lightState, withGardenLight } from "@/lib/garden/dressing";
 import { env } from "@/lib/garden/env";
 import { useGarden, type Quality } from "@/lib/garden/store";
+import { trailerFx } from "@/lib/garden/trailerFx";
 import { SPECIES } from "@/lib/plant/species";
 import { smoothstep } from "@/lib/plant/prng";
 import { leafTexture, petalTexture } from "@/lib/plant/textures";
@@ -301,7 +308,8 @@ export function Backdrop() {
   const seed = useGarden((s) => s.seed);
   const quality = useTier();
   const speciesId = useGarden((s) => s.speciesId);
-  const heroHex = SPECIES[speciesId].flower.colorMid;
+  // held through the party trailer's flower changes (see the header)
+  const heroHex = trailerFx.heroHex ?? SPECIES[speciesId].flower.colorMid;
 
   const assets = useMemo(() => buildBackdrop(seed, quality, heroHex), [seed, quality, heroHex]);
   useEffect(() => () => assets.dispose(), [assets]);
@@ -424,7 +432,8 @@ export function Backdrop() {
     u.uNight.value = night;
     u.uDayColor.value.copy(env.sky.sun).lerp(GLINT_WARM, 0.35);
     u.uPixelRatio.value = state.gl.getPixelRatio();
-    focusScratch.copy(env.headPos).applyMatrix4(state.camera.matrixWorldInverse);
+    // focused with the real depth of field: the flower head, or where the party trailer pulls focus
+    focusScratch.copy(env.focus ?? env.headPos).applyMatrix4(state.camera.matrixWorldInverse);
     u.uFocus.value = Math.max(0.2, -focusScratch.z);
   });
   /* eslint-enable react-hooks/immutability */

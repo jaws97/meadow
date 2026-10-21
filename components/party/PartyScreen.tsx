@@ -4,15 +4,19 @@
 // laptop, with the gift panel (GiftPanel) beside it and a small museum-style
 // caption. Nothing on it needs a hand: the camera moves by itself, the tally
 // updates by itself, the cursor hides when the mouse rests, and the laptop is
-// asked not to sleep (Screen Wake Lock). It makes no sound.
+// asked not to sleep (Screen Wake Lock). It makes no sound of its own; only
+// the trailer has any.
 //
 // Hidden keys for the operator: H shows or hides the panel (the rose glides
 // back to the middle), T starts or stops the slow tour, F toggles full
-// screen, D plays or stops the trailer (components/party/trailer: the seed,
-// the rose growing through a day, the doe, night and the other flowers, in
-// the live garden, about a minute and a half), which a button in the
-// corner also plays while the mouse moves; it has music written for it
-// (trailer/score.ts), which M mutes and `?music=off` leaves out. While it
+// screen, D plays or stops the trailer (components/party/trailer: a seed of
+// light, its first drink, the rose growing through a day, the doe, night and
+// the other flowers, in the live garden, 70 s and the gates' holds), which a
+// button in the corner also plays while the mouse moves; it has music written
+// for it (trailer/score.ts) over recorded birds, water, wind, rain and
+// crickets (trailer/beds.ts), which M mutes and `?music=off` leaves out. The
+// recordings are fetched and decoded once the garden is live, when the
+// browser is idle, so they are ready long before anyone presses D. While it
 // plays H, T and F wait.
 // `?panel=off` and `?tour=on` set the opening state, and `?hour=21.5`
 // lights the garden at another hour for a rehearsal (logic.ts showcaseHour).
@@ -30,6 +34,7 @@ import { OWNER, readPartyCode, readSwitch, type PartyCode } from "@/components/p
 import { PartyVeil } from "@/components/party/PartyVeil";
 import { stageShowcase } from "@/components/party/showcase";
 import { party, useParty } from "@/components/party/store";
+import { prefetchBeds } from "@/components/party/trailer/beds";
 import { stopTrailer, toggleTrailer } from "@/components/party/trailer/control";
 import { music } from "@/components/party/trailer/music";
 import { trailer } from "@/components/party/trailer/store";
@@ -47,6 +52,8 @@ const PANEL_DEADLINE_MS = 30_000;
 const CURSOR_REST_MS = 2500;
 /** How long an operator's key note stays in the corner. */
 const NOTE_MS = 2400;
+/** The trailer's recordings are fetched when the browser is next idle after the garden is live, or this long after at the latest. */
+const BEDS_IDLE_MS = 10_000;
 
 // The address never changes while the screen is open, so there is nothing to subscribe to.
 const subscribeNever = () => () => {};
@@ -149,6 +156,18 @@ export function PartyScreen({ className = "" }: { className?: string }) {
     const t = window.setTimeout(() => setLate(true), PANEL_DEADLINE_MS);
     return () => window.clearTimeout(t);
   }, []);
+
+  // The trailer's recordings, once the garden is live and the browser has a moment (never while the opening compiles).
+  useEffect(() => {
+    if (!showing || !music.enabled) return;
+    const go = () => void prefetchBeds();
+    if (typeof window.requestIdleCallback === "function") {
+      const idle = window.requestIdleCallback(go, { timeout: BEDS_IDLE_MS });
+      return () => window.cancelIdleCallback(idle);
+    }
+    const t = window.setTimeout(go, BEDS_IDLE_MS);
+    return () => window.clearTimeout(t);
+  }, [showing]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
