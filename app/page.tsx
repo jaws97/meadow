@@ -1,7 +1,7 @@
 // The welcome page, the site's front door at "/": one page of plain, readable words about Meadow for anyone arriving
 // from a search or a shared address, and for search engines, which find no words in the garden's canvas. It says what
 // the garden is (a digital garden grown in Bangalore's real weather), what it is for (a flower grown and gifted to
-// someone you love), the eight flowers, the city it is a tribute to, the shared Meadow and the three steps, in the
+// someone you love), the eight flowers, the city it is a tribute to, its sounds, the shared Meadow and the three steps, in the
 // privacy page's calm night and warm inks, and leads to /garden. A device that already holds a garden never sees it:
 // the root forwards it to its garden (next.config.ts). Static: no WebGL, no sound, no account. Calm and warm, like the
 // garden: no film or company names, no owner's name, no health claims.
@@ -99,6 +99,16 @@ export default function WelcomePage() {
           <p>
             Every flower here grows under its sky. Meadow reads the city&rsquo;s weather hour by hour, so a wet week in
             Bangalore is a wet week in your garden, and a bright October morning opens petals in both.
+          </p>
+        </section>
+
+        <section className="welcome-section">
+          <h2>The garden has its own sounds</h2>
+          <p>
+            In your own garden you can turn on the sounds of the place: light rain or the full monsoon on a veranda roof, far
+            thunder, a garden stream, a courtyard fountain, crickets and rain frogs after dark, a koel and a red-whiskered
+            bulbul calling at dawn as they do across Bangalore, wind chimes, a singing bowl, a veena, a kalimba. Mix a few
+            together and leave them playing while you work, or while your flower grows.
           </p>
         </section>
 
