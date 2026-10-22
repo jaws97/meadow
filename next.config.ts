@@ -58,11 +58,11 @@ const nextConfig: NextConfig = {
         destination: `${PUBLIC_ORIGIN}${source}`,
         permanent: true,
       })),
-      // The root forwards to the garden, except for Google's site verifier, which looks for Search Console's tag
-      // (app/layout.tsx) on the property's own home page; it gets the root's plain page, which carries the tag.
+      // The root is the welcome page (app/page.tsx), the site's readable front door for a search or a shared address.
+      // A device that already holds a garden (the session cookie) goes straight from the root to its garden instead.
       {
         source: "/",
-        missing: [{ type: "header" as const, key: "user-agent", value: ".*Google-Site-Verification.*" }],
+        has: [{ type: "cookie" as const, key: SESSION_COOKIE_NAME }],
         destination: "/garden",
         permanent: false,
       },

@@ -3,9 +3,9 @@
 // structured data (app/seo.tsx), which a search engine reads where the canvas has no words. The canonical is the bare
 // /garden, so a party link (?code=...) that turns up somewhere public is indexed, if at all, as the plain garden; a
 // personal link's key sits in the fragment (#k=...), which never reaches a server or a link preview. The preview
-// picture is the root's (app/opengraph-image.jpg).
+// picture is the site's (app/opengraph-image.jpg).
 import type { Metadata } from "next";
-import { GARDEN_DESCRIPTION, GARDEN_TITLE, GardenData, GardenIntro } from "@/app/seo";
+import { GARDEN_DESCRIPTION, GARDEN_TITLE, GardenIntro, SiteData } from "@/app/seo";
 
 export const metadata: Metadata = {
   title: GARDEN_TITLE,
@@ -17,7 +17,7 @@ export default function GardenLayout({ children }: LayoutProps<"/garden">) {
   return (
     <>
       <GardenIntro />
-      <GardenData />
+      <SiteData />
       {children}
     </>
   );

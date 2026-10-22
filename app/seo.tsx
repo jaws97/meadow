@@ -1,12 +1,18 @@
 // What search engines and link previews read about the site, in one place, so the page titles, the descriptions, the
 // words a screen reader hears before the garden and the structured data all say the same thing. The garden and the
 // Meadow are WebGL canvases with no readable words of their own, so each public page also carries a short introduction,
-// hidden from the eye (Tailwind's sr-only) but read by screen readers and search engines, and the garden page carries
-// schema.org data naming the site and the free app. Calm and warm, like the garden: no film or company names, no
+// hidden from the eye (Tailwind's sr-only) but read by screen readers and search engines; the welcome page at "/"
+// (app/page.tsx) is the one page of plain, visible words, and it and the garden page carry schema.org data naming the
+// site and the free app. Calm and warm, like the garden: no film or company names, no
 // owner's name, no health claims. Link previews (Open Graph, X) take each page's title and description (app/layout.tsx).
 import { PUBLIC_ORIGIN } from "@/components/party/logic";
 
-/** /garden: what everyone opens first (the party's QR link, a personal garden link, a search). */
+/** "/": the welcome page, the site's readable front door (app/page.tsx), where a search lands. */
+export const HOME_TITLE = "Meadow · Grow a flower in a digital garden, gift it with love";
+export const HOME_DESCRIPTION =
+  "A free digital garden grown in the real weather of Bangalore, the Garden City. Plant one of eight flowers, care for it for two weeks, and gift the bloom to someone you love with a message in your own words.";
+
+/** /garden: what the party's QR link, a personal garden link and the welcome page open. */
 export const GARDEN_TITLE = "Meadow · Grow a flower, gift your love";
 export const GARDEN_DESCRIPTION =
   "Plant a seed and care for it in the real Bangalore weather. When it blooms, gift the flower you grew to someone you love, with a message in your own words.";
@@ -49,8 +55,8 @@ export function MeadowIntro() {
   );
 }
 
-/** schema.org data for the garden page: the site's name, and a free web app to grow and gift a flower. */
-export function GardenData() {
+/** schema.org data for the welcome page and the garden page: the site's name, and a free web app to grow and gift a flower. */
+export function SiteData() {
   const data = {
     "@context": "https://schema.org",
     "@graph": [
@@ -59,7 +65,7 @@ export function GardenData() {
         "@id": `${PUBLIC_ORIGIN}/#website`,
         url: `${PUBLIC_ORIGIN}/`,
         name: "Meadow",
-        description: GARDEN_DESCRIPTION,
+        description: HOME_DESCRIPTION,
         inLanguage: "en-IN",
       },
       {

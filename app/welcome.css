@@ -1,0 +1,328 @@
+/*
+ * The welcome page (app/page.tsx): the garden's front door, in the privacy page's night and warm inks, with Fraunces
+ * headings. Prefixed class names: every .css file is global here (gift.css says why). The door's picture is one of the
+ * gift's posters as a CSS background, chosen by width, so a phone fetches only the tall poster and a laptop only the
+ * wide one (an <img> that is display:none is fetched all the same).
+ */
+
+.welcome {
+  --welcome-ink: #f6ead6;
+  --welcome-ink-2: rgba(246, 234, 214, 0.8);
+  --welcome-ink-3: rgba(246, 234, 214, 0.56);
+  --welcome-gold: #f2cd8e;
+  --welcome-line: rgba(255, 236, 200, 0.12);
+  --welcome-night: #06080f;
+  --welcome-serif: var(--font-display), "Iowan Old Style", Georgia, serif;
+  min-height: 100%;
+  color: var(--welcome-ink);
+  background: var(--welcome-night);
+  animation: welcome-in 900ms ease-out both;
+}
+
+@keyframes welcome-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome {
+    animation: none;
+  }
+}
+
+/* The door: the garden at dusk, the rose beside its lantern, fading into the night the words sit on. */
+.welcome-door {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  min-height: clamp(540px, 88svh, 760px);
+  overflow: hidden;
+}
+
+.welcome-door-art {
+  position: absolute;
+  inset: 0;
+  background-image: url("/gift/poster-phone-dusk.webp");
+  background-size: cover;
+  background-position: 50% 42%;
+}
+
+@media (min-width: 640px) {
+  .welcome-door-art {
+    background-image: url("/gift/poster-tablet-dusk.webp");
+    background-position: 50% 50%;
+  }
+}
+
+@media (min-width: 1024px) {
+  .welcome-door-art {
+    background-image: url("/gift/poster-wide-dusk.webp");
+  }
+}
+
+.welcome-door-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(6, 8, 15, 0.18) 0%,
+    rgba(6, 8, 15, 0) 28%,
+    rgba(6, 8, 15, 0.58) 60%,
+    var(--welcome-night) 100%
+  );
+}
+
+.welcome-door-words {
+  position: relative;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 max(20px, env(safe-area-inset-right)) 44px max(20px, env(safe-area-inset-left));
+}
+
+.welcome-eyebrow {
+  margin: 0 0 12px;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--welcome-gold);
+}
+
+.welcome-title {
+  margin: 0;
+  font-weight: 400;
+}
+
+.welcome-name {
+  display: block;
+  font-family: var(--welcome-serif);
+  font-size: clamp(60px, 11vw, 88px);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  font-variation-settings: "SOFT" 50, "opsz" 96;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.55);
+}
+
+.welcome-line {
+  display: block;
+  max-width: 30ch;
+  margin-top: 16px;
+  font-size: clamp(18px, 2.4vw, 22px);
+  line-height: 1.4;
+  color: var(--welcome-ink-2);
+  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.6);
+}
+
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 24px;
+  margin-top: 28px;
+}
+
+.welcome-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 28px;
+  border-radius: 999px;
+  background: var(--welcome-gold);
+  color: #1a1408;
+  font-size: 16px;
+  font-weight: 500;
+  text-decoration: none;
+  box-shadow: 0 12px 32px -12px rgba(242, 205, 142, 0.65);
+  transition:
+    transform 200ms ease,
+    filter 200ms ease;
+}
+
+.welcome-cta:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.welcome-quiet {
+  color: var(--welcome-gold);
+  font-size: 15px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-color: rgba(242, 205, 142, 0.5);
+}
+
+/* The reading: one column of sections, each with a Fraunces heading. */
+.welcome-sheet {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 6px max(20px, env(safe-area-inset-right)) 48px max(20px, env(safe-area-inset-left));
+}
+
+.welcome-section {
+  padding-top: 36px;
+}
+
+.welcome-section + .welcome-section {
+  margin-top: 12px;
+  border-top: 1px solid var(--welcome-line);
+}
+
+.welcome-section h2 {
+  margin: 0 0 12px;
+  font-family: var(--welcome-serif);
+  font-size: clamp(25px, 3.4vw, 31px);
+  font-weight: 400;
+  line-height: 1.2;
+  font-variation-settings: "SOFT" 50, "opsz" 40;
+}
+
+.welcome-section p {
+  max-width: 64ch;
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.65;
+  color: var(--welcome-ink-2);
+}
+
+.welcome-section p + p {
+  margin-top: 12px;
+}
+
+/* The eight flowers, with the seed step's own pictures and lines. */
+.welcome-flowers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 14px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 640px) {
+  .welcome-flowers {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 24px 16px;
+  }
+}
+
+.welcome-flower {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.welcome-flower img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
+  border: 1px solid var(--welcome-line);
+}
+
+.welcome-flower-name {
+  margin-top: 2px;
+  font-family: var(--welcome-serif);
+  font-size: 18px;
+  line-height: 1.2;
+  font-variation-settings: "SOFT" 50, "opsz" 24;
+}
+
+.welcome-flower-line {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--welcome-ink-3);
+}
+
+/* The three steps, counted in gold. */
+.welcome-steps {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+@media (min-width: 640px) {
+  .welcome-steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+  }
+}
+
+.welcome-step {
+  counter-increment: step;
+  padding: 18px 18px 20px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(17, 21, 33, 0.9), rgba(10, 13, 21, 0.95));
+  border: 1px solid var(--welcome-line);
+}
+
+.welcome-step::before {
+  content: counter(step);
+  display: block;
+  margin-bottom: 8px;
+  font-family: var(--welcome-serif);
+  font-size: 26px;
+  line-height: 1;
+  color: var(--welcome-gold);
+  font-variation-settings: "SOFT" 50, "opsz" 30;
+}
+
+.welcome-step strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--welcome-ink);
+}
+
+.welcome-step span {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--welcome-ink-2);
+}
+
+.welcome-close {
+  margin-top: 46px;
+  padding-top: 36px;
+  border-top: 1px solid var(--welcome-line);
+  text-align: center;
+}
+
+.welcome-close p {
+  margin: 0 0 20px;
+  font-family: var(--welcome-serif);
+  font-size: clamp(26px, 4vw, 34px);
+  line-height: 1.2;
+  font-variation-settings: "SOFT" 50, "opsz" 48;
+}
+
+.welcome-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 46px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--welcome-line);
+  font-size: 14px;
+  color: var(--welcome-ink-3);
+}
+
+.welcome-foot a {
+  color: var(--welcome-gold);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.welcome :focus-visible {
+  outline: 2px solid #ffd99a;
+  outline-offset: 3px;
+}

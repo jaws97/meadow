@@ -75,10 +75,12 @@ for two days. Every page and API answer carries security headers that keep Meado
   row-level security is on for every table, and the deployed app connects as `meadow_app`, a role that can read and
   append but never delete or change the schema.
 - **Sound**: the garden's live soundscape and the sound tiles are in `lib/sound` and `public/garden/sounds`.
-- **Search and link previews**: each public page's title and description, the short introduction that search engines
-  and screen readers read where the canvas has no words, and the garden's schema.org data are in `app/seo.tsx`; the
-  preview picture is `app/opengraph-image.jpg`, and `app/sitemap.ts` lists `/garden` and `/meadow`. Bing hears of new
-  pages through IndexNow (`scripts/indexnow.mjs`, its key in `public/`); Google through Search Console.
+- **Search and link previews**: the welcome page at `/` (`app/page.tsx`) is the site's readable front door, one page
+  of plain words about Meadow for a search or a shared address (a device that already holds a garden is forwarded from
+  it to `/garden`, `next.config.ts`); each public page's title and description, the short introduction that search
+  engines and screen readers read where the canvas has no words, and the site's schema.org data are in `app/seo.tsx`;
+  the preview picture is `app/opengraph-image.jpg`, and `app/sitemap.ts` lists `/`, `/garden` and `/meadow`. Bing
+  hears of new pages through IndexNow (`scripts/indexnow.mjs`, its key in `public/`); Google through Search Console.
 
 Where things are:
 

@@ -33,14 +33,14 @@ describe("the old address", () => {
     expect(rules.indexOf(moves[0])).toBeLessThan(rules.findIndex((r) => r.source === "/" && r.destination === "/garden"));
   });
 
-  it("the new root forwards to the garden, but lets Google's site verifier read its own page", async () => {
+  it("the new root is the welcome page, and forwards only a device that holds a garden on to it", async () => {
     const rules = await nextConfig.redirects!();
-    const root = rules.find((r) => r.source === "/" && r.destination === "/garden")!;
-    const ua = root.missing?.find((m) => m.type === "header" && m.key === "user-agent");
-    const skips = (agent: string) => new RegExp(`^${ua!.value}$`).test(agent);
-    expect(skips("Mozilla/5.0 (compatible; Google-Site-Verification/1.0)")).toBe(true);
-    expect(skips("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1")).toBe(false);
-    expect(skips("Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")).toBe(false);
+    const root = rules.filter((r) => r.source === "/" && !onOldHost(r));
+    expect(root).toHaveLength(1);
+    expect(root[0].has).toEqual([{ type: "cookie", key: SESSION_COOKIE }]);
+    expect(root[0].missing).toBeUndefined();
+    expect(root[0].destination).toBe("/garden");
+    expect(root[0].permanent).toBe(false);
   });
 
   it("is not the new one, which is served over https", () => {
